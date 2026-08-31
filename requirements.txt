@@ -1,0 +1,4 @@
+torch>=2.1
+numpy
+# optional, only for a real BPE vocab in data_prep.py:
+# transformers

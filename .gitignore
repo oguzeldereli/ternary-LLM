@@ -1,0 +1,18 @@
+# data + derived tokens (corpus is restricted — never commit)
+corpus/
+data/
+*.bin
+
+# model checkpoints / weights
+checkpoints/
+*.pt
+
+# logs + scratch
+*.log
+scratchpad/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/

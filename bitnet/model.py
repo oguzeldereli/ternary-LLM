@@ -1,0 +1,167 @@
+"""Ternary BitNet b1.58 transformer (Llama-style) with master-free BitLinear.
+
+Only the BitLinear matrices are ternary/master-free. The token embedding, the
+RMSNorm gains, and the (tied) output projection stay full precision — together
+~10% of params — and are trained by an ordinary tiny optimizer in the trainer.
+"""
+from __future__ import annotations
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
+
+from .config import ModelConfig
+from .bitlinear import BitLinear
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x):
+        x = x.float()
+        x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return (x * self.weight.float()).type_as(self.weight)
+
+
+def precompute_rope(dim: int, end: int, theta: float):
+    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: dim // 2].float() / dim))
+    t = torch.arange(end)
+    freqs = torch.outer(t, freqs)
+    return torch.polar(torch.ones_like(freqs), freqs)  # complex [end, dim/2]
+
+
+def apply_rope(xq, xk, freqs_cis):
+    def rot(x):
+        xc = torch.view_as_complex(x.float().reshape(*x.shape[:-1], -1, 2))
+        f = freqs_cis[: x.shape[1]].unsqueeze(0).unsqueeze(2)  # [1,T,1,dim/2]
+        return torch.view_as_real(xc * f).flatten(-2).type_as(x)
+    return rot(xq), rot(xk)
+
+
+class Attention(nn.Module):
+    def __init__(self, c: ModelConfig, make_linear):
+        super().__init__()
+        self.n_heads = c.n_heads
+        self.n_kv = c.n_kv_heads
+        self.head_dim = c.dim // c.n_heads
+        self.rep = self.n_heads // self.n_kv
+        self.wq = make_linear(c.dim, self.n_heads * self.head_dim)
+        self.wk = make_linear(c.dim, self.n_kv * self.head_dim)
+        self.wv = make_linear(c.dim, self.n_kv * self.head_dim)
+        self.wo = make_linear(self.n_heads * self.head_dim, c.dim)
+
+    def forward(self, x, freqs_cis):
+        B, T, _ = x.shape
+        q = self.wq(x).view(B, T, self.n_heads, self.head_dim)
+        k = self.wk(x).view(B, T, self.n_kv, self.head_dim)
+        v = self.wv(x).view(B, T, self.n_kv, self.head_dim)
+        q, k = apply_rope(q, k, freqs_cis)
+        if self.rep > 1:
+            k = k.repeat_interleave(self.rep, dim=2)
+            v = v.repeat_interleave(self.rep, dim=2)
+        q, k, v = (t.transpose(1, 2) for t in (q, k, v))  # [B,H,T,hd]
+        out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        out = out.transpose(1, 2).contiguous().view(B, T, -1)
+        return self.wo(out)
+
+
+class FeedForward(nn.Module):
+    def __init__(self, c: ModelConfig, make_linear):
+        super().__init__()
+        self.w_gate = make_linear(c.dim, c.hidden_dim)
+        self.w_up = make_linear(c.dim, c.hidden_dim)
+        self.w_down = make_linear(c.hidden_dim, c.dim)
+
+    def forward(self, x):
+        return self.w_down(F.silu(self.w_gate(x)) * self.w_up(x))
+
+
+class Block(nn.Module):
+    def __init__(self, c: ModelConfig, make_linear):
+        super().__init__()
+        self.attn_norm = RMSNorm(c.dim, c.norm_eps)
+        self.ffn_norm = RMSNorm(c.dim, c.norm_eps)
+        self.attn = Attention(c, make_linear)
+        self.ffn = FeedForward(c, make_linear)
+
+    def forward(self, x, freqs_cis, ckpt=False):
+        # checkpoint attn and ffn separately: only one sublayer's dense weight +
+        # gradient is materialized at a time during backward (much lower peak).
+        if ckpt:
+            x = x + checkpoint(self.attn, self.attn_norm(x), freqs_cis,
+                               use_reentrant=False)
+            x = x + checkpoint(self.ffn, self.ffn_norm(x), use_reentrant=False)
+        else:
+            x = x + self.attn(self.attn_norm(x), freqs_cis)
+            x = x + self.ffn(self.ffn_norm(x))
+        return x
+
+
+class BitTransformer(nn.Module):
+    def __init__(self, c: ModelConfig, grad_checkpoint: bool = True, make_linear=None):
+        super().__init__()
+        self.c = c
+        self.grad_checkpoint = grad_checkpoint
+        if make_linear is None:
+            make_linear = lambda i, o: BitLinear(i, o, c.act_bits)
+        self.tok_emb = nn.Embedding(c.vocab_size, c.dim)
+        self.layers = nn.ModuleList([Block(c, make_linear) for _ in range(c.n_layers)])
+        self.norm = RMSNorm(c.dim, c.norm_eps)
+        if c.tie_embeddings:
+            self.lm_head = None  # logits = h @ tok_emb.weight.T
+        else:
+            self.lm_head = nn.Linear(c.dim, c.vocab_size, bias=False)
+        self.register_buffer(
+            "freqs_cis",
+            precompute_rope(c.dim // c.n_heads, c.max_seq_len, c.rope_theta),
+            persistent=False,
+        )
+        self.apply(self._init)
+
+    def _init(self, m):
+        if isinstance(m, nn.Embedding):
+            nn.init.normal_(m.weight, std=0.02)
+        elif isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, std=0.02)
+
+    def forward(self, idx, targets=None):
+        h = self.tok_emb(idx)
+        fc = self.freqs_cis.to(h.device)
+        ckpt = self.grad_checkpoint and self.training
+        for layer in self.layers:
+            h = layer(h, fc, ckpt=ckpt)
+        h = self.norm(h)
+        w = self.tok_emb.weight if self.lm_head is None else self.lm_head.weight
+        logits = F.linear(h, w)
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(
+                logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+        return logits, loss
+
+    def float_tail_parameters(self):
+        """Params NOT handled by the master-free BitLinear hooks (small tail).
+
+        BitLinear stores its weight as int8 *buffers*, so it contributes no
+        nn.Parameter. Everything in .parameters() is therefore the float tail:
+        token embedding, RMSNorm gains, and (if untied) the lm_head.
+        """
+        return [p for p in self.parameters() if p.requires_grad]
+
+    @torch.no_grad()
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+        self.eval()
+        for _ in range(max_new_tokens):
+            idx_c = idx[:, -self.c.max_seq_len:]
+            logits, _ = self(idx_c)
+            logits = logits[:, -1, :] / max(temperature, 1e-6)
+            if top_k is not None:
+                v, _ = torch.topk(logits, top_k)
+                logits[logits < v[:, [-1]]] = -float("inf")
+            probs = F.softmax(logits, dim=-1)
+            nxt = torch.multinomial(probs, 1)
+            idx = torch.cat([idx, nxt], dim=1)
+        return idx
