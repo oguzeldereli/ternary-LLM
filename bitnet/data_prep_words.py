@@ -1,4 +1,4 @@
-"""Word-level tokenizer + corpus -> uint16 token stream, for the jsonl corpus.
+"""Word-level tokenizer: a jsonl file with a "body" field -> uint16 token stream.
 
 One unit per token: \w+ runs and individual punctuation marks. Vocab = the V-2
 most frequent units + <unk> (id 0) + <eos> (id 1, between documents). Rare units
@@ -22,7 +22,7 @@ def iter_bodies(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--input", default="corpus/fulltext_marker.jsonl")
+    ap.add_argument("--input", required=True, help="jsonl file with a 'body' field")
     ap.add_argument("--vocab_size", type=int, default=32000)
     ap.add_argument("--out_prefix", default="data/tech")
     ap.add_argument("--val_frac", type=float, default=0.005)
