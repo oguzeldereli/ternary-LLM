@@ -1,0 +1,1 @@
+checkpoints/wiki_*/ckpt.pt filter=lfs diff=lfs merge=lfs -text
