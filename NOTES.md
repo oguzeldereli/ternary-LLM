@@ -1,52 +1,92 @@
-# Notes: why master-free ternary training plateaus, and why the fixes are what they are
+# Notes: why master-free ternary training plateaus, and what actually fixes it
+
+**This file was rewritten after the Phase 0 audit.** The earlier version explained
+the plateau as a gradient-noise floor. That explanation is wrong, and the
+measurements that refute it are below.
 
 ## The setup
-Ternary weights `w ∈ {-1,0,1}`, no full-precision master. Each step, per weight,
-a stochastic *flip*: probability of moving one level toward `−sign(gradient)`,
-scaled by gradient magnitude. This is the `stateless` mode.
+Ternary weights `w ∈ {-1,0,1}`, no full-precision master. Each step, per weight, a
+stochastic *flip*: probability of moving one level toward `−sign(gradient)`, scaled
+by gradient magnitude:
 
-## Why it plateaus (the noise floor)
-The minibatch gradient is `g_t = μ + ε_t`: true gradient `μ` + sampling noise
-`ε_t` (mean 0, std σ). Near an optimum — where most weights spend training —
-`μ ≈ 0`, so `g_t ≈ ε_t`: the flip fires on **noise**, in a **random** direction.
+```
+gn   = g / mean|g|                      # per tensor, recomputed every step
+prob = min(|gn| / g_ref, 1) * rate      # g_ref = 3, rate = 2e-2
+```
 
-Expected drift per step ∝ `μ·rate` (tiny). Per-step variance ∝ `rate` (a full ±1
-jump). So the weight is a **random walk with tiny drift and large discrete steps**.
-Ternary weights have only 3 values — no small adjustment — so a weight that "wants"
-0.3 can only *dither* between 0 and 1. That dithering never stops (every step
-re-rolls one noisy sample), so the weight **hovers, never locks**. The residual
-hovering is irreducible loss: the plateau.
+## What the old explanation said
+That the minibatch gradient near an optimum is mostly noise, so flips fire on noise
+in random directions, and the weight becomes a random walk that never locks. More
+accumulator bits = longer averaging = lower floor.
 
-## Why an accumulator fixes it
-Integrate `g_t` over ~K steps before committing a flip. Averaging K samples cuts
-noise by √K, so the flip decision uses a **denoised** gradient. Two effects:
-1. Flips follow the consistent signal, not the noise.
-2. Once a weight is right, accumulated evidence stays below threshold (noise
-   cancels) → it **stops flipping and locks**.
+## Why that is wrong
 
-More accumulator bits = longer effective averaging = lower floor. Measured:
-0-bit 7.35 → 2-bit 7.10 → 3-bit 6.56. The standard full-precision master weight is
-just the `b → ∞` limit of this counter.
+**1. The gradient is not noise-dominated at this batch size.** Splitting a batch in
+half and comparing the two weight gradients (`diag_snr.py`) on a plateaued 110M
+model at 32,768 tokens/step:
 
-"Magnitude-proportional flip probability" (which stateless already does) doesn't
-help: magnitude of *one* noisy sample can't tell a small-consistent gradient
-(real) from a large-random one (noise). Only averaging over time can.
+| | mean sign agreement | mean cosine | implied full-batch SNR |
+|---|---|---|---|
+| 110M, after the beta fix | **65.7%** | 0.535 | 1.52 |
+| 51M, before the beta fix | 54.0% | 0.135 | 0.56 |
 
-## Why you can't share the accumulator (superposition / sketches)
-Storing N independent evolving scalars needs Θ(N) — you can't compress independent
-information below its entropy. A shared vector of d < N dims recovers each item
-with crosstalk `√(active/d)`. Measured: the evidence is **75% dense** (active ≈ N),
-so d=2²⁰ gives coin-flip recovery, and you'd need d ≳ N (more memory than the exact
-array) to recover it. Entropy of the evidence is 2.66 bits/weight; the 3-bit array
-is already near that floor. Superposition adds crosstalk on top of entropy → always
-worse for dense data.
+50% is pure noise. At 65.7% the flip direction is right about two times in three,
+and the strongest 1% of entries agree 93–100% of the time. The model still plateaus.
 
-LLMs superpose 10⁵ features in 4096 dims because features are **sparse per token**
-(few active at once) and time-multiplexed. The evidence is the opposite: 75%
-active, all the time, persistent. `capacity ∝ d/active`; here active ≈ total.
+**2. More averaging does not help.** Quadrupling the batch (32,768 → 131,072 tokens
+per step, flips accumulated and applied once per step) did not improve the floor —
+it needed 33% *more* tokens to reach the same place. Spatial averaging is not the
+missing ingredient.
 
-## The open lever
-The only way superposition could help is to make evidence **sparse per step** —
-accumulate only for the few weights with strong consistent signal, keep the rest
-truly zero. Gradient noise currently keeps 75% nonzero. Suppress that (a
-significance gate) and the sparse-storage / sketch idea becomes viable. Untested.
+**3. The flip rate is invariant, and that is the real problem.** `prob` is
+normalized by the tensor's *own* mean |g|, recomputed every step. If every gradient
+in a layer shrinks as the model converges, the ratio is unchanged and **the same
+fraction of weights keeps flipping forever**. Measured: 0.405% of weights flipped
+per step at step 0 and 0.420% at step 9155, with never-flipped at 0.02%. The rate
+did not move across batch sizes, step counts, token budgets, or learning rates.
+
+The rule has no absolute scale and no way to know a weight is already correct, so a
+converged weight is re-flipped at the same rate as a wrong one. The plateau is that
+churn, not gradient noise.
+
+## What fixes it
+Anneal the flip rate toward zero. One schedule on `rate`, nothing else changed:
+
+| flip-rate schedule | val ppl (110M, 300M tokens) |
+|---|---|
+| constant 2e-2 (the old recipe) | 135.84 |
+| cosine 2e-2 → 0 | **98.56** |
+| linear 2e-2 → 0 | 101.38 |
+| cosine 2e-2 → 0.02% floor (never zero) | 103.96 |
+| frozen absolute threshold, constant rate | 160.68 |
+
+The ordering is monotone in **how much flipping survives late in training**. Every
+flip you allow near convergence costs perplexity, and driving the rate to exactly
+zero beats leaving a floor.
+
+## What does not fix it
+
+**A frozen absolute threshold (the obvious closed-loop fix).** Calibrate mean|g| per
+layer over the first 200 steps, freeze it, and let the flip rate fall on its own as
+gradients shrink. It gets *worse* (160.68): gradient magnitude **grows** relative to
+its value at init rather than shrinking, so the flip rate rose from 0.58% to 0.92%
+and the model churned harder. The premise "gradients shrink as you converge, so an
+absolute threshold quiets down" is false for this model.
+
+**Weights do not lock, even in the runs that work.** never-flipped ended at 0.173%
+in the best run: the gain comes from flipping *less overall*, not from individual
+weights settling into place. The old note predicted locking; that is not what
+happens.
+
+## What it still costs
+Against a latent-master baseline at identical config (110M, seq 2048, 32,768
+tokens/step, 300M tokens), master-free ternary is **6.2x worse in perplexity**
+(98.56 vs 15.79), and doubling the token budget to 600M buys only a few points.
+The remaining gap looks rule-bound, not data-bound.
+
+## Why you can't share the accumulator (unchanged)
+Storing N independent evolving scalars needs Θ(N). Measured on the real 3-bit
+evidence: 75% dense, 2.66 bits/weight of entropy, so a d < N sketch recovers each
+item with crosstalk `√(active/d)` and at d=2²⁰ gives coin-flip sign recovery. See
+RESULTS.md §3. This applies to any scheme that compresses per-weight state,
+including per-neuron accumulators.

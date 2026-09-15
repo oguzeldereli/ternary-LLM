@@ -19,26 +19,40 @@ Two things live here:
 |---|---|---|
 | torch unpack+linear | 67 | 10.86 GiB |
 | + Triton kernels (fwd, grad_x, fused-flip) | **172** | **9.93 GiB** |
+| + int8 tensor-core forward, norms inside checkpoint | **170** | **8.55 GiB** |
 
-Master-free study (51M model, 1.1B Wikipedia tokens, held-out perplexity):
+Master-free study, 110M params, seq 2048, 32,768 tokens/step, 300M tokens of
+Wikipedia, everything identical except the weight-update rule:
 
 | training mode | per-weight state | perplexity |
 |---|---|---|
-| stateless flips (no accumulator) | 0-bit | 1552 |
-| + 2-bit evidence counter | 2-bit | 1214 |
-| + 3-bit evidence counter | 3-bit | 707 |
+| latent master + STE + AdamW (**ceiling**) | 12 B/param | **15.79** |
+| stateless flips, annealed rate | 1.58 bit | **98.56** |
+| stateless flips, annealed rate, 600M tokens | 1.58 bit | **92.72** |
+| stateless flips, constant rate | 1.58 bit | 135.84 |
+| stateless flips, frozen absolute threshold | 1.58 bit | 160.68 |
 
-Standard full-precision master weights = the `bit → ∞` limit of that counter.
+Master-free ternary costs **6.2x perplexity** against its own ceiling. The plateau
+that earlier versions of this repo reported at 1552 ppl was two bugs (no weight
+scale in the forward, and a bf16 tail that froze every norm gain at exactly 1.0)
+plus a flip rule that never stops flipping — see [RESULTS.md](RESULTS.md) §0 and
+[NOTES.md](NOTES.md).
 
 ## Training modes (`--mode`)
 
 | mode | what | state per weight |
 |------|------|------------------|
 | `kernel` | pure-ternary, stochastic flips, Triton kernels (fastest) | trit only |
+| `master` | latent weights + STE + AdamW — the `bit -> inf` ceiling | fp32 latent + Adam |
 | `evidence` | `kernel` + k-bit saturating counter (`--ev_bits`) | trit + k bits |
 | `stateless` | pure-ternary flips, torch path | trit only |
 | `flip` | learned flip-predictor + int8 evidence (torch) | trit + int8 |
 | `latent` | int8 latent master-free path | int8 |
+
+Key flags for the flip rule: `--rate_schedule {const,cosine,linear,exp}` (annealing
+the flip rate is the single biggest quality win), `--rate_min` (non-zero floor),
+`--abs_scale` (freeze the threshold denominator — measured *worse*), `--int8`
+(s8 tensor-core forward), `--track_flips` (per-layer flip-rate telemetry).
 
 ## Quickstart
 
@@ -96,13 +110,25 @@ Presets (`bitnet/config.py`): `small` 110M · `s50` 51M · `d1024_l24` 340M ·
 | `generate.py` | sample text from a checkpoint |
 | `prep_wiki.py`, `bitnet/data_prep*.py` | tokenize data to uint16 streams |
 | `superpose_test.py`, `superpose_sweep.py` | the superposition negative result |
+| `bitnet/master.py` | latent-master baseline (STE + AdamW) — the ceiling |
+| `diag_snr.py` | split-batch gradient SNR per layer |
+| `plot_run.py`, `plot_compare.py` | loss / flip-rate / never-flipped plots |
+| `gen.py` | sample text from a wiki32k checkpoint |
+| `RUNS.md` | every run: config, wall clock, final ppl |
 
 ## Honest limitations
 
-- Master-free training **plateaus** far above a real LM; a per-weight accumulator
-  lowers the floor but doesn't close it. A proper bf16-master baseline (the ceiling)
-  was not run.
-- 27B *fits* on one GPU but can't be *pretrained* there — 172 tok/s vs the ~540B
+- Master-free training **costs 6.2x perplexity** vs a latent-master baseline at
+  identical config (98.56 vs 15.79). Annealing the flip rate closed 27% of the
+  master-free gap; doubling the token budget to 600M buys only a few points, so the
+  rest looks rule-bound rather than data-bound.
+- **n = 1, one model size, one dataset, and everything is undertrained** (300M
+  tokens for a 110M model is ~7% of Chinchilla). Differences within the annealed
+  group are inside the ±5 ppl eval noise. See RESULTS.md §4.
+- The **accumulator bit-depth curve is currently unmeasured** — the 2-bit / 3-bit
+  evidence runs predate the beta fix and were not re-run.
+- 27B *fits* on one GPU but can't be *pretrained* there — 170 tok/s vs the ~540B
   tokens Chinchilla wants is ~100 years. The wall is compute, not memory.
-- Ternary gives **no compute speedup** on current GPUs (weights unpack to bf16 for
-  the matmul) — the win is memory/bandwidth, not FLOPs.
+- Ternary gives a real but modest compute win on current GPUs: the int8 tensor-core
+  forward is 1.7-2.0x per layer but only **1.12-1.15x end-to-end**, because
+  attention, norms and the output head don't touch those kernels.
