@@ -12,9 +12,10 @@ from bitnet.model import BitTransformer
 PAT = re.compile(r"\w+|[^\w\s]")
 
 
-def build(mode, cfg):
-    if mode == "kernel":
-        return build_kernel_transformer(cfg, grad_checkpoint=False)
+def build(mode, cfg, beta=False):
+    if mode in ("kernel", "evidence"):
+        return build_kernel_transformer(cfg, grad_checkpoint=False, beta=beta,
+                                        evidence=mode == "evidence")
     if mode == "stateless":
         return build_stateless_transformer(cfg, grad_checkpoint=False)
     return BitTransformer(cfg, grad_checkpoint=False)
@@ -50,7 +51,7 @@ def main():
 
     blob = torch.load(args.ckpt, map_location=dev, weights_only=False)
     mc: ModelConfig = blob["cfg"]
-    model = build(blob.get("mode", "kernel"), mc)
+    model = build(blob.get("mode", "kernel"), mc, blob.get("beta", False))
     for p in model.float_tail_parameters():
         p.data = p.data.to(torch.bfloat16)
     model.load_state_dict(blob["model"])

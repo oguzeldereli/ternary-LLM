@@ -31,9 +31,10 @@ def main():
     blob = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     mc = blob["cfg"]
     mode = blob.get("mode", "flip")
-    if mode == "kernel":
+    if mode in ("kernel", "evidence"):
         from .flip import build_kernel_transformer
-        model = build_kernel_transformer(mc, grad_checkpoint=False)
+        model = build_kernel_transformer(mc, grad_checkpoint=False,
+                                         beta=blob.get("beta", False))
     elif mode == "flip":
         from .flip import build_flip_transformer
         model, _ = build_flip_transformer(mc, grad_checkpoint=False)

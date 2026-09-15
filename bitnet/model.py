@@ -21,9 +21,12 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
+        # compute in fp32, return in the INPUT dtype: returning the weight dtype
+        # promoted the whole residual stream to fp32 whenever the norm gain is fp32.
+        dt = x.dtype
         x = x.float()
         x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-        return (x * self.weight.float()).type_as(self.weight)
+        return (x * self.weight.float()).to(dt)
 
 
 def precompute_rope(dim: int, end: int, theta: float):
@@ -87,20 +90,33 @@ class Block(nn.Module):
         self.attn = Attention(c, make_linear)
         self.ffn = FeedForward(c, make_linear)
 
+    def _attn(self, x, freqs_cis):
+        return self.attn(self.attn_norm(x), freqs_cis)
+
+    def _ffn(self, x):
+        return self.ffn(self.ffn_norm(x))
+
     def forward(self, x, freqs_cis, ckpt=False):
         # checkpoint attn and ffn separately: only one sublayer's dense weight +
         # gradient is materialized at a time during backward (much lower peak).
+        # The norm goes INSIDE the checkpoint: it upcasts to fp32, and leaving it
+        # outside retained two fp32 [B,T,d] tensors per sublayer (4.7 GiB at
+        # 32k tokens/step, 12 layers) instead of recomputing them for free.
         if ckpt:
-            x = x + checkpoint(self.attn, self.attn_norm(x), freqs_cis,
-                               use_reentrant=False)
-            x = x + checkpoint(self.ffn, self.ffn_norm(x), use_reentrant=False)
+            x = x + checkpoint(self._attn, x, freqs_cis, use_reentrant=False)
+            x = x + checkpoint(self._ffn, x, use_reentrant=False)
         else:
-            x = x + self.attn(self.attn_norm(x), freqs_cis)
-            x = x + self.ffn(self.ffn_norm(x))
+            x = x + self._attn(x, freqs_cis)
+            x = x + self._ffn(x)
         return x
 
 
 class BitTransformer(nn.Module):
+    # tokens per output-head chunk: the [tokens, vocab] logits are the largest
+    # tensor in the model (32k vocab x 16k tokens = 2 GiB in fp32), so the head +
+    # cross-entropy run in checkpointed chunks and full logits are never stored.
+    loss_chunk = 2048
+
     def __init__(self, c: ModelConfig, grad_checkpoint: bool = True, make_linear=None):
         super().__init__()
         self.c = c
@@ -127,20 +143,37 @@ class BitTransformer(nn.Module):
         elif isinstance(m, nn.Linear):
             nn.init.normal_(m.weight, std=0.02)
 
+    @staticmethod
+    def _loss_chunk(h, w, tgt):
+        return F.cross_entropy(F.linear(h, w).float(), tgt, ignore_index=-1,
+                               reduction="sum")
+
     def forward(self, idx, targets=None):
         h = self.tok_emb(idx)
+        if torch.is_autocast_enabled(h.device.type):
+            # keep the residual stream in the autocast dtype even when the
+            # embedding is fp32 (master mode), so activation memory and the math
+            # match across modes.
+            h = h.to(torch.get_autocast_dtype(h.device.type))
         fc = self.freqs_cis.to(h.device)
         ckpt = self.grad_checkpoint and self.training
         for layer in self.layers:
             h = layer(h, fc, ckpt=ckpt)
         h = self.norm(h)
         w = self.tok_emb.weight if self.lm_head is None else self.lm_head.weight
-        logits = F.linear(h, w)
-        loss = None
-        if targets is not None:
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
-        return logits, loss
+        if targets is None:
+            return F.linear(h, w), None
+        # chunked head + loss; sum/count, so the result is a per-token mean that
+        # ignores padding (ignore_index=-1) exactly. Returns logits=None.
+        hf = h.reshape(-1, h.shape[-1])
+        tf = targets.reshape(-1)
+        n = self.loss_chunk
+        total = hf.new_zeros((), dtype=torch.float32)
+        for i in range(0, hf.shape[0], n):
+            hc, tc = hf[i:i + n], tf[i:i + n]
+            total = total + (checkpoint(self._loss_chunk, hc, w, tc, use_reentrant=False)
+                             if ckpt else self._loss_chunk(hc, w, tc))
+        return None, total / (tf != -1).sum().clamp_min(1)
 
     def float_tail_parameters(self):
         """Params NOT handled by the master-free BitLinear hooks (small tail).

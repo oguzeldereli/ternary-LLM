@@ -41,6 +41,85 @@ def unpack_rows(packed: torch.Tensor, K: int) -> torch.Tensor:
     return out.view(N, K5 * 5)[:, :K].sub_(1)
 
 
+_NZ_LUT = {}
+
+
+def _nz_lut(device):
+    """256-entry table: number of nonzero trits encoded in each packed byte."""
+    t = _NZ_LUT.get(device)
+    if t is None:
+        v = torch.arange(256)
+        c = torch.zeros(256, dtype=torch.int64)
+        for j in range(5):
+            c += ((v // 3 ** j) % 3 != 1).long()
+        t = _NZ_LUT[device] = c.to(device)
+    return t
+
+
+def trit_beta(wpacked: torch.Tensor, K: int, chunk: int = 4096) -> torch.Tensor:
+    """Per-tensor weight scale beta = 1/sqrt(K * rho), rho = nonzero-trit density.
+
+    Plays the role of BitNet's absmean gamma (which comes from the latent weight,
+    absent here): keeps rms(x @ W^T * beta) ~= rms(x). Padding trits (packed as
+    -1 past K) are excluded. Returns a 0-dim float32 CUDA tensor (no host sync).
+    """
+    N, K5 = wpacked.shape
+    lut = _nz_lut(wpacked.device)
+    nnz = torch.zeros((), dtype=torch.int64, device=wpacked.device)
+    for r in range(0, N, chunk):
+        nnz += lut[wpacked[r:r + chunk].long()].sum()
+    nnz -= N * (K5 * 5 - K)
+    return (nnz.float() / N).clamp_min(1.0).rsqrt()           # K*rho = nnz/N
+
+
+_DIFF_LUT = {}
+_POPC_LUT = {}
+
+
+def _diff_lut(device):
+    """[65536] uint8: bit j set where packed bytes old,new differ in trit slot j."""
+    t = _DIFF_LUT.get(device)
+    if t is None:
+        a = torch.arange(256).view(256, 1)
+        b = torch.arange(256).view(1, 256)
+        m = torch.zeros(256, 256, dtype=torch.uint8)
+        for j in range(5):
+            d = ((a // 3 ** j) % 3) != ((b // 3 ** j) % 3)
+            m |= (d.to(torch.uint8) << j)
+        t = _DIFF_LUT[device] = m.reshape(-1).to(device)
+    return t
+
+
+def _popc_lut(device):
+    t = _POPC_LUT.get(device)
+    if t is None:
+        v = torch.arange(256)
+        c = torch.zeros(256, dtype=torch.int64)
+        for j in range(5):
+            c += (v >> j) & 1
+        t = _POPC_LUT[device] = c.to(device)
+    return t
+
+
+def trit_diff(old: torch.Tensor, new: torch.Tensor, chunk: int = 4096) -> torch.Tensor:
+    """uint8 [N,K5] mask of trit slots that differ between two packed buffers."""
+    lut = _diff_lut(old.device)
+    out = torch.empty_like(old)
+    for r in range(0, old.shape[0], chunk):
+        o, n = old[r:r + chunk].long(), new[r:r + chunk].long()
+        out[r:r + chunk] = lut[o * 256 + n]
+    return out
+
+
+def popcount(mask: torch.Tensor, chunk: int = 4096) -> torch.Tensor:
+    """Number of set bits in a uint8 [N,K5] trit mask (0-dim int64, no host sync)."""
+    lut = _popc_lut(mask.device)
+    tot = torch.zeros((), dtype=torch.int64, device=mask.device)
+    for r in range(0, mask.shape[0], chunk):
+        tot += lut[mask[r:r + chunk].long()].sum()
+    return tot
+
+
 def _configs():
     cfgs = []
     for BM in (64, 128):
@@ -159,11 +238,18 @@ def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
 
 
 def fused_flip(wpacked: torch.Tensor, grad_w: torch.Tensor, rate: float,
-               g_ref: float, seed: int):
-    """Apply stochastic ternary flips directly on the packed buffer, in place."""
+               g_ref: float, seed: int, gmean: float = None):
+    """Apply stochastic ternary flips directly on the packed buffer, in place.
+
+    gmean: denominator of the flip threshold. Default (None) is this step's own
+    mean|g| -- a RELATIVE scale, which cannot converge: if every gradient in the
+    tensor shrinks, the ratio is unchanged and the same fraction keeps flipping.
+    Pass a frozen per-layer scale to make the threshold absolute.
+    """
     N, K5 = wpacked.shape
     K = grad_w.shape[1]
-    gmean = grad_w.abs().mean().clamp_min(1e-8).item()
+    if gmean is None:
+        gmean = grad_w.abs().mean().clamp_min(1e-8).item()
     total = N * K5
     BLOCK = 1024
     grid = (triton.cdiv(total, BLOCK),)
@@ -211,12 +297,13 @@ def _flip_ev_kernel(w_ptr, g_ptr, s_ptr, N, K, K5, sgn, sgk, ssn, gmean, rate,
     tl.store(w_ptr + idx, newb.to(tl.uint8), mask=mask)
 
 
-def fused_flip_ev(wpacked, grad_w, evidence, rate, g_ref, seed, smax=1):
+def fused_flip_ev(wpacked, grad_w, evidence, rate, g_ref, seed, smax=1, gmean=None):
     """Flip with a signed saturating per-weight counter in {-smax..smax}, in place.
     smax=1 -> 2-bit (3 levels), smax=3 -> 3-bit (7 levels). `evidence` is int8 [N,K]."""
     N, K5 = wpacked.shape
     K = grad_w.shape[1]
-    gmean = grad_w.abs().mean().clamp_min(1e-8).item()
+    if gmean is None:
+        gmean = grad_w.abs().mean().clamp_min(1e-8).item()
     total = N * K5
     BLOCK = 1024
     grid = (triton.cdiv(total, BLOCK),)
@@ -238,3 +325,209 @@ def tern_gemm(x: torch.Tensor, wpacked: torch.Tensor, K: int) -> torch.Tensor:
         x.stride(0), x.stride(1), wpacked.stride(0), wpacked.stride(1),
         y.stride(0), y.stride(1))
     return y
+
+
+# =============================================================================
+# int8 path (Phase 4a/4b): trits decode to int8 and feed the s8 tensor cores.
+# Activations are already 8-bit (per-token absmax), so the FORWARD is lossless:
+# |acc| <= K * 127 fits int32 exactly, where the bf16 path rounded partial sums.
+# =============================================================================
+
+def _i8_configs():
+    cfgs = []
+    for BM in (64, 128):
+        for BN in (64, 128):
+            for BK5 in (32, 64):          # s8 mma contracts k=32
+                for w in (4, 8):
+                    for st in (2, 3):
+                        cfgs.append(triton.Config(
+                            {"BM": BM, "BN": BN, "BK5": BK5}, num_warps=w, num_stages=st))
+    return cfgs
+
+
+def act_quant_i8(x: torch.Tensor, bits: int = 8):
+    """Per-token symmetric absmax quantization -> (int8 codes, scale) with x ~ q*scale."""
+    qp = 2 ** (bits - 1) - 1
+    amax = x.detach().abs().amax(dim=-1, keepdim=True).clamp_min(1e-5).float()
+    scale = amax / qp
+    q = (x.float() / scale).round().clamp_(-qp - 1, qp).to(torch.int8)
+    return q, scale.squeeze(-1)
+
+
+@triton.autotune(configs=_i8_configs(), key=["N", "K"])
+@triton.jit
+def _tern_gemm_i8_kernel(x_ptr, w_ptr, y_ptr, xs_ptr, M, N, K, K5,
+                         sxm, sxk, swn, swk, sym, syn, beta,
+                         BM: tl.constexpr, BN: tl.constexpr, BK5: tl.constexpr):
+    pid_m = tl.program_id(0)
+    pid_n = tl.program_id(1)
+    offm = pid_m * BM + tl.arange(0, BM)
+    offn = pid_n * BN + tl.arange(0, BN)
+    acc = tl.zeros((BM, BN), dtype=tl.int32)
+    for k5 in range(0, K5, BK5):
+        offk5 = k5 + tl.arange(0, BK5)
+        w = tl.load(w_ptr + offn[:, None] * swn + offk5[None, :] * swk,
+                    mask=(offn[:, None] < N) & (offk5[None, :] < K5),
+                    other=0).to(tl.int32)                        # [BN, BK5]
+        for j in tl.static_range(5):
+            trit = ((w // (3 ** j)) % 3 - 1).to(tl.int8)          # [BN, BK5]
+            offkx = offk5 * 5 + j
+            xj = tl.load(x_ptr + offm[:, None] * sxm + offkx[None, :] * sxk,
+                         mask=(offm[:, None] < M) & (offkx[None, :] < K),
+                         other=0).to(tl.int8)                     # [BM, BK5]
+            acc += tl.dot(xj, tl.trans(trit), out_dtype=tl.int32)
+    xs = tl.load(xs_ptr + offm, mask=offm < M, other=0.0).to(tl.float32)
+    y = acc.to(tl.float32) * (xs[:, None] * beta)
+    tl.store(y_ptr + offm[:, None] * sym + offn[None, :] * syn, y.to(tl.bfloat16),
+             mask=(offm[:, None] < M) & (offn[None, :] < N))
+
+
+def tern_gemm_i8(xq: torch.Tensor, xs: torch.Tensor, wpacked: torch.Tensor, K: int,
+                 beta: float = 1.0) -> torch.Tensor:
+    """int8 x [M,K] (codes) @ decode(wpacked)^T * xs[:,None] * beta -> bf16 [M,N]."""
+    M, Kx = xq.shape
+    assert Kx == K, (Kx, K)
+    N, K5 = wpacked.shape
+    xq = xq.contiguous()
+    y = torch.empty(M, N, dtype=torch.bfloat16, device=xq.device)
+    grid = lambda meta: (triton.cdiv(M, meta["BM"]), triton.cdiv(N, meta["BN"]))
+    _tern_gemm_i8_kernel[grid](xq, wpacked, y, xs.contiguous().float(), M, N, K, K5,
+                               xq.stride(0), xq.stride(1), wpacked.stride(0),
+                               wpacked.stride(1), y.stride(0), y.stride(1), beta)
+    return y
+
+
+@triton.autotune(configs=_i8_configs(), key=["N", "K"])
+@triton.jit
+def _dx_i8_kernel(g_ptr, w_ptr, gx_ptr, gs_ptr, M, N, K, K5,
+                  sgm, sgn, swn, swk, sxm, sxk,
+                  BM: tl.constexpr, BN: tl.constexpr, BK5: tl.constexpr):
+    # grad_x[m, k] = sum_n gy[m, n] * W[n, k], gy quantized to int8 per row.
+    pid_m = tl.program_id(0)
+    pid_k = tl.program_id(1)
+    offm = pid_m * BM + tl.arange(0, BM)
+    offk5 = pid_k * BK5 + tl.arange(0, BK5)
+    a0 = tl.zeros((BM, BK5), tl.int32)
+    a1 = tl.zeros((BM, BK5), tl.int32)
+    a2 = tl.zeros((BM, BK5), tl.int32)
+    a3 = tl.zeros((BM, BK5), tl.int32)
+    a4 = tl.zeros((BM, BK5), tl.int32)
+    for n0 in range(0, N, BN):
+        offn = n0 + tl.arange(0, BN)
+        gy = tl.load(g_ptr + offm[:, None] * sgm + offn[None, :] * sgn,
+                     mask=(offm[:, None] < M) & (offn[None, :] < N),
+                     other=0).to(tl.int8)                          # [BM, BN]
+        w = tl.load(w_ptr + offn[:, None] * swn + offk5[None, :] * swk,
+                    mask=(offn[:, None] < N) & (offk5[None, :] < K5),
+                    other=0).to(tl.int32)                          # [BN, BK5]
+        a0 += tl.dot(gy, (((w // 1) % 3 - 1)).to(tl.int8), out_dtype=tl.int32)
+        a1 += tl.dot(gy, (((w // 3) % 3 - 1)).to(tl.int8), out_dtype=tl.int32)
+        a2 += tl.dot(gy, (((w // 9) % 3 - 1)).to(tl.int8), out_dtype=tl.int32)
+        a3 += tl.dot(gy, (((w // 27) % 3 - 1)).to(tl.int8), out_dtype=tl.int32)
+        a4 += tl.dot(gy, (((w // 81) % 3 - 1)).to(tl.int8), out_dtype=tl.int32)
+    gs = tl.load(gs_ptr + offm, mask=offm < M, other=0.0).to(tl.float32)
+    for j in tl.static_range(5):
+        aj = a0 * (j == 0) + a1 * (j == 1) + a2 * (j == 2) + a3 * (j == 3) + a4 * (j == 4)
+        offkx = offk5 * 5 + j
+        tl.store(gx_ptr + offm[:, None] * sxm + offkx[None, :] * sxk,
+                 (aj.to(tl.float32) * gs[:, None]).to(tl.bfloat16),
+                 mask=(offm[:, None] < M) & (offkx[None, :] < K))
+
+
+def tern_gemm_dx_i8(gy: torch.Tensor, wpacked: torch.Tensor, K: int) -> torch.Tensor:
+    """grad_x = gy @ decode(wpacked) with gy quantized int8 per row. [M,N] -> [M,K]."""
+    M, N = gy.shape
+    gq, gs = act_quant_i8(gy)
+    gx = torch.empty(M, K, dtype=torch.bfloat16, device=gy.device)
+    K5 = wpacked.shape[1]
+    grid = lambda meta: (triton.cdiv(M, meta["BM"]), triton.cdiv(K5, meta["BK5"]))
+    _dx_i8_kernel[grid](gq, wpacked, gx, gs, M, N, K, K5,
+                        gq.stride(0), gq.stride(1), wpacked.stride(0), wpacked.stride(1),
+                        gx.stride(0), gx.stride(1))
+    return gx
+
+
+def _dw_configs():
+    cfgs = []
+    for BN in (64, 128):
+        for BK in (64, 128):
+            for BM in (32, 64):
+                for w in (4, 8):
+                    cfgs.append(triton.Config({"BM": BM, "BN": BN, "BK": BK},
+                                              num_warps=w, num_stages=2))
+    return cfgs
+
+
+@triton.autotune(configs=_dw_configs(), key=["N", "K"])
+@triton.jit
+def _dw_i8_kernel(a_ptr, b_ptr, c_ptr, M, N, K, sam, san, sbm, sbk, scn, sck,
+                  BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
+    # C[n, k] = sum_m A[m, n] * B[m, k]  (both int8; contract over tokens)
+    pid_n = tl.program_id(0)
+    pid_k = tl.program_id(1)
+    offn = pid_n * BN + tl.arange(0, BN)
+    offk = pid_k * BK + tl.arange(0, BK)
+    acc = tl.zeros((BN, BK), dtype=tl.int32)
+    for m0 in range(0, M, BM):
+        offm = m0 + tl.arange(0, BM)
+        a = tl.load(a_ptr + offm[:, None] * sam + offn[None, :] * san,
+                    mask=(offm[:, None] < M) & (offn[None, :] < N), other=0).to(tl.int8)
+        b = tl.load(b_ptr + offm[:, None] * sbm + offk[None, :] * sbk,
+                    mask=(offm[:, None] < M) & (offk[None, :] < K), other=0).to(tl.int8)
+        acc += tl.dot(tl.trans(a), b, out_dtype=tl.int32)
+    tl.store(c_ptr + offn[:, None] * scn + offk[None, :] * sck, acc,
+             mask=(offn[:, None] < N) & (offk[None, :] < K))
+
+
+def dw_i8(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """int8 [M,N]^T @ int8 [M,K] -> int32 [N,K]. With sign inputs this is the
+    XNOR/popcount outer product (agreement count) on the s8 tensor cores."""
+    M, N = a.shape
+    Mb, K = b.shape
+    assert M == Mb, (a.shape, b.shape)
+    c = torch.empty(N, K, dtype=torch.int32, device=a.device)
+    grid = lambda meta: (triton.cdiv(N, meta["BN"]), triton.cdiv(K, meta["BK"]))
+    _dw_i8_kernel[grid](a.contiguous(), b.contiguous(), c, M, N, K,
+                        a.stride(0), a.stride(1), b.stride(0), b.stride(1),
+                        c.stride(0), c.stride(1))
+    return c
+
+
+def sign_i8(x: torch.Tensor) -> torch.Tensor:
+    return torch.sign(x).to(torch.int8)
+
+
+def dw_int8(gy: torch.Tensor, xq: torch.Tensor, xs: torch.Tensor) -> torch.Tensor:
+    """dW[n,k] = sum_m gy[m,n] * x[m,k] on the s8 tensor cores, in float.
+
+    x is already int8 codes (xq) with per-token scale xs. Folding xs into gy first
+    and then quantizing gy with ONE global scale makes the remaining scale factor
+    out of the sum exactly:
+        dW = sum_m (gy[m,n]*xs[m]) * xq[m,k] ~= s * sum_m gq[m,n] * xq[m,k]
+    """
+    gyx = gy.float() * xs[:, None]
+    s = gyx.abs().amax().clamp_min(1e-20) / 127.0
+    gq = (gyx / s).round().clamp_(-128, 127).to(torch.int8)
+    return dw_i8(gq, xq).float() * s
+
+
+def dw_sign(gy: torch.Tensor, xq: torch.Tensor) -> torch.Tensor:
+    """sign(dL/dy) (x) sign(x) as an XNOR/popcount outer product (agreement count)."""
+    return dw_i8(sign_i8(gy), sign_i8(xq)).float()
+
+
+def dw_cublas(gy: torch.Tensor, xq: torch.Tensor, xs: torch.Tensor) -> torch.Tensor:
+    """Same factorization as dw_int8, but on cuBLASLt's int8 GEMM (torch._int_mm)."""
+    gyx = gy.float() * xs[:, None]
+    s = gyx.abs().amax().clamp_min(1e-20) / 127.0
+    gq = (gyx / s).round().clamp_(-128, 127).to(torch.int8)
+    return torch._int_mm(gq.transpose(0, 1).contiguous(), xq).float() * s
+
+
+def expand_trit_mask(mask: torch.Tensor, K: int) -> torch.Tensor:
+    """uint8 [N,K5] bit-per-trit-slot mask -> bool [N,K] (one entry per weight)."""
+    N, K5 = mask.shape
+    out = torch.empty(N, K5, 5, dtype=torch.bool, device=mask.device)
+    for j in range(5):
+        out[:, :, j] = ((mask >> j) & 1).bool()
+    return out.view(N, K5 * 5)[:, :K]

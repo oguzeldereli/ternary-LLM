@@ -257,7 +257,9 @@ def build_stateless_transformer(c: ModelConfig, grad_checkpoint: bool = True,
 
 # ---- Triton-kernel stateless layer (fast path) ----------------------------
 from .kernel import (pack_rows, unpack_rows, tern_gemm, tern_gemm_dx, fused_flip,
-                     fused_flip_ev)
+                     fused_flip_ev, trit_beta, trit_diff, popcount,
+                     tern_gemm_i8, tern_gemm_dx_i8, act_quant_i8, dw_int8, dw_sign,
+                     dw_cublas, expand_trit_mask)
 
 _FLIP_SEED = [0]
 
@@ -265,29 +267,132 @@ _FLIP_SEED = [0]
 class _KernelTernFn(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, wpacked, layer):
-        xq = _act_quant_plain(x, layer.act_bits)
-        xf = xq.reshape(-1, layer.K)
-        y = tern_gemm(xf, wpacked, layer.K).view(*x.shape[:-1], layer.N)
+        beta = trit_beta(wpacked, layer.K) if layer.use_beta else None
+        if layer.int8:
+            # int8 path: activations are already 8-bit, so x @ W^T is exact in int32
+            # on the s8 tensor cores, and the saved activation is 1 byte/element.
+            xq, xs = act_quant_i8(x.reshape(-1, layer.K), layer.act_bits)
+            y = tern_gemm_i8(xq, xs, wpacked, layer.K,
+                             float(beta) if beta is not None else 1.0)
+            y = y.view(*x.shape[:-1], layer.N)
+            ctx.save_for_backward(xq, xs, wpacked)
+        else:
+            xq = _act_quant_plain(x, layer.act_bits)
+            y = tern_gemm(xq.reshape(-1, layer.K), wpacked, layer.K).view(
+                *x.shape[:-1], layer.N)
+            if beta is not None:
+                y = y * beta.to(y.dtype)
+            ctx.save_for_backward(x, wpacked)
         ctx.layer = layer
-        ctx.save_for_backward(x, wpacked)
+        ctx.beta = beta
+        ctx.xshape = x.shape
         return y.to(x.dtype)
 
     @staticmethod
     def backward(ctx, gy):
-        x, wpacked = ctx.saved_tensors
         layer = ctx.layer
+        beta = ctx.beta
         gyf = gy.reshape(-1, layer.N).contiguous()
-        gx = tern_gemm_dx(gyf, wpacked, layer.K).view_as(x)     # grad_x, kernel
-        xq = _act_quant_plain(x, layer.act_bits).reshape(-1, layer.K)
-        gw = gyf.transpose(0, 1) @ xq                           # [N,K] dense grad
+        if beta is not None:
+            gyf = gyf * beta.to(gyf.dtype)       # y = beta * x@W^T: both grads carry beta
+        if layer.int8:
+            xq, xs, wpacked = ctx.saved_tensors
+            gx = (tern_gemm_dx_i8(gyf, wpacked, layer.K) if layer.int8_dx
+                  else tern_gemm_dx(gyf, wpacked, layer.K)).view(ctx.xshape)
+            if layer.dw_mode == "sign":
+                gw = dw_sign(gyf, xq)
+            elif layer.dw_mode == "int8":
+                gw = dw_int8(gyf, xq, xs)
+            elif layer.dw_mode == "cublas":
+                gw = dw_cublas(gyf, xq, xs)
+            else:
+                gw = gyf.transpose(0, 1) @ (xq.to(gyf.dtype) * xs[:, None].to(gyf.dtype))
+        else:
+            x, wpacked = ctx.saved_tensors
+            gx = tern_gemm_dx(gyf, wpacked, layer.K).view_as(x)
+            xq = _act_quant_plain(x, layer.act_bits).reshape(-1, layer.K)
+            gw = gyf.transpose(0, 1) @ xq                       # [N,K] dense grad
+        if getattr(layer, "capture_gw", False):
+            layer.gw = gw.detach().clone()      # diagnostics only (diag_grad_snr.py)
+        if layer.capture:
+            layer.gw = gw.detach().float()      # diagnostics: keep grad, do not flip
+            return gx.to(gy.dtype), None, None
+        if layer.err_feedback:
+            # ---- spatial error feedback -------------------------------------
+            # The flip rule samples a discrete move: E[dw] = p * d, but what is
+            # actually applied is fired * d (d = -sign(g)). The difference is the
+            # demand this layer failed to satisfy this step -- dominated NOT by the
+            # weights that stayed put (|p| is tiny) but by the ones that fired and
+            # therefore moved a full level instead of p of one.
+            #
+            # That residual is pushed to the layers behind us in the same backward
+            # pass instead of being stored: a change in x can produce the same change
+            # in y that the unapplied weight change would have. Nothing persists
+            # across steps, so the only signal lost is the residual at the first layer.
+            gx = _ef_backward(ctx, layer, gyf, xq if layer.int8 else None,
+                              xs if layer.int8 else None, gw, wpacked)
+            del gw
+            return gx.to(gy.dtype), None, None
+        if layer.accum_steps > 1:
+            # gradient accumulation: sum dL/dW over micro-steps and flip ONCE per
+            # optimizer step (flip_accumulated), so "tokens per step" means the same
+            # thing for the flip rule as it does for the tail optimizer.
+            if layer.gw_accum is None:
+                layer.gw_accum = torch.zeros(layer.N, layer.K, dtype=torch.float32,
+                                             device=gw.device)
+            layer.gw_accum += gw.float()
+            layer.accum_seen += 1
+            del gw
+            return gx.to(gy.dtype), None, None
         _FLIP_SEED[0] += 1
+        before = wpacked.clone() if layer.track else None
+        gm = layer._flip_scale(gw)
         if layer.evidence is not None:
             fused_flip_ev(wpacked, gw, layer.evidence, layer.rate, layer.g_ref,
-                          _FLIP_SEED[0], smax=layer.ev_max)      # k-bit counter
+                          _FLIP_SEED[0], smax=layer.ev_max, gmean=gm)
         else:
-            fused_flip(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0])
+            fused_flip(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0], gmean=gm)
+        if before is not None:
+            layer._record_flips(before, wpacked)
         del gw
         return gx.to(gy.dtype), None, None
+
+
+@torch.no_grad()
+def _ef_backward(ctx, layer, gyf, xq, xs, gw, wpacked):
+    """Flip first, measure what the flip actually did, then fold the unmet demand
+    into grad_x. Returns grad_x for this layer's input."""
+    gmean = gw.abs().mean().clamp_min(1e-8)
+    gn = gw / gmean
+    d = -torch.sign(gn)                                     # descent direction
+    p = (gn.abs() / layer.g_ref).clamp_(0, 1) * layer.rate  # P(flip) per weight
+
+    before = wpacked.clone()
+    _FLIP_SEED[0] += 1
+    gm = layer._flip_scale(gw)
+    if layer.evidence is not None:
+        fused_flip_ev(wpacked, gw, layer.evidence, layer.rate, layer.g_ref,
+                      _FLIP_SEED[0], smax=layer.ev_max, gmean=gm)
+    else:
+        fused_flip(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0], gmean=gm)
+    fired = expand_trit_mask(trit_diff(before, wpacked), layer.K)
+    if layer.track:
+        layer._record_flips(before, wpacked)
+    del before
+
+    # residual demand in weight space, then mapped into y space: r = x @ R^T
+    R = (p - fired.to(p.dtype)) * d                          # [N, K]
+    xf = (xq.to(gyf.dtype) * xs[:, None].to(gyf.dtype)) if xq is not None else ctx.x2d
+    r = xf @ R.transpose(0, 1)                               # [M, N]
+    # scale-match to gy: the flip rule normalizes by mean|g|, so only the SHAPE of
+    # the added signal matters; alpha is then a dimensionless mixing weight.
+    r = r * (gyf.abs().mean() / r.abs().mean().clamp_min(1e-12))
+    gyf = gyf + layer.ef_alpha * r
+    del R, r
+
+    if layer.int8 and layer.int8_dx:
+        return tern_gemm_dx_i8(gyf, wpacked, layer.K).view(ctx.xshape)
+    return tern_gemm_dx(gyf, wpacked, layer.K).view(ctx.xshape)
 
 
 class KernelTernaryLinear(nn.Module):
@@ -295,8 +400,13 @@ class KernelTernaryLinear(nn.Module):
     stay packed, never materialized dense). Row-packed 5-trits/byte along K."""
     def __init__(self, in_features, out_features, act_bits: int = 8,
                  rate: float = 2e-3, g_ref: float = 3.0, evidence: bool = False,
-                 ev_bits: int = 2):
+                 ev_bits: int = 2, beta: bool = False, int8: bool = False,
+                 dw_mode: str = "int8", int8_dx: bool = False):
         super().__init__()
+        self.use_beta = beta      # scale output by 1/sqrt(K*rho); False = legacy raw trits
+        self.int8 = int8          # s8 tensor-core path (fwd exact, dx 8-bit gy)
+        self.int8_dx = int8_dx    # use the s8 dx kernel (else the bf16 one)
+        self.dw_mode = dw_mode    # int8 | cublas | sign (XNOR) | dense
         self.K = in_features
         self.N = out_features
         self.act_bits = act_bits
@@ -314,6 +424,71 @@ class KernelTernaryLinear(nn.Module):
                                  torch.zeros(out_features, in_features, dtype=torch.int8))
         else:
             self.evidence = None
+        # --- diagnostics: capture dL/dW instead of flipping (see diag_snr.py) ---
+        self.capture = False
+        self.gw = None
+        # --- gradient accumulation for the flip rule ----------------------------
+        self.accum_steps = 1      # micro-steps per optimizer step
+        self.accum_seen = 0
+        self.gw_accum = None
+        # --- flip threshold scale (Arm B: frozen absolute scale) ----------------
+        # abs_scale=False -> denominator is this step's mean|g| (relative, cannot
+        # converge: if every gradient shrinks, the ratio is unchanged and the same
+        # fraction keeps flipping). True -> average mean|g| over the first
+        # calib_steps then FREEZE, so the flip rate falls on its own.
+        # --- spatial error feedback (no persistent state; see _ef_backward) -----
+        self.err_feedback = False
+        self.ef_alpha = 1.0
+        self.abs_scale = False
+        self.calib_steps = 200
+        self.calib_sum = 0.0
+        self.calib_n = 0
+        self.last_gmean = 0.0
+        self.register_buffer("frozen_scale", torch.zeros(()), persistent=True)
+
+    @torch.no_grad()
+    def _flip_scale(self, grad_w):
+        """Denominator for the flip threshold; see abs_scale."""
+        g = grad_w.abs().mean().clamp_min(1e-8).item()
+        self.last_gmean = g
+        if not self.abs_scale:
+            return g
+        if float(self.frozen_scale) > 0.0:
+            return float(self.frozen_scale)
+        self.calib_sum += g
+        self.calib_n += 1
+        if self.calib_n >= self.calib_steps:
+            self.frozen_scale.fill_(self.calib_sum / self.calib_n)
+        return g
+        # --- flip instrumentation (off unless enable_tracking() is called) ------
+        self.track = False
+        self.touched = None      # uint8 [N,K5] sticky mask: trit ever changed
+        self.flips = None        # 0-dim int64: trit changes since last reset
+
+    def enable_tracking(self):
+        """Track per-step flip count and which trits have ever changed since init.
+
+        Costs one packed-size uint8 mask (~1.6 bit/weight) plus a packed clone per
+        backward. Counts trit CHANGES per fused_flip call, so with grad_accum > 1
+        the per-step number sums the micro-steps.
+        """
+        self.track = True
+        dev = self.wpacked.device
+        self.touched = torch.zeros_like(self.wpacked)
+        self.flips = torch.zeros((), dtype=torch.int64, device=dev)
+
+    @torch.no_grad()
+    def _record_flips(self, before, after):
+        d = trit_diff(before, after)
+        self.touched |= d
+        self.flips += popcount(d)
+
+    @torch.no_grad()
+    def flip_stats(self):
+        """(flips since reset, never-changed trits) as 0-dim int64 GPU tensors."""
+        pad = self.N * (self.wpacked.shape[1] * 5 - self.K)
+        never = (self.N * self.K + pad) - popcount(self.touched) - pad
+        return self.flips, never
 
     def forward(self, x):
         return _KernelTernFn.apply(x, self.wpacked, self)
@@ -333,16 +508,21 @@ class KernelTernaryLinear(nn.Module):
     @torch.no_grad()
     def ternary_weight(self):
         w = unpack_rows(self.wpacked, self.K)
+        if self.use_beta:
+            return w, trit_beta(self.wpacked, self.K).item()
         scale = w.to(torch.float32).abs().mean().clamp_min(1e-5)
         return w, scale
 
 
 def build_kernel_transformer(c: ModelConfig, grad_checkpoint: bool = True,
                              rate: float = 2e-3, evidence: bool = False,
-                             ev_bits: int = 2):
+                             ev_bits: int = 2, beta: bool = False,
+                             int8: bool = False, dw_mode: str = "int8",
+                             int8_dx: bool = False):
     def make_linear(i, o):
         return KernelTernaryLinear(i, o, c.act_bits, rate=rate, evidence=evidence,
-                                   ev_bits=ev_bits)
+                                   ev_bits=ev_bits, beta=beta, int8=int8,
+                                   dw_mode=dw_mode, int8_dx=int8_dx)
     return BitTransformer(c, grad_checkpoint=grad_checkpoint, make_linear=make_linear)
 
 
@@ -359,6 +539,99 @@ def build_flip_transformer(c: ModelConfig, grad_checkpoint: bool = True,
     model = BitTransformer(c, grad_checkpoint=grad_checkpoint, make_linear=make_linear)
     model.add_module("flip_predictor", predictor)   # single owner -> trains once
     return model, predictor
+
+
+@torch.no_grad()
+def flip_accumulated(model):
+    """Apply one flip per ternary layer from the accumulated gradient. No-op for
+    layers running at accum_steps == 1 (they flip inside backward)."""
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear) and m.accum_steps > 1 and m.accum_seen:
+            g = m.gw_accum / m.accum_seen
+            _FLIP_SEED[0] += 1
+            before = m.wpacked.clone() if m.track else None
+            gm = m._flip_scale(g)
+            if m.evidence is not None:
+                fused_flip_ev(m.wpacked, g, m.evidence, m.rate, m.g_ref,
+                              _FLIP_SEED[0], smax=m.ev_max, gmean=gm)
+            else:
+                fused_flip(m.wpacked, g, m.rate, m.g_ref, _FLIP_SEED[0], gmean=gm)
+            if before is not None:
+                m._record_flips(before, m.wpacked)
+            m.gw_accum.zero_()
+            m.accum_seen = 0
+
+
+def set_err_feedback(model, enabled: bool, alpha: float = 1.0):
+    """Spatial error feedback: push each layer's unapplied flip demand into grad_x."""
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.err_feedback = enabled; m.ef_alpha = alpha; n += 1
+    return n
+
+
+def set_flip_rate(model, rate: float):
+    """Arm A: open-loop flip-rate schedule."""
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.rate = rate
+
+
+def set_abs_scale(model, enabled: bool, calib_steps: int = 200):
+    """Arm B: freeze the flip-threshold denominator after calibration."""
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.abs_scale = enabled; m.calib_steps = calib_steps; n += 1
+    return n
+
+
+def set_flip_accum(model, steps: int):
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.accum_steps = steps; n += 1
+    return n
+
+
+def enable_flip_tracking(model):
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.enable_tracking(); n += 1
+    return n
+
+
+@torch.no_grad()
+def collect_flip_stats(model, reset: bool = True):
+    """Per-layer flip stats for one step. One host sync for the whole model."""
+    names, flips, never, numels = [], [], [], []
+    gmeans, frozen = [], []
+    for name, m in model.named_modules():
+        if isinstance(m, KernelTernaryLinear) and m.track:
+            f, nv = m.flip_stats()
+            names.append(name); flips.append(f); never.append(nv)
+            numels.append(m.N * m.K)
+            gmeans.append(m.last_gmean); frozen.append(float(m.frozen_scale))
+    if not names:
+        return {}
+    f = torch.stack(flips).cpu().tolist()          # single sync
+    nv = torch.stack(never).cpu().tolist()
+    if reset:
+        for m in model.modules():
+            if isinstance(m, KernelTernaryLinear) and m.track:
+                m.flips.zero_()
+    tot = sum(numels)
+    return {
+        "layers": names,
+        "flip_frac": [fi / n for fi, n in zip(f, numels)],
+        "never_frac": [ni / n for ni, n in zip(nv, numels)],
+        "flip_frac_total": sum(f) / tot,
+        "never_frac_total": sum(nv) / tot,
+        "gmean_layers": gmeans,
+        "frozen_scale_layers": frozen,
+    }
 
 
 def apply_flips(model) -> int:
