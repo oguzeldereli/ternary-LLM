@@ -387,10 +387,13 @@ def _ef_backward(layer, gyf, xq, xs, gw, wpacked):
     xf = xq.to(gyf.dtype) if xs is None else xq.to(gyf.dtype) * xs[:, None].to(gyf.dtype)
     r = xf @ R.transpose(0, 1)                               # [M, N]
     del R, xf
-    # scale-match to gy: the flip rule normalizes by mean|g|, so only the SHAPE of
+    # r is the output change this layer still OWES (a desired delta-y). Descending
+    # gy moves y by -gy, so asking earlier layers to deliver +r means SUBTRACTING
+    # it from gy. (Adding it asks them to amplify the overshoot instead.)
+    # Scale-match to gy: the flip rule normalizes by mean|g|, so only the SHAPE of
     # the added signal matters and alpha is a dimensionless mixing weight.
     r = r * (gyf.abs().mean() / r.abs().mean().clamp_min(1e-12))
-    gyf = gyf + layer.ef_alpha * r
+    gyf = gyf - layer.ef_alpha * r
     del r
     # grad_x must be taken at the weights the FORWARD used, i.e. before this flip
     return _grad_x(layer, gyf, before)

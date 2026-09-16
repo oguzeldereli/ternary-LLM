@@ -18,7 +18,7 @@ BASE="--preset small --mode kernel --data data/wiki32k_train.bin \
 --steps 9155 --warmup 305 --rate_schedule cosine --rate 0.02"
 
 # ---- 1. alpha probe -----------------------------------------------------------
-for A in 0 0.3 1.0; do
+for A in 0 0.1 0.3 1.0; do
   OUT=checkpoints/ef_probe_a$A
   if [ -f $OUT/done ]; then say "probe alpha=$A already done ($(final_ppl $OUT.log))"; continue; fi
   rm -rf $OUT; mkdir -p $OUT
@@ -26,27 +26,32 @@ for A in 0 0.3 1.0; do
   python -m bitnet.train $BASE --err_feedback --ef_alpha $A --stop_after 600 \
       --eval_interval 100000 --save_secs 100000 --track_flips --out_dir $OUT > $OUT.log 2>&1 \
     && touch $OUT/done
-  SPS=$(awk '/^step/{s=$2; t=$(NF-2)} END{sub("s","",t); if (s>0) printf "%.2f", t/s}' $OUT.log)
+  SPS=$(awk '/^step/{s=$2; t=$(NF-3)} END{sub("s","",t); if (s>0) printf "%.2f", t/s}' $OUT.log)
   say "probe alpha=$A -> ppl $(final_ppl $OUT.log) | ${SPS} s/step"
 done
 
-P03=$(final_ppl checkpoints/ef_probe_a0.3.log); P10=$(final_ppl checkpoints/ef_probe_a1.0.log)
+P01=$(final_ppl checkpoints/ef_probe_a0.1.log); P03=$(final_ppl checkpoints/ef_probe_a0.3.log)
+P10=$(final_ppl checkpoints/ef_probe_a1.0.log)
 ALPHA=$(python -c "
 def f(x):
     try: return float(x)
     except Exception: return 1e9
-print('0.3' if f('$P03') <= f('$P10') else '1.0')")
-say "probe: alpha0=$(final_ppl checkpoints/ef_probe_a0.log) alpha0.3=$P03 alpha1.0=$P10 -> full run uses alpha=$ALPHA"
+c = {'0.1': f('$P01'), '0.3': f('$P03'), '1.0': f('$P10')}
+print(min(c, key=c.get))")
+say "probe: alpha0=$(final_ppl checkpoints/ef_probe_a0.log) alpha0.1=$P01 alpha0.3=$P03 alpha1.0=$P10 -> full run uses alpha=$ALPHA"
 
 # ---- 2. full run --------------------------------------------------------------
 OUT=checkpoints/armA_cos_ef
 mkdir -p $OUT
 say "START armA_cos_ef (alpha=$ALPHA, 300M tokens)"
-python -m bitnet.train $BASE --err_feedback --ef_alpha $ALPHA --eval_interval 1000 \
-    --save_secs 600 --track_flips --out_dir $OUT >> $OUT.log 2>&1 \
-  || { say "RETRY armA_cos_ef after failure"
-       python -m bitnet.train $BASE --err_feedback --ef_alpha $ALPHA --eval_interval 1000 \
-           --save_secs 600 --track_flips --resume --out_dir $OUT >> $OUT.log 2>&1; }
+# always --resume (no-op without a checkpoint), so rerunning this script after a
+# crash or reboot continues the run instead of restarting it; retry up to 3 times
+for TRY in 1 2 3 4; do
+  [ $TRY -gt 1 ] && say "RETRY $TRY armA_cos_ef (resuming from last checkpoint)"
+  python -m bitnet.train $BASE --err_feedback --ef_alpha $ALPHA --eval_interval 1000 \
+      --save_secs 600 --track_flips --resume --out_dir $OUT >> $OUT.log 2>&1 && break
+  sleep 30
+done
 if grep -q "^done$" $OUT.log; then
   touch $OUT/done
   say "DONE armA_cos_ef -> ppl $(final_ppl $OUT.log)   (armA_cosine without EF: 98.56)"

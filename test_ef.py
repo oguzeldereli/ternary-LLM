@@ -61,4 +61,28 @@ try:
 except ValueError:
     pass
 print("guards: evidence mode and grad_accum>1 rejected")
+# 5. sign: the feedback must help the earlier layer compensate, not amplify.
+#    Old (wrong) sign = negative alpha. It must be clearly more harmful.
+import torch.nn.functional as Fn
+def post_step_delta(alpha, seeds=20):
+    out = []
+    for seed in range(seeds):
+        torch.manual_seed(seed)
+        x = torch.randn(1, 1024, 256, device=dev)
+        A = torch.nn.Linear(256, 256, bias=False).to(dev)
+        L = KernelTernaryLinear(256, 256, beta=True, rate=0.3, int8=True).to(dev)
+        L.err_feedback, L.ef_alpha = True, alpha
+        tgt = torch.randn(1, 1024, 256, device=dev)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            l0 = Fn.mse_loss(L(A(x)).float(), tgt)
+        F._FLIP_SEED[0] = 10_000 + seed
+        l0.backward()
+        with torch.no_grad():
+            A.weight -= 0.05 * A.weight.grad / A.weight.grad.norm() * A.weight.norm()
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                out.append((Fn.mse_loss(L(A(x)).float(), tgt) - l0).item())
+    return sum(out) / len(out)
+d0, dfix, dold = post_step_delta(0.0), post_step_delta(1.0), post_step_delta(-1.0)
+assert (dold - d0) > 2 * (dfix - d0), (d0, dfix, dold)
+print(f"sign: harm vs no-feedback  fixed {dfix - d0:+.4f}  old {dold - d0:+.4f}")
 print("OK: spatial error feedback")
