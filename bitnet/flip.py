@@ -295,10 +295,9 @@ class _KernelTernFn(torch.autograd.Function):
         gyf = gy.reshape(-1, layer.N).contiguous()
         if beta is not None:
             gyf = gyf * beta.to(gyf.dtype)       # y = beta * x@W^T: both grads carry beta
+        # weight gradient first: error feedback needs it (and the flip) BEFORE grad_x
         if layer.int8:
             xq, xs, wpacked = ctx.saved_tensors
-            gx = (tern_gemm_dx_i8(gyf, wpacked, layer.K) if layer.int8_dx
-                  else tern_gemm_dx(gyf, wpacked, layer.K)).view(ctx.xshape)
             if layer.dw_mode == "sign":
                 gw = dw_sign(gyf, xq)
             elif layer.dw_mode == "int8":
@@ -309,29 +308,26 @@ class _KernelTernFn(torch.autograd.Function):
                 gw = gyf.transpose(0, 1) @ (xq.to(gyf.dtype) * xs[:, None].to(gyf.dtype))
         else:
             x, wpacked = ctx.saved_tensors
-            gx = tern_gemm_dx(gyf, wpacked, layer.K).view_as(x)
             xq = _act_quant_plain(x, layer.act_bits).reshape(-1, layer.K)
+            xs = None
             gw = gyf.transpose(0, 1) @ xq                       # [N,K] dense grad
-        if getattr(layer, "capture_gw", False):
-            layer.gw = gw.detach().clone()      # diagnostics only (diag_grad_snr.py)
-        if layer.capture:
-            layer.gw = gw.detach().float()      # diagnostics: keep grad, do not flip
-            return gx.to(gy.dtype), None, None
-        if layer.err_feedback:
+
+        if layer.err_feedback and not layer.capture:
             # ---- spatial error feedback -------------------------------------
             # The flip rule samples a discrete move: E[dw] = p * d, but what is
-            # actually applied is fired * d (d = -sign(g)). The difference is the
-            # demand this layer failed to satisfy this step -- dominated NOT by the
-            # weights that stayed put (|p| is tiny) but by the ones that fired and
-            # therefore moved a full level instead of p of one.
-            #
-            # That residual is pushed to the layers behind us in the same backward
-            # pass instead of being stored: a change in x can produce the same change
-            # in y that the unapplied weight change would have. Nothing persists
-            # across steps, so the only signal lost is the residual at the first layer.
-            gx = _ef_backward(ctx, layer, gyf, xq if layer.int8 else None,
-                              xs if layer.int8 else None, gw, wpacked)
+            # applied is fired * d (d = -sign(g)). The difference is the demand this
+            # layer failed to satisfy this step -- dominated NOT by the weights that
+            # stayed put (p is tiny) but by the ones that fired and so moved a full
+            # level instead of p of one. It is pushed to the layers behind us in the
+            # same backward pass (a change in x can produce the change in y the
+            # weight change would have), so nothing is stored across steps.
+            gx = _ef_backward(layer, gyf, xq, xs, gw, wpacked)
             del gw
+            return gx.view(ctx.xshape).to(gy.dtype), None, None
+
+        gx = _grad_x(layer, gyf, wpacked).view(ctx.xshape)
+        if layer.capture:
+            layer.gw = gw.detach().float()      # diagnostics (diag_snr.py): keep grad, no flip
             return gx.to(gy.dtype), None, None
         if layer.accum_steps > 1:
             # gradient accumulation: sum dL/dW over micro-steps and flip ONCE per
@@ -358,41 +354,46 @@ class _KernelTernFn(torch.autograd.Function):
         return gx.to(gy.dtype), None, None
 
 
+def _grad_x(layer, gyf, wpacked):
+    if layer.int8 and layer.int8_dx:
+        return tern_gemm_dx_i8(gyf, wpacked, layer.K)
+    return tern_gemm_dx(gyf, wpacked, layer.K)
+
+
 @torch.no_grad()
-def _ef_backward(ctx, layer, gyf, xq, xs, gw, wpacked):
-    """Flip first, measure what the flip actually did, then fold the unmet demand
-    into grad_x. Returns grad_x for this layer's input."""
-    gmean = gw.abs().mean().clamp_min(1e-8)
-    gn = gw / gmean
+def _ef_backward(layer, gyf, xq, xs, gw, wpacked):
+    """Flip first, measure what the flip actually did, fold the unmet demand into
+    gy, then compute grad_x once from the corrected gy. Returns grad_x [M, K].
+
+    Only valid for the plain stochastic flip (kernel mode, no evidence counter, no
+    gradient accumulation): p below is that rule's exact flip probability.
+    """
+    gm = layer._flip_scale(gw)          # the denominator the kernel will use (live or frozen)
+    gn = gw.float() / gm
     d = -torch.sign(gn)                                     # descent direction
     p = (gn.abs() / layer.g_ref).clamp_(0, 1) * layer.rate  # P(flip) per weight
+    del gn
 
     before = wpacked.clone()
     _FLIP_SEED[0] += 1
-    gm = layer._flip_scale(gw)
-    if layer.evidence is not None:
-        fused_flip_ev(wpacked, gw, layer.evidence, layer.rate, layer.g_ref,
-                      _FLIP_SEED[0], smax=layer.ev_max, gmean=gm)
-    else:
-        fused_flip(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0], gmean=gm)
+    fused_flip(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0], gmean=gm)
     fired = expand_trit_mask(trit_diff(before, wpacked), layer.K)
     if layer.track:
         layer._record_flips(before, wpacked)
-    del before
 
-    # residual demand in weight space, then mapped into y space: r = x @ R^T
-    R = (p - fired.to(p.dtype)) * d                          # [N, K]
-    xf = (xq.to(gyf.dtype) * xs[:, None].to(gyf.dtype)) if xq is not None else ctx.x2d
+    # residual demand in weight space, mapped into y space: r = x @ R^T
+    R = ((p - fired.to(p.dtype)) * d).to(gyf.dtype)         # [N, K]
+    del p, d, fired
+    xf = xq.to(gyf.dtype) if xs is None else xq.to(gyf.dtype) * xs[:, None].to(gyf.dtype)
     r = xf @ R.transpose(0, 1)                               # [M, N]
+    del R, xf
     # scale-match to gy: the flip rule normalizes by mean|g|, so only the SHAPE of
-    # the added signal matters; alpha is then a dimensionless mixing weight.
+    # the added signal matters and alpha is a dimensionless mixing weight.
     r = r * (gyf.abs().mean() / r.abs().mean().clamp_min(1e-12))
     gyf = gyf + layer.ef_alpha * r
-    del R, r
-
-    if layer.int8 and layer.int8_dx:
-        return tern_gemm_dx_i8(gyf, wpacked, layer.K).view(ctx.xshape)
-    return tern_gemm_dx(gyf, wpacked, layer.K).view(ctx.xshape)
+    del r
+    # grad_x must be taken at the weights the FORWARD used, i.e. before this flip
+    return _grad_x(layer, gyf, before)
 
 
 class KernelTernaryLinear(nn.Module):
@@ -436,15 +437,19 @@ class KernelTernaryLinear(nn.Module):
         # converge: if every gradient shrinks, the ratio is unchanged and the same
         # fraction keeps flipping). True -> average mean|g| over the first
         # calib_steps then FREEZE, so the flip rate falls on its own.
-        # --- spatial error feedback (no persistent state; see _ef_backward) -----
-        self.err_feedback = False
-        self.ef_alpha = 1.0
         self.abs_scale = False
         self.calib_steps = 200
         self.calib_sum = 0.0
         self.calib_n = 0
         self.last_gmean = 0.0
         self.register_buffer("frozen_scale", torch.zeros(()), persistent=True)
+        # --- spatial error feedback (no persistent state; see _ef_backward) -----
+        self.err_feedback = False
+        self.ef_alpha = 1.0
+        # --- flip instrumentation (off unless enable_tracking() is called) ------
+        self.track = False
+        self.touched = None      # uint8 [N,K5] sticky mask: trit ever changed
+        self.flips = None        # 0-dim int64: trit changes since last reset
 
     @torch.no_grad()
     def _flip_scale(self, grad_w):
@@ -460,10 +465,6 @@ class KernelTernaryLinear(nn.Module):
         if self.calib_n >= self.calib_steps:
             self.frozen_scale.fill_(self.calib_sum / self.calib_n)
         return g
-        # --- flip instrumentation (off unless enable_tracking() is called) ------
-        self.track = False
-        self.touched = None      # uint8 [N,K5] sticky mask: trit ever changed
-        self.flips = None        # 0-dim int64: trit changes since last reset
 
     def enable_tracking(self):
         """Track per-step flip count and which trits have ever changed since init.
@@ -567,6 +568,9 @@ def set_err_feedback(model, enabled: bool, alpha: float = 1.0):
     n = 0
     for m in model.modules():
         if isinstance(m, KernelTernaryLinear):
+            if enabled and (m.evidence is not None or m.accum_steps > 1):
+                raise ValueError("error feedback needs plain stochastic flips: "
+                                 "kernel mode, no evidence counter, grad_accum 1")
             m.err_feedback = enabled; m.ef_alpha = alpha; n += 1
     return n
 

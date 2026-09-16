@@ -35,7 +35,7 @@ from .master import build_master_transformer, split_params, MasterTernaryLinear
 from .flip import (build_flip_transformer, build_stateless_transformer,
                    build_kernel_transformer, apply_flips, enable_flip_tracking,
                    collect_flip_stats, flip_accumulated, set_flip_accum,
-                   set_flip_rate, set_abs_scale)
+                   set_flip_rate, set_abs_scale, set_err_feedback)
 
 
 def get_batch(data, bs, seq_len, device, gen=None):
@@ -117,6 +117,14 @@ def main():
                     help="Arm B: freeze the flip-threshold denominator after "
                          "--calib_steps (absolute scale; flip rate can then fall)")
     ap.add_argument("--calib_steps", type=int, default=200)
+    ap.add_argument("--stop_after", type=int, default=None,
+                    help="stop after this many steps WITHOUT changing the LR / flip "
+                         "schedules (which still span --steps); evaluates on exit")
+    ap.add_argument("--err_feedback", action="store_true",
+                    help="spatial error feedback: push each layer's unapplied flip "
+                         "demand into grad_x (kernel mode, grad_accum 1 only)")
+    ap.add_argument("--ef_alpha", type=float, default=1.0,
+                    help="mixing weight of the error-feedback term in gy")
     ap.add_argument("--rate_min", type=float, default=0.0,
                     help="floor for --rate_schedule: the schedule decays from --rate "
                          "to this value instead of to zero (keeps flips alive)")
@@ -220,6 +228,12 @@ def main():
         print(f"flip accumulation: one flip per {tc.grad_accum} micro-steps "
               f"({tc.grad_accum * tc.batch_size * tc.seq_len:,} tokens/step)", flush=True)
 
+    if args.err_feedback:
+        if args.mode != "kernel" or tc.grad_accum != 1:
+            raise SystemExit("--err_feedback requires --mode kernel and --grad_accum 1")
+        n = set_err_feedback(model, True, args.ef_alpha)
+        print(f"spatial error feedback on ({n} layers, alpha {args.ef_alpha})", flush=True)
+
     if args.abs_scale:
         n = set_abs_scale(model, True, args.calib_steps)
         print(f"Arm B: absolute flip scale, frozen after {args.calib_steps} steps "
@@ -258,7 +272,8 @@ def main():
                     "cfg": mc, "step": step, "mode": args.mode, "beta": use_beta,
                     "int8": args.int8, "dw_mode": args.dw_mode, "rate_min": args.rate_min,
                     "int8_dx": args.int8_dx, "rate_schedule": args.rate_schedule,
-                    "abs_scale": args.abs_scale}, tmp)
+                    "abs_scale": args.abs_scale, "err_feedback": args.err_feedback,
+                    "ef_alpha": args.ef_alpha}, tmp)
         os.replace(tmp, ckpt_path)
 
     start_step = 0
@@ -302,7 +317,8 @@ def main():
 
     t0 = time.time()
     last_save = time.time()
-    for step in range(start_step, tc.max_steps):
+    end_step = tc.max_steps if args.stop_after is None else min(tc.max_steps, args.stop_after)
+    for step in range(start_step, end_step):
         _last["step"] = step
         # thermal guard: PAUSE (not stop) while GPU is at/above max_temp; resume
         # in place once it cools. No exit, no save — just wait it out.
@@ -378,9 +394,9 @@ def main():
             last_save = time.time()
             print(f"  ---- checkpoint saved at step {step}", flush=True)
 
-    save_ckpt(tc.max_steps)
+    save_ckpt(end_step)
     vl = evaluate(model, val_data, tc, device)
-    log_metrics({"step": tc.max_steps, "val_loss": vl, "val_ppl": math.exp(vl),
+    log_metrics({"step": end_step, "val_loss": vl, "val_ppl": math.exp(vl),
                  "final": True})
     print(f"FINAL val loss {vl:.4f} | ppl {math.exp(vl):.2f}", flush=True)
     print("done", flush=True)
