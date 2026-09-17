@@ -108,6 +108,7 @@ Telemetry confirms it — 0.405% at step 0, 0.42% at step 8170, never-flipped 0.
 | `armB_absscale` | freeze the threshold denominator after 200 steps | **160.68** (flip rate ROSE 0.58% -> 0.80%) |
 | `armA_cos_floor` | cosine 2e-2 -> 9.52e-4 (flip 0.42% -> 0.02%, never 0) | **103.96** |
 | `armA_cos_600M` | cosine 2e-2 -> 0 stretched over **600M tokens** | **92.72** |
+| `armA_cos_ef` | armA_cosine + spatial error feedback, alpha 0.01 | **156.01** |
 
 ### Result: the plateau was the flip rule, not gradient noise
 
@@ -235,3 +236,42 @@ input dtype from `RMSNorm`, and chunking the output head dropped peak VRAM at
    85%) and in the strongest 1% of entries (to 100%).
 5. Eval itself was correct: article-level split, per-token averaging, no padding.
    Train/val 13-gram overlap on the new data is 4.80%, no val article >90% covered.
+
+## Spatial error feedback (negative result)
+
+![error feedback](docs/error_feedback.png)
+
+Idea: a stochastic flip moves a weight by a full level (or not at all) where the
+rule's expectation is `p` of a level. Instead of storing that residual per weight,
+push it into `grad_x` so earlier layers compensate within the same backward pass —
+no per-weight state at all (`--err_feedback`, `--ef_alpha`; `_ef_backward` in
+`bitnet/flip.py`). Config identical to `armA_cosine` otherwise.
+
+**600-step probes** (val ppl at ~20M tokens, same schedule horizon as the full run):
+
+| alpha | 0 | 0.01 | 0.03 | 0.1 |
+|---|---|---|---|---|
+| val ppl | 255.56 | 273.70 | 445.99 | 828.11 |
+
+**Full run, alpha 0.01: 156.01 vs 98.56 without feedback** — 58% worse.
+
+val ppl: 203.7 -> **435.7 -> 457.9** -> 319.9 -> 264.3 -> 217.6 -> 178.1 -> 160.2 -> 156.2 -> 156.01
+
+The run blew up between 33M and 98M tokens, while flipping was heavy, and recovered
+only as the cosine anneal drove the flip rate — and with it the feedback term — to
+zero. Flip rate and never-flipped are indistinguishable from the no-feedback run.
+
+Why it hurts: `E[fired] = p`, so the residual is **zero-mean flip-sampling noise**.
+Rescaled to the size of `gy`, it adds noise to every earlier layer's gradient and to
+the embedding's Adam updates, on top of a gradient whose SNR is already only ~1.5.
+Damage grows steeply with alpha and is only small at 0.01 over a short horizon.
+
+**The probe was misleading at 0.01**: 7% worse at 20M tokens (inside run-to-run
+noise), 58% worse at 300M. The harm accumulates while flip activity is high, which
+a 600-step probe barely samples. Short probes can rank alphas; they can't certify
+that a small alpha is safe.
+
+Two bugs found on the way, both fixed before the full run: the feedback term's sign
+was inverted (it asked earlier layers to amplify the overshoot; verified by a
+one-step toy where the old sign was 3.4x more harmful), and `grad_x` was taken at
+post-flip weights.

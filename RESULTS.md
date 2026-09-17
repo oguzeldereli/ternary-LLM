@@ -113,6 +113,7 @@ tokens. Only the weight-update rule changes.
 | stateless flips, cosine → 0.02% floor | trit only | 103.96 |
 | stateless flips, constant rate (old recipe) | trit only | 135.84 |
 | stateless flips, frozen absolute threshold | trit only | 160.68 |
+| stateless flips, annealed + spatial error feedback (α=0.01) | trit only | 156.01 |
 
 **Master-free ternary costs 6.2× perplexity** against its own ceiling at identical
 config. That ratio is the number the previous version of this file could not report.
@@ -152,6 +153,16 @@ A related control: holding the flip rate at a non-zero floor (0.02%) instead of
 letting it reach zero, with the same shape and budget, gives **103.96** vs 98.56.
 The late gains come *from flipping stopping* — residual churn at convergence costs
 about 5 ppl.
+
+### Spatial error feedback makes it worse
+
+Pushing each layer's unapplied flip residual into `grad_x` — error feedback with no
+stored state — gives **156.01** against 98.56 at the smallest alpha tried in the full
+run (0.01), and 600-step probes show the damage growing steeply with alpha (255.6 /
+273.7 / 446.0 / 828.1 at α = 0 / 0.01 / 0.03 / 0.1). The residual is zero-mean
+flip-sampling noise (`E[fired] = p`), so feeding it upstream adds noise to every
+earlier layer's gradient. The full run blew up while flipping was heavy (ppl 204 →
+458) and only recovered as the anneal switched flipping off. See RUNS.md.
 
 ---
 

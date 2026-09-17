@@ -51,7 +51,9 @@ plus a flip rule that never stops flipping — see [RESULTS.md](RESULTS.md) §0 
 
 Key flags for the flip rule: `--rate_schedule {const,cosine,linear,exp}` (annealing
 the flip rate is the single biggest quality win), `--rate_min` (non-zero floor),
-`--abs_scale` (freeze the threshold denominator — measured *worse*), `--int8`
+`--abs_scale` (freeze the threshold denominator — measured *worse*),
+`--err_feedback --ef_alpha` (push unapplied flip residual into grad_x — measured
+*worse*: 156 vs 98.6), `--int8`
 (s8 tensor-core forward), `--track_flips` (per-layer flip-rate telemetry).
 
 ## Quickstart

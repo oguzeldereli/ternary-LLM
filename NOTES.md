@@ -73,6 +73,13 @@ its value at init rather than shrinking, so the flip rate rose from 0.58% to 0.9
 and the model churned harder. The premise "gradients shrink as you converge, so an
 absolute threshold quiets down" is false for this model.
 
+**Spatial error feedback.** Push each layer's unapplied flip residual `(p − fired)·d`
+into `grad_x` so earlier layers compensate, with no per-weight state. Worse at every
+strength tried (156.01 vs 98.56 at α=0.01). Since `E[fired] = p`, the residual is
+zero-mean sampling noise; feeding it upstream just adds noise to gradients that are
+already only ~1.5 SNR. The damage concentrates where flipping is heavy — the run blew
+up early and recovered only as the anneal stopped the flips.
+
 **Weights do not lock, even in the runs that work.** never-flipped ended at 0.173%
 in the best run: the gain comes from flipping *less overall*, not from individual
 weights settling into place. The old note predicted locking; that is not what

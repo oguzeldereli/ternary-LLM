@@ -18,7 +18,7 @@ BASE="--preset small --mode kernel --data data/wiki32k_train.bin \
 --steps 9155 --warmup 305 --rate_schedule cosine --rate 0.02"
 
 # ---- 1. alpha probe -----------------------------------------------------------
-for A in 0 0.1 0.3 1.0; do
+for A in 0 0.1 0.01 0.03; do
   OUT=checkpoints/ef_probe_a$A
   if [ -f $OUT/done ]; then say "probe alpha=$A already done ($(final_ppl $OUT.log))"; continue; fi
   rm -rf $OUT; mkdir -p $OUT
@@ -30,15 +30,19 @@ for A in 0 0.1 0.3 1.0; do
   say "probe alpha=$A -> ppl $(final_ppl $OUT.log) | ${SPS} s/step"
 done
 
-P01=$(final_ppl checkpoints/ef_probe_a0.1.log); P03=$(final_ppl checkpoints/ef_probe_a0.3.log)
-P10=$(final_ppl checkpoints/ef_probe_a1.0.log)
 ALPHA=$(python -c "
+import re
 def f(x):
     try: return float(x)
     except Exception: return 1e9
-c = {'0.1': f('$P01'), '0.3': f('$P03'), '1.0': f('$P10')}
+def ppl(a):
+    try:
+        m = re.findall(r'FINAL val loss [0-9.]+ \\| ppl ([0-9.]+)', open(f'checkpoints/ef_probe_a{a}.log').read())
+        return float(m[-1]) if m else 1e9
+    except Exception: return 1e9
+c = {a: ppl(a) for a in ('0.01', '0.03', '0.1', '0.3')}
 print(min(c, key=c.get))")
-say "probe: alpha0=$(final_ppl checkpoints/ef_probe_a0.log) alpha0.1=$P01 alpha0.3=$P03 alpha1.0=$P10 -> full run uses alpha=$ALPHA"
+say "probe summary: $(for a in 0 0.01 0.03 0.1 0.3; do printf 'a%s=%s ' $a $(final_ppl checkpoints/ef_probe_a$a.log); done)-> full run uses alpha=$ALPHA"
 
 # ---- 2. full run --------------------------------------------------------------
 OUT=checkpoints/armA_cos_ef
