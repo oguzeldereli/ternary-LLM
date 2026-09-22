@@ -327,3 +327,27 @@ than the run. Final numbers are unaffected — all three were re-evaluated from 
 checkpoints and match the logged values exactly (175.47 / 102.66 / 98.56) — but the
 intermediate points of every val trace in this file should be treated as indicative
 only.
+
+## Scaling shape (log-log)
+
+![scaling](docs/scaling.png)
+
+Local power-law slopes of training loss vs tokens, fitted over the last three
+quarters of each run:
+
+| run | local alpha |
+|---|---|
+| master weights | **-0.152** |
+| flips, annealed (600M) | -0.056 |
+| flips, annealed (300M) | -0.063 |
+| flips, constant rate | -0.013 |
+
+Over the measured range the flip curves are **2.4-11x flatter** than the baseline,
+so the gap widens with tokens rather than holding at a fixed ratio. Annealing
+improves the local slope ~5x over a constant rate (-0.013 -> -0.063).
+
+**This does not license an asymptotic claim.** Fitting the proper form
+`L = L_inf + A*D^-alpha` is degenerate over this token range: the two annealed runs
+are the same recipe and return L_inf = 0.00 (600M) and 3.34 (300M), trading floor
+against exponent. Separating "master-free has a higher floor" from "master-free
+scales worse" needs runs spanning more than the <1 decade of tokens available here.
