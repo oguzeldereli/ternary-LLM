@@ -1,6 +1,8 @@
 # Runs
 
-![flip-rate rules](docs/flip_rules.png)
+![every training mode](docs/modes.png)
+
+*(regenerate with `python3 plot_modes.py`)*
 
 ## Headline
 

@@ -13,6 +13,8 @@ Two things live here:
 
 ## Headline numbers
 
+![every training mode](docs/modes.png)
+
 27B training on one 12 GB GPU (seq 512):
 
 | | tok/s | peak VRAM |
