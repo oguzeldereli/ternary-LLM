@@ -351,3 +351,39 @@ improves the local slope ~5x over a constant rate (-0.013 -> -0.063).
 are the same recipe and return L_inf = 0.00 (600M) and 3.34 (300M), trading floor
 against exponent. Separating "master-free has a higher floor" from "master-free
 scales worse" needs runs spanning more than the <1 decade of tokens available here.
+
+## g_ref sweep (α screens, 300 steps each)
+
+`g_ref` is the knee of the flip-probability ramp, in units of the layer's mean |g|:
+`p = min(|g| / (g_ref·mean|g|), 1) · r`. Below the knee the rule is SGD (probability
+proportional to the gradient); above it, signSGD (magnitude discarded).
+
+Screened with local α fitted over steps 100-300 (3.3-10M tokens), ~11 min per run,
+everything else identical to `armA_cosine`. Noise floor of the α estimate is ±0.003,
+measured from two independent runs of one config.
+
+| g_ref | α (100-300) | loss @300 | flip% | never flipped |
+|---|---|---|---|---|
+| 1 | -0.144 | 6.041 | 0.774 | 15.7% |
+| **3** (default) | **-0.154** | 5.977 | 0.388 | 38.7% |
+| **7** | **-0.155** | 5.981 | 0.184 | 62.1% |
+| **10** | **-0.155** | 5.988 | 0.130 | 70.8% |
+| 25 | -0.145 | 6.083 | 0.053 | 86.4% |
+| 100 | -0.138 | 6.268 | 0.013 | 96.3% |
+| *master weights* | *-0.222* | *5.205* | — | — |
+
+**A broad flat optimum at 3-10, degrading gently on both sides.** g_ref=10 matches
+the default's α and loss while flipping **3x fewer** weights, with 71% of the body
+never moving at all — more evidence that most flipping is waste (see the 95-98%
+wasted-motion measurement above).
+
+**g_ref is not the lever on α.** A 100x sweep moves α by 0.017; the gap to master
+weights is 0.068. The knee position — where signSGD takes over from SGD — is
+second-order. On a real gradient, 4.66% of weights sit above the default knee and
+carry 19.4% of the gradient mass, but clipping them costs only ~5% of the intended
+movement; the ternary boundary absorbs far more (~33% of fires are no-ops, since
+2/3 of weights sit at ±1 and half of those are pushed outward).
+
+**Caveat:** these are early-α on a 300-step window during LR warmup, a screening
+proxy. Its value (-0.154) is not the full-run α (-0.063), and a short proxy has
+inverted before (the error-feedback probes).

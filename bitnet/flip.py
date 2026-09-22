@@ -552,11 +552,11 @@ def build_kernel_transformer(c: ModelConfig, grad_checkpoint: bool = True,
                              rate: float = 2e-3, evidence: bool = False,
                              ev_bits: int = 2, beta: bool = False,
                              int8: bool = False, dw_mode: str = "int8",
-                             int8_dx: bool = False):
+                             int8_dx: bool = False, g_ref: float = 3.0):
     def make_linear(i, o):
         return KernelTernaryLinear(i, o, c.act_bits, rate=rate, evidence=evidence,
                                    ev_bits=ev_bits, beta=beta, int8=int8,
-                                   dw_mode=dw_mode, int8_dx=int8_dx)
+                                   dw_mode=dw_mode, int8_dx=int8_dx, g_ref=g_ref)
     return BitTransformer(c, grad_checkpoint=grad_checkpoint, make_linear=make_linear)
 
 

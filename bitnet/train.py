@@ -97,6 +97,11 @@ def main():
                          "AdamW steps; fp32 is the honest ceiling)")
     ap.add_argument("--theta", type=float, default=24.0, help="flip fire threshold")
     ap.add_argument("--rate", type=float, default=2e-2, help="stateless flip rate")
+    ap.add_argument("--g_ref", type=float, default=3.0,
+                    help="flip-probability saturation point, in units of mean|g|: "
+                         "p = min(|g|/(g_ref*mean|g|), 1) * rate. Below the knee the "
+                         "expected step is proportional to the gradient (SGD); above "
+                         "it, magnitude is discarded (signSGD)")
     ap.add_argument("--ev_bits", type=int, default=2,
                     help="evidence mode: counter bit-depth (2,3,4...)")
     ap.add_argument("--int8", action="store_true",
@@ -183,7 +188,7 @@ def main():
         model = build_kernel_transformer(mc, grad_checkpoint=tc.grad_checkpoint,
                                          rate=args.rate, beta=use_beta,
                                          int8=args.int8, dw_mode=args.dw_mode,
-                                         int8_dx=args.int8_dx)
+                                         int8_dx=args.int8_dx, g_ref=args.g_ref)
     elif args.mode == "evidence":
         model = build_kernel_transformer(mc, grad_checkpoint=tc.grad_checkpoint,
                                          rate=args.rate, evidence=True,
@@ -285,7 +290,7 @@ def main():
                     "int8": args.int8, "dw_mode": args.dw_mode, "rate_min": args.rate_min,
                     "int8_dx": args.int8_dx, "rate_schedule": args.rate_schedule,
                     "abs_scale": args.abs_scale, "err_feedback": args.err_feedback,
-                    "flip_lockout": args.flip_lockout,
+                    "g_ref": args.g_ref, "flip_lockout": args.flip_lockout,
                     "lockout_mode": args.lockout_mode,
                     "ef_alpha": args.ef_alpha}, tmp)
         os.replace(tmp, ckpt_path)
