@@ -109,6 +109,7 @@ Telemetry confirms it — 0.405% at step 0, 0.42% at step 8170, never-flipped 0.
 | `armA_cos_floor` | cosine 2e-2 -> 9.52e-4 (flip 0.42% -> 0.02%, never 0) | **103.96** |
 | `armA_cos_600M` | cosine 2e-2 -> 0 stretched over **600M tokens** | **92.72** |
 | `armA_cos_ef` | armA_cosine + spatial error feedback, alpha 0.01 | **156.01** |
+| `armA_cos_lockout` | armA_cosine + per-weight flip lockout (once per 200 steps) | **102.66** |
 
 ### Result: the plateau was the flip rule, not gradient noise
 
@@ -275,3 +276,52 @@ Two bugs found on the way, both fixed before the full run: the feedback term's s
 was inverted (it asked earlier layers to amplify the overshoot; verified by a
 one-step toy where the old sign was 3.4x more harmful), and `grad_x` was taken at
 post-flip weights.
+
+## Per-weight flip lockout (negative result)
+
+![flip lockout](docs/flip_lockout.png)
+
+Idea: nearly all flip work is undone, so let each weight flip **once**, then lock it
+until the epoch ends (`--flip_lockout N --lockout_mode once`), or allow further flips
+only in the same direction (`noreversal`). Two packed bitmasks, 1 bit/weight each.
+
+**The premise is right.** Net displacement vs total flips, measured against the
+reproducible init:
+
+| run | flips/weight | net levels moved | wasted |
+|---|---|---|---|
+| constant rate | 38.2 | 0.896 | **97.7%** |
+| cosine anneal | 19.0 | 0.895 | **95.3%** |
+| cosine anneal, 600M | 38.2 | 0.897 | **97.7%** |
+
+**The fix does not follow: 102.66 vs 98.56** (once per 200 steps, the best of three
+screened variants, otherwise identical to `armA_cosine`). Slightly worse, not better.
+
+Why the guarantee fails: a flip's direction comes from a noisy minibatch gradient
+(65.7% sign agreement), so ~1 in 3 flips is wrong when made. Locking does not make
+it right — it removes the chance to undo it, trading churn for frozen-in error.
+Locking also cuts the flip budget (~26 vs 38 flips/weight at N=200), so "less churn"
+and "less learning" are confounded.
+
+### Methodological warning: single mid-training evals are unreliable here
+
+The 1000-step screens ranked `once_t200` 175.47, `once_t1000` 177.82,
+`norev_t1000` 190.68 against a 188.3 control — i.e. they suggested lockout *helps*,
+the opposite of the full run. Taking the screen's own step-1000 checkpoint and
+running single training steps from it, val perplexity moves
+
+    175.5 -> 310.1 -> 249.3 -> 223.2 -> 341.7 -> 219.0 -> 417.1 -> 211.3 -> 340.0
+
+a **2.4x spread between consecutive steps**, with the real optimizer state restored
+and reproduced with the flip RNG advanced to its mid-run value. A single eval at one
+step is therefore not a measurement of run quality while the flip rate is high, and
+short screens cannot rank variants.
+
+Unresolved: the logged traces of the long runs are smooth and monotone, which is not
+consistent with that spread. The probe differs from real training in at least one way
+(it re-loads a checkpoint and, for the no-lockout comparison, flips at a higher rate
+than the run that produced it), so the spread may be an artifact of the probe rather
+than the run. Final numbers are unaffected — all three were re-evaluated from their
+checkpoints and match the logged values exactly (175.47 / 102.66 / 98.56) — but the
+intermediate points of every val trace in this file should be treated as indicative
+only.

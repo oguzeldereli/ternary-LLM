@@ -114,6 +114,7 @@ tokens. Only the weight-update rule changes.
 | stateless flips, constant rate (old recipe) | trit only | 135.84 |
 | stateless flips, frozen absolute threshold | trit only | 160.68 |
 | stateless flips, annealed + spatial error feedback (α=0.01) | trit only | 156.01 |
+| stateless flips, annealed + per-weight flip lockout | trit only + 2 bits mask | 102.66 |
 
 **Master-free ternary costs 6.2× perplexity** against its own ceiling at identical
 config. That ratio is the number the previous version of this file could not report.
@@ -153,6 +154,16 @@ A related control: holding the flip rate at a non-zero floor (0.02%) instead of
 letting it reach zero, with the same shape and budget, gives **103.96** vs 98.56.
 The late gains come *from flipping stopping* — residual churn at convergence costs
 about 5 ppl.
+
+### 95-98% of flip work is undone — but stopping the churn by fiat does not help
+
+Measured against the reproducible init: runs do 19-38 flips per weight and end ~0.9
+levels from where they started (a trit can travel at most 2), so 95-98% of flips are
+reversed by later flips. Letting each weight flip only once per N steps
+(`--flip_lockout`) gives **102.66** vs 98.56 — slightly worse. A flip's direction is
+a noisy sample (65.7% sign agreement), so locking freezes in the ~1/3 that were wrong
+rather than making flips count, and it also cuts the flip budget. See RUNS.md for the
+screens and for why short mid-training evals could not rank the variants.
 
 ### Spatial error feedback makes it worse
 
