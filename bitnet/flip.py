@@ -259,7 +259,7 @@ def build_stateless_transformer(c: ModelConfig, grad_checkpoint: bool = True,
 from .kernel import (pack_rows, unpack_rows, tern_gemm, tern_gemm_dx, fused_flip,
                      fused_flip_ev, trit_beta, trit_diff, popcount,
                      tern_gemm_i8, tern_gemm_dx_i8, act_quant_i8, dw_int8, dw_sign,
-                     dw_cublas, expand_trit_mask)
+                     dw_cublas, expand_trit_mask, fused_flip_lock)
 
 _FLIP_SEED = [0]
 
@@ -343,7 +343,11 @@ class _KernelTernFn(torch.autograd.Function):
         _FLIP_SEED[0] += 1
         before = wpacked.clone() if layer.track else None
         gm = layer._flip_scale(gw)
-        if layer.evidence is not None:
+        if layer.lockout > 0:
+            fused_flip_lock(wpacked, gw, layer.lock, layer.lock_dir, layer.rate,
+                            layer.g_ref, _FLIP_SEED[0], gmean=gm,
+                            mode=layer.lockout_mode)
+        elif layer.evidence is not None:
             fused_flip_ev(wpacked, gw, layer.evidence, layer.rate, layer.g_ref,
                           _FLIP_SEED[0], smax=layer.ev_max, gmean=gm)
         else:
@@ -449,6 +453,14 @@ class KernelTernaryLinear(nn.Module):
         # --- spatial error feedback (no persistent state; see _ef_backward) -----
         self.err_feedback = False
         self.ef_alpha = 1.0
+        # --- per-weight flip lockout (1 bit/weight in each of two packed masks) -
+        # lockout > 0: a weight may flip at most once per `lockout` steps ("once"),
+        # or after its first flip may only continue in the same direction
+        # ("noreversal"). Masks are cleared by the trainer each epoch.
+        self.lockout = 0
+        self.lockout_mode = 0     # 0 = once, 1 = noreversal
+        self.lock = None
+        self.lock_dir = None
         # --- flip instrumentation (off unless enable_tracking() is called) ------
         self.track = False
         self.touched = None      # uint8 [N,K5] sticky mask: trit ever changed
@@ -468,6 +480,24 @@ class KernelTernaryLinear(nn.Module):
         if self.calib_n >= self.calib_steps:
             self.frozen_scale.fill_(self.calib_sum / self.calib_n)
         return g
+
+    def enable_lockout(self, steps: int, mode: str = "once"):
+        self.lockout = int(steps)
+        self.lockout_mode = 0 if mode == "once" else 1
+        self.lock = torch.zeros_like(self.wpacked)
+        self.lock_dir = torch.zeros_like(self.wpacked)
+
+    @torch.no_grad()
+    def reset_lock(self):
+        if self.lock is not None:
+            self.lock.zero_(); self.lock_dir.zero_()
+
+    @torch.no_grad()
+    def locked_frac(self):
+        """Fraction of weights that have already flipped in this epoch."""
+        if self.lock is None:
+            return torch.zeros((), dtype=torch.int64, device=self.wpacked.device)
+        return popcount(self.lock)
 
     def enable_tracking(self):
         """Track per-step flip count and which trits have ever changed since init.
@@ -555,7 +585,10 @@ def flip_accumulated(model):
             _FLIP_SEED[0] += 1
             before = m.wpacked.clone() if m.track else None
             gm = m._flip_scale(g)
-            if m.evidence is not None:
+            if m.lockout > 0:
+                fused_flip_lock(m.wpacked, g, m.lock, m.lock_dir, m.rate, m.g_ref,
+                                _FLIP_SEED[0], gmean=gm, mode=m.lockout_mode)
+            elif m.evidence is not None:
                 fused_flip_ev(m.wpacked, g, m.evidence, m.rate, m.g_ref,
                               _FLIP_SEED[0], smax=m.ev_max, gmean=gm)
             else:
@@ -576,6 +609,35 @@ def set_err_feedback(model, enabled: bool, alpha: float = 1.0):
                                  "kernel mode, no evidence counter, grad_accum 1")
             m.err_feedback = enabled; m.ef_alpha = alpha; n += 1
     return n
+
+
+def set_lockout(model, steps: int, mode: str = "once"):
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            if m.evidence is not None:
+                raise ValueError("lockout is for plain stochastic flips (no evidence)")
+            m.enable_lockout(steps, mode); n += 1
+    return n
+
+
+@torch.no_grad()
+def reset_lockout(model):
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.reset_lock()
+
+
+@torch.no_grad()
+def lockout_stats(model):
+    """Fraction of weights that have flipped in the current epoch (one sync)."""
+    tot, locked = 0, []
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear) and m.lock is not None:
+            locked.append(m.locked_frac()); tot += m.N * m.K
+    if not locked:
+        return None
+    return float(torch.stack(locked).sum().item()) / tot
 
 
 def set_flip_rate(model, rate: float):

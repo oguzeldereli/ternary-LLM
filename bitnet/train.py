@@ -35,7 +35,8 @@ from .master import build_master_transformer, split_params, MasterTernaryLinear
 from .flip import (build_flip_transformer, build_stateless_transformer,
                    build_kernel_transformer, apply_flips, enable_flip_tracking,
                    collect_flip_stats, flip_accumulated, set_flip_accum,
-                   set_flip_rate, set_abs_scale, set_err_feedback)
+                   set_flip_rate, set_abs_scale, set_err_feedback, set_lockout,
+                   reset_lockout, lockout_stats)
 
 
 def get_batch(data, bs, seq_len, device, gen=None):
@@ -120,6 +121,12 @@ def main():
     ap.add_argument("--stop_after", type=int, default=None,
                     help="stop after this many steps WITHOUT changing the LR / flip "
                          "schedules (which still span --steps); evaluates on exit")
+    ap.add_argument("--flip_lockout", type=int, default=0,
+                    help="per-weight lockout: a weight may flip at most once per N "
+                         "steps (1 bit/weight). 0 = off")
+    ap.add_argument("--lockout_mode", default="once", choices=["once", "noreversal"],
+                    help="once = one flip per epoch; noreversal = after the first "
+                         "flip only the same direction is allowed")
     ap.add_argument("--err_feedback", action="store_true",
                     help="spatial error feedback: push each layer's unapplied flip "
                          "demand into grad_x (kernel mode, grad_accum 1 only)")
@@ -228,6 +235,11 @@ def main():
         print(f"flip accumulation: one flip per {tc.grad_accum} micro-steps "
               f"({tc.grad_accum * tc.batch_size * tc.seq_len:,} tokens/step)", flush=True)
 
+    if args.flip_lockout > 0:
+        n = set_lockout(model, args.flip_lockout, args.lockout_mode)
+        print(f"flip lockout: {args.lockout_mode}, epoch {args.flip_lockout} steps "
+              f"({n} layers, 2 bits/weight of mask)", flush=True)
+
     if args.err_feedback:
         if args.mode != "kernel" or tc.grad_accum != 1:
             raise SystemExit("--err_feedback requires --mode kernel and --grad_accum 1")
@@ -273,6 +285,8 @@ def main():
                     "int8": args.int8, "dw_mode": args.dw_mode, "rate_min": args.rate_min,
                     "int8_dx": args.int8_dx, "rate_schedule": args.rate_schedule,
                     "abs_scale": args.abs_scale, "err_feedback": args.err_feedback,
+                    "flip_lockout": args.flip_lockout,
+                    "lockout_mode": args.lockout_mode,
                     "ef_alpha": args.ef_alpha}, tmp)
         os.replace(tmp, ckpt_path)
 
@@ -331,6 +345,8 @@ def main():
                     time.sleep(5)
                     temp = gpu_temp()
                 print(f"cooled to {temp}C -> resuming", flush=True)
+        if args.flip_lockout > 0 and step % args.flip_lockout == 0:
+            reset_lockout(model)
         lr = lr_at(step, tc)
         rate_now = args.rate
         if args.rate_schedule != "const":
@@ -369,6 +385,10 @@ def main():
                "touched_origin": _touched_origin["v"],
                "tokens": (step + 1) * tc.grad_accum * tc.batch_size * tc.seq_len}
         fs = collect_flip_stats(model) if args.track_flips else {}
+        if args.flip_lockout > 0 and step % tc.log_interval == 0:
+            lf = lockout_stats(model)
+            if lf is not None:
+                rec["locked_frac"] = lf
         if fs:
             rec.update(flip_frac=fs["flip_frac_total"], never_frac=fs["never_frac_total"],
                        flip_frac_layers=fs["flip_frac"], never_frac_layers=fs["never_frac"],

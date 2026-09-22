@@ -49,6 +49,23 @@ The rule has no absolute scale and no way to know a weight is already correct, s
 converged weight is re-flipped at the same rate as a wrong one. The plateau is that
 churn, not gradient noise.
 
+## How much of the flipping is wasted
+
+Measured directly on finished runs (net displacement from the reproducible init,
+against total flip events from the telemetry). A trit has 3 levels, so the most a
+weight can usefully travel is 2:
+
+| run | flips/weight | net levels moved | wasted |
+|---|---|---|---|
+| constant rate (`p3b_acc1`) | 38.2 | 0.896 | **97.7%** |
+| cosine anneal (`armA_cosine`) | 19.0 | 0.895 | **95.3%** |
+| cosine anneal, 600M (`armA_cos_600M`) | 38.2 | 0.897 | **97.7%** |
+
+Every run ends ~0.9 levels per weight from where it started after 19-38 flips per
+weight, and all of them end at the same 33.3% zero density they started with. So
+95-98% of all flip work is undone by later flips. Annealing helps precisely because
+it buys fewer, later-surviving flips rather than better ones.
+
 ## What fixes it
 Anneal the flip rate toward zero. One schedule on `rate`, nothing else changed:
 

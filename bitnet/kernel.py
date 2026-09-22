@@ -531,3 +531,65 @@ def expand_trit_mask(mask: torch.Tensor, K: int) -> torch.Tensor:
     for j in range(5):
         out[:, :, j] = ((mask >> j) & 1).bool()
     return out.view(N, K5 * 5)[:, :K]
+
+
+@triton.jit
+def _flip_lock_kernel(w_ptr, g_ptr, l_ptr, dr_ptr, N, K, K5, sgn, sgk, gmean, rate,
+                      g_ref, seed, mode, BLOCK: tl.constexpr):
+    """Stochastic flip with a per-weight lockout bit (1 bit/weight, bit j of byte).
+
+    mode 0 ("once"):        a weight may flip at most once per epoch.
+    mode 1 ("noreversal"):  after its first flip in an epoch it may only flip again
+                            in the SAME direction, never back.
+    The trainer clears the masks every T steps (the epoch).
+    """
+    pid = tl.program_id(0)
+    idx = pid * BLOCK + tl.arange(0, BLOCK)
+    mask = idx < N * K5
+    n = idx // K5
+    k5 = idx % K5
+    b = tl.load(w_ptr + idx, mask=mask, other=0).to(tl.int32)
+    lk = tl.load(l_ptr + idx, mask=mask, other=0).to(tl.int32)
+    dr = tl.load(dr_ptr + idx, mask=mask, other=0).to(tl.int32)
+    newb = tl.zeros((BLOCK,), tl.int32)
+    newlk = tl.zeros((BLOCK,), tl.int32)
+    newdr = tl.zeros((BLOCK,), tl.int32)
+    for j in tl.static_range(5):
+        p3 = 3 ** j
+        t = (b // p3) % 3 - 1
+        locked = (lk >> j) & 1
+        updir = (dr >> j) & 1
+        k = k5 * 5 + j
+        gmask = mask & (k < K)
+        g = tl.load(g_ptr + n * sgn + k * sgk, mask=gmask, other=0.0)
+        gn = g / gmean
+        prob = tl.minimum(tl.abs(gn) / g_ref, 1.0) * rate
+        r = tl.rand(seed, idx * 5 + j)
+        fire = (r < prob) & gmask
+        d = tl.where(gn > 0, -1, tl.where(gn < 0, 1, 0))         # -sign(grad)
+        same_dir = (d > 0) == (updir == 1)
+        allow = tl.where(mode == 0, locked == 0, (locked == 0) | same_dir)
+        fire = fire & allow
+        nt = tl.where(fire, tl.maximum(tl.minimum(t + d, 1), -1), t)
+        moved = fire & (nt != t)
+        newb += (nt + 1) * p3
+        newlk += (tl.where(moved, 1, locked)) << j
+        newdr += (tl.where(moved, tl.where(d > 0, 1, 0), updir)) << j
+    tl.store(w_ptr + idx, newb.to(tl.uint8), mask=mask)
+    tl.store(l_ptr + idx, newlk.to(tl.uint8), mask=mask)
+    tl.store(dr_ptr + idx, newdr.to(tl.uint8), mask=mask)
+
+
+def fused_flip_lock(wpacked, grad_w, lock, dirmask, rate: float, g_ref: float,
+                    seed: int, gmean: float = None, mode: int = 0):
+    """fused_flip + per-weight lockout. mode 0 = one flip per epoch, 1 = no reversal."""
+    N, K5 = wpacked.shape
+    K = grad_w.shape[1]
+    if gmean is None:
+        gmean = grad_w.abs().mean().clamp_min(1e-8).item()
+    total = N * K5
+    BLOCK = 1024
+    grid = (triton.cdiv(total, BLOCK),)
+    _flip_lock_kernel[grid](wpacked, grad_w, lock, dirmask, N, K, K5,
+                            grad_w.stride(0), grad_w.stride(1), gmean, rate, g_ref,
+                            seed, mode, BLOCK=BLOCK)
