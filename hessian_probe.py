@@ -12,7 +12,8 @@ and a flip is justified when |g_q| > H_q/2 (Newton displacement > half a step).
 import argparse, math, numpy as np, torch, torch.nn as nn, torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from bitnet.config import TrainConfig
-from bitnet.flip import build_kernel_transformer, KernelTernaryLinear, _act_quant_plain
+from bitnet.flip import build_kernel_transformer, KernelTernaryLinear
+from bitnet.bitlinear import _act_quant_ste
 from bitnet.kernel import unpack_rows, trit_beta
 from bitnet.train import get_batch
 from bitnet.model import BitTransformer
@@ -35,7 +36,7 @@ class DenseTern(nn.Module):
         self.beta = beta
 
     def forward(self, x):
-        return F.linear(_act_quant_plain(x, self.act_bits).float(), self.weight)
+        return F.linear(_act_quant_ste(x, self.act_bits).float(), self.weight)
 
 
 def load(ckpt):

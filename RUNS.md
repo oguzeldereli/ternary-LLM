@@ -388,26 +388,74 @@ movement; the ternary boundary absorbs far more (~33% of fires are no-ops, since
 proxy. Its value (-0.154) is not the full-run α (-0.063), and a short proxy has
 inverted before (the error-feedback probes).
 
-## Does a one-level flip overshoot? (real curvature, Hutchinson)
+## Does a one-level flip overshoot? — curvature, signal, and interaction
 
-`hessian_probe.py` builds a dense surrogate of the ternary body (W = beta*q as a real
-parameter; reproduces the kernel loss to 0.0005) and estimates the per-weight
-Hessian diagonal by Hutchinson with finite-difference Hessian-vector products
-(8 samples). In flip units a flip helps only if |g| > H/2.
+**Correction.** An earlier version of this section (commit 1eeb2e7) reported a median
+Newton displacement of 0.034 flips and a "curvature gate" that cut flip damage 5-20x.
+Those numbers are **invalid**: the dense surrogate used to compute them applied
+activation quantisation without a straight-through estimator, so gradients could not
+flow back through any layer's input quantisation. Its gradient had cosine **0.155**
+with the real kernel-path gradient (only the last layer was right). With an STE the
+surrogate matches: cosine **0.996** mean, 0.957 worst layer. Everything below uses
+the fixed surrogate or the kernel path directly.
 
-- Newton displacement |g|/H: **median 0.034 flips** (p90 0.34, p99 3.7) — the typical
-  weight wants ~3% of a step, so a flip overshoots ~30x.
-- Among positive-curvature weights, only **7%** have |g| > H/2.
+### Per-weight curvature cannot be estimated usefully this way
+- **Hutchinson** (finite-difference HVPs, 64 samples): 50.1% of diagonal entries come
+  out positive — exactly what random sign gives. The off-diagonal mass swamps the
+  diagonal; the per-weight estimate is noise.
+- **Gauss-Newton** estimators (MC-Fisher with labels sampled from the model,
+  per-position or squared-gradient form; empirical Fisher) are resolvable and agree
+  with each other, and say a flip is well inside the local quadratic regime: median
+  |g|/H = 150 (converged) and 61 (step 1000). "Justified" (|g| > H/2) for 99.5%+.
 
-Flip selection at the converged `armA_cosine` point, same gradient, held-out loss:
+### At a converged model there is no signal to follow
+One batch's gradient vs a 64-batch average: cosine **-0.008**, and 0% of the selected
+gradient survives on independent data. So every flip at convergence is noise-selected,
+and flip-selection experiments there measure which noise flips are cheapest — not
+which rule learns. The apparent wins of curvature gating, consistency, reverse
+magnitude and row/column normalisation are all explained by **de-concentration**:
+a control that picks a random tenth of the top-10x|g| pool does as well
+(84,934 flips: +1.71 vs +1.83-2.32 for the "principled" criteria, +3.26 for top |g|).
 
-| selection | 849 | 8,493 | 84,934 |
+### Mid-training the gradient is real, and the problem is interaction
+At step 1000 (`lr_ctl`), one real training batch (32k tokens) vs a 16-batch average:
+cosine **0.824**; 77-84% of the top-|g| gradient survives along the flip direction.
+
+| flips (top \|g\|) | first-order | + GN curvature | **measured** |
 |---|---|---|---|
-| magnitude \|g\| (current rule) | +0.0102 | +0.2825 | +1.8171 |
-| predicted gain \|g\| - H/2 | +0.0063 | +0.1317 | +1.2303 |
-| only where \|g\| > H/2 | **+0.0005** | **+0.0148** | **+0.3768** |
+| 849 | -0.069 | -0.068 | **-0.016** (improves) |
+| 8,493 | -0.479 | -0.471 | **+1.123** |
+| 84,934 | -2.573 | -2.527 | **+3.034** |
+| 339,738 | -6.373 | -6.265 | **+4.523** |
 
-Curvature-aware selection is 5-20x less damaging than magnitude. It still does not
-*improve* a converged model. The curvature is not separable (rank-1 row x column fit:
-corr 0.22-0.59), so no cheap proxy yet; a training rule would need an HVP per step.
-Caveat: 8 Hutchinson samples are noisy per weight (only 24.7% of H came out positive).
+A single flip does not overshoot — the top 849 improve held-out loss. The damage is
+wildly super-linear in the number of simultaneous flips, which a diagonal model
+(curvature-corrected or not) cannot see: it lives in how flips combine.
+
+### The current rule oversteps by ~4x per step
+One genuine stochastic step of the training rule at step 1000, swept over rate
+(3 seeds, noise +-0.0002-0.0008):
+
+| rate | flips/step | d held-out |
+|---|---|---|
+| 0.0002 | 3.5k | -0.0065 |
+| 0.001 | 17.6k | -0.0306 |
+| 0.002 | 35k | -0.0564 |
+| **0.005** | **87k** | **-0.1087** |
+| 0.0194 (current) | 340k | -0.0250 |
+| 0.05 | 875k | +0.7716 |
+
+Below the optimum the benefit is nearly linear in flip count; past it, interaction
+eats it. The cosine schedule is still at 0.0194 at step 1000 — 4x above the one-step
+optimum — which fits annealing being the only change that has ever helped.
+
+### A greedy rate controller does not fix it
+`--rate_search` line-searches a global rate multiplier every N steps (candidates share
+random numbers, so flip sets are nested and the comparison is paired). It collapses:
+the multiplier falls 0.5 -> 0.016 in 140 steps and learning freezes. One-step greedy
+search always prefers small steps (short-horizon bias), and the `g_ref` sweep already
+showed a 3x lower effective rate gives identical alpha over steps 100-300 — one-step
+gains do not compose linearly over a trajectory.
+
+**In flight:** `armA_cos_r005` — `armA_cosine` exactly, but cosine-annealed from rate
+0.005 (the one-step optimum at step 1000) instead of 0.02, full 300M tokens.

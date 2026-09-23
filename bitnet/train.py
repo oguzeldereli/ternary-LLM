@@ -32,6 +32,8 @@ from .config import ModelConfig, TrainConfig, PRESETS, DEFAULT_PRESET
 from .model import BitTransformer
 from .bitlinear import STATE
 from .master import build_master_transformer, split_params, MasterTernaryLinear
+from .kernel import fused_flip
+from .flip import KernelTernaryLinear
 from .flip import (build_flip_transformer, build_stateless_transformer,
                    build_kernel_transformer, apply_flips, enable_flip_tracking,
                    collect_flip_stats, flip_accumulated, set_flip_accum,
@@ -74,6 +76,52 @@ def evaluate(model, data, tc, device):
     return float(np.mean(losses))
 
 
+@torch.no_grad()
+def rate_search_step(model, rate_now, rs_state, args, tc, data, gen, device, step):
+    """Try rate x factor for each factor on the captured gradient, keep the best.
+
+    Every candidate uses the SAME random numbers, so the flip sets are nested (a
+    higher rate flips a superset) and the comparison is paired. Candidates are
+    scored on a held-out train batch with the flips applied and nothing else
+    changed, then the winner's flips are committed for real."""
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    saved = [l.wpacked.clone() for l in layers]
+    grads = []
+    for l in layers:
+        grads.append(l.gw.contiguous()); l.gw = None; l.capture = False
+    xt, yt = get_batch(data, args.rs_batch, tc.seq_len, device, gen)
+    factors = [float(f) for f in args.rs_factors.split(",")]
+    seed0 = 7_000_000 + step * 131
+    was_training = model.training
+    model.eval()
+
+    def apply(rate):
+        for i, (l, g) in enumerate(zip(layers, grads)):
+            fused_flip(l.wpacked, g, rate, l.g_ref, seed0 + i,
+                       gmean=g.abs().mean().clamp_min(1e-8).item())
+
+    def restore():
+        for l, w in zip(layers, saved): l.wpacked.copy_(w)
+
+    def score():
+        with torch.autocast(device_type=device.split(":")[0], dtype=torch.bfloat16):
+            return model(xt, yt)[1].item()
+
+    base = score()
+    losses = {}
+    for f in factors:
+        r = rate_now * f
+        apply(r); losses[f] = score(); restore()
+    best = min(losses, key=losses.get)
+    rs_state["mult"] = float(min(max(rs_state["mult"] * best, args.rs_min), args.rs_max))
+    apply(rate_now * best)                                  # commit the winner
+    for l, w in zip(layers, saved):
+        if l.track: l._record_flips(w, l.wpacked)
+    if was_training: model.train()
+    return {"rs_base": base, "rs_best": best,
+            **{f"rs_{f:g}": losses[f] - base for f in factors}}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", default=DEFAULT_PRESET, choices=list(PRESETS))
@@ -98,6 +146,16 @@ def main():
                          "AdamW steps; fp32 is the honest ceiling)")
     ap.add_argument("--theta", type=float, default=24.0, help="flip fire threshold")
     ap.add_argument("--rate", type=float, default=2e-2, help="stateless flip rate")
+    ap.add_argument("--rate_search", action="store_true",
+                    help="line-search the flip rate: every --rs_every steps, try "
+                         "rate x each of --rs_factors on the step's gradient, score each "
+                         "on a held-out train batch, keep the best (hill-climbs a global "
+                         "multiplier; no per-weight state)")
+    ap.add_argument("--rs_every", type=int, default=50)
+    ap.add_argument("--rs_factors", default="0.5,1,2")
+    ap.add_argument("--rs_batch", type=int, default=4, help="tuning batch (sequences)")
+    ap.add_argument("--rs_min", type=float, default=0.01)
+    ap.add_argument("--rs_max", type=float, default=8.0)
     ap.add_argument("--inv_prob", action="store_true",
                     help="reverse the probability ramp: the SMALLEST gradients flip "
                          "most often (p = (1 - min(|g|/g_ref,1)) * rate)")
@@ -276,6 +334,13 @@ def main():
         print(f"flip tracking on for {n} ternary layers", flush=True)
 
     sampler = torch.Generator().manual_seed(tc.seed)
+    rs_state = {"mult": 1.0}
+    rs_gen = torch.Generator().manual_seed(tc.seed + 777)
+    if args.rate_search:
+        if args.mode != "kernel" or tc.grad_accum != 1:
+            raise SystemExit("--rate_search requires --mode kernel and --grad_accum 1")
+        print(f"flip-rate line search: every {args.rs_every} steps, factors "
+              f"{args.rs_factors}, tuning batch {args.rs_batch}x{tc.seq_len}", flush=True)
     train_data = np.memmap(tc.data_path, dtype=np.uint16, mode="r")
     val_data = np.memmap(tc.val_path, dtype=np.uint16, mode="r") if os.path.exists(tc.val_path) else train_data
 
@@ -381,6 +446,9 @@ def main():
                         if args.rate_schedule == "cosine" else 1.0 - prog)
                 rate_now = args.rate_min + (args.rate - args.rate_min) * mult
             set_flip_rate(model, rate_now)
+        if args.rate_search:
+            rate_now = rate_now * rs_state["mult"]
+            set_flip_rate(model, rate_now)
         STATE.lr = lr
         for g in tail_opt.param_groups:
             g["lr"] = lr
@@ -391,6 +459,11 @@ def main():
         STATE.grad_scale = tc.grad_accum
         tail_opt.zero_grad(set_to_none=True)
         last_loss = 0.0
+        # ---- flip-rate line search: capture this step's gradient instead of flipping
+        search = (args.rate_search and step > 0 and step % args.rs_every == 0)
+        if search:
+            for l in model.modules():
+                if isinstance(l, KernelTernaryLinear): l.capture = True
         for micro in range(tc.grad_accum):
             x, y = get_batch(train_data, tc.batch_size, tc.seq_len, device, sampler)
             with torch.autocast(device_type=device.split(":")[0], dtype=torch.bfloat16):
@@ -399,14 +472,22 @@ def main():
             last_loss = loss.item()
         if args.mode in ("kernel", "evidence") and tc.grad_accum > 1:
             flip_accumulated(model)
+        if search:
+            rs_info = rate_search_step(model, rate_now, rs_state, args, tc, train_data,
+                                       rs_gen, device, step)
+        else:
+            rs_info = None
         torch.nn.utils.clip_grad_norm_(tail, tc.grad_clip)
         tail_opt.step()
         n_flips = apply_flips(model) if args.mode == "flip" else 0
 
         rec = {"step": step, "loss": last_loss, "lr": lr, "flip_rate_cfg": rate_now,
+               "rs_mult": rs_state["mult"],
                "touched_origin": _touched_origin["v"],
                "tokens": (step + 1) * tc.grad_accum * tc.batch_size * tc.seq_len}
         fs = collect_flip_stats(model) if args.track_flips else {}
+        if rs_info is not None:
+            rec.update(rs_info)
         if args.flip_lockout > 0 and step % tc.log_interval == 0:
             lf = lockout_stats(model)
             if lf is not None:

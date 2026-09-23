@@ -328,6 +328,11 @@ class _KernelTernFn(torch.autograd.Function):
         gx = _grad_x(layer, gyf, wpacked).view(ctx.xshape)
         if layer.capture:
             layer.gw = gw.detach().float()      # diagnostics (diag_snr.py): keep grad, no flip
+            if getattr(layer, "capture_stats", False):
+                # per-input-channel and per-output-row RMS, for selection diagnostics
+                xf2 = (xq.to(gyf.dtype) * xs[:, None].to(gyf.dtype)) if layer.int8 else xq
+                layer.x_rms = xf2.float().pow(2).mean(0).sqrt().detach()
+                layer.gy_rms = gyf.float().pow(2).mean(0).sqrt().detach()
             if getattr(layer, "capture_h", False):
                 # Gauss-Newton diagonal for this layer: H[n,k] = sum_m (beta*gy)^2 x^2.
                 # Same shape and cost as the weight gradient, one extra GEMM.
