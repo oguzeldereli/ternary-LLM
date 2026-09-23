@@ -601,3 +601,24 @@ are per token.
 A second pass (`--lookahead 2`: re-check the survivors at the filtered point, keeping
 46-51% of proposals) lowers loss by a further ~0.08 but leaves α within noise
 (-0.181 vs -0.178), at 5.8 s/step vs 3.8. The full run uses one pass.
+
+### `armA_cos_la1`: look-ahead, full schedule, stopped at step 3000 (98M tokens)
+
+armA_cosine exactly (9155-step cosine schedule), plus `--lookahead 1`. Stopped at step
+3000 on request. Two machine power-offs (steps 2660 and ~2780) were resumed from
+checkpoints; metrics were trimmed to the checkpoint step each time (pre-crash files
+kept). Resume does not restore the data-sampler RNG, so batch order after step 2546
+differs from an uninterrupted run; val batches are fixed.
+
+| val ppl @ step | look-ahead | armA_cosine | armA_cos_r005 | master |
+|---|---|---|---|---|
+| 1000 (33M tok) | **124.9** | 188.3 | 178.4 | 41.4 |
+| 2000 (66M) | **96.5** | 148.3 | 137.0 | 28.7 |
+| 3000 (98M) | **80.1** | 139.6 | 122.6 | 24.3 |
+
+- At 98M tokens it is below the reference's *final* ppl (98.56 at 300M), so it gets
+  there with about 3x fewer tokens (~2x less compute at 1.8x per step).
+- It does not bend toward 1e8 tokens. Local train-loss slope: 30-60M -0.081 (reference
+  -0.065, master -0.149); 60-98M **-0.112** (reference -0.069, master -0.138). Every
+  earlier flip rule flattened in this window; this one steepens.
+- Keeps 55-60% of proposed flips throughout; flips 0.19-0.20% of weights per step.
