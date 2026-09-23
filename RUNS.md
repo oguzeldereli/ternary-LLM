@@ -387,3 +387,27 @@ movement; the ternary boundary absorbs far more (~33% of fires are no-ops, since
 **Caveat:** these are early-α on a 300-step window during LR warmup, a screening
 proxy. Its value (-0.154) is not the full-run α (-0.063), and a short proxy has
 inverted before (the error-feedback probes).
+
+## Does a one-level flip overshoot? (real curvature, Hutchinson)
+
+`hessian_probe.py` builds a dense surrogate of the ternary body (W = beta*q as a real
+parameter; reproduces the kernel loss to 0.0005) and estimates the per-weight
+Hessian diagonal by Hutchinson with finite-difference Hessian-vector products
+(8 samples). In flip units a flip helps only if |g| > H/2.
+
+- Newton displacement |g|/H: **median 0.034 flips** (p90 0.34, p99 3.7) — the typical
+  weight wants ~3% of a step, so a flip overshoots ~30x.
+- Among positive-curvature weights, only **7%** have |g| > H/2.
+
+Flip selection at the converged `armA_cosine` point, same gradient, held-out loss:
+
+| selection | 849 | 8,493 | 84,934 |
+|---|---|---|---|
+| magnitude \|g\| (current rule) | +0.0102 | +0.2825 | +1.8171 |
+| predicted gain \|g\| - H/2 | +0.0063 | +0.1317 | +1.2303 |
+| only where \|g\| > H/2 | **+0.0005** | **+0.0148** | **+0.3768** |
+
+Curvature-aware selection is 5-20x less damaging than magnitude. It still does not
+*improve* a converged model. The curvature is not separable (rank-1 row x column fit:
+corr 0.22-0.59), so no cheap proxy yet; a training rule would need an HVP per step.
+Caveat: 8 Hutchinson samples are noisy per weight (only 24.7% of H came out positive).

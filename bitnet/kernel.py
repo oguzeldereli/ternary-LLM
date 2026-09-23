@@ -211,7 +211,7 @@ def tern_gemm_dx(gy: torch.Tensor, wpacked: torch.Tensor, K: int) -> torch.Tenso
 
 @triton.jit
 def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
-                 BLOCK: tl.constexpr):
+                 inv: tl.constexpr, BLOCK: tl.constexpr):
     # in-place stochastic flip on packed bytes: decode 5 trits, flip each toward
     # -sign(grad) with prob ~ |grad|, re-encode, write. No dense weight round-trip.
     pid = tl.program_id(0)
@@ -228,7 +228,9 @@ def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
         gmask = mask & (k < K)
         g = tl.load(g_ptr + n * sgn + k * sgk, mask=gmask, other=0.0)
         gn = g / gmean
-        prob = tl.minimum(tl.abs(gn) / g_ref, 1.0) * rate
+        ramp = tl.minimum(tl.abs(gn) / g_ref, 1.0)
+        # inv=1: flip the SMALLEST gradients first (reverse magnitude)
+        prob = tl.where(inv == 1, 1.0 - ramp, ramp) * rate
         r = tl.rand(seed, idx * 5 + j)
         fire = (r < prob) & gmask
         d = tl.where(gn > 0, -1, tl.where(gn < 0, 1, 0))         # -sign(grad)
@@ -238,7 +240,7 @@ def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
 
 
 def fused_flip(wpacked: torch.Tensor, grad_w: torch.Tensor, rate: float,
-               g_ref: float, seed: int, gmean: float = None):
+               g_ref: float, seed: int, gmean: float = None, inv: int = 0):
     """Apply stochastic ternary flips directly on the packed buffer, in place.
 
     gmean: denominator of the flip threshold. Default (None) is this step's own
@@ -255,7 +257,7 @@ def fused_flip(wpacked: torch.Tensor, grad_w: torch.Tensor, rate: float,
     grid = (triton.cdiv(total, BLOCK),)
     _flip_kernel[grid](wpacked, grad_w, N, K, K5,
                        grad_w.stride(0), grad_w.stride(1),
-                       gmean, rate, g_ref, seed, BLOCK=BLOCK)
+                       gmean, rate, g_ref, seed, inv=inv, BLOCK=BLOCK)
 
 
 @triton.jit
@@ -593,3 +595,48 @@ def fused_flip_lock(wpacked, grad_w, lock, dirmask, rate: float, g_ref: float,
     _flip_lock_kernel[grid](wpacked, grad_w, lock, dirmask, N, K, K5,
                             grad_w.stride(0), grad_w.stride(1), gmean, rate, g_ref,
                             seed, mode, BLOCK=BLOCK)
+
+
+@triton.jit
+def _flip_row_kernel(w_ptr, g_ptr, gm_ptr, N, K, K5, sgn, sgk, rate, g_ref, seed,
+                     BLOCK: tl.constexpr):
+    """fused_flip with PER-ROW normalisation: each output unit's threshold uses its
+    own mean|g| instead of the whole tensor's. Changes WHICH weights clear the bar,
+    not how many overall."""
+    pid = tl.program_id(0)
+    idx = pid * BLOCK + tl.arange(0, BLOCK)
+    mask = idx < N * K5
+    n = idx // K5
+    k5 = idx % K5
+    b = tl.load(w_ptr + idx, mask=mask, other=0).to(tl.int32)
+    gmean = tl.load(gm_ptr + n, mask=mask, other=1.0)
+    newb = tl.zeros((BLOCK,), tl.int32)
+    for j in tl.static_range(5):
+        p3 = 3 ** j
+        t = (b // p3) % 3 - 1
+        k = k5 * 5 + j
+        gmask = mask & (k < K)
+        g = tl.load(g_ptr + n * sgn + k * sgk, mask=gmask, other=0.0)
+        gn = g / gmean
+        prob = tl.minimum(tl.abs(gn) / g_ref, 1.0) * rate
+        r = tl.rand(seed, idx * 5 + j)
+        fire = (r < prob) & gmask
+        d = tl.where(gn > 0, -1, tl.where(gn < 0, 1, 0))
+        nt = tl.where(fire, tl.maximum(tl.minimum(t + d, 1), -1), t)
+        newb += (nt + 1) * p3
+    tl.store(w_ptr + idx, newb.to(tl.uint8), mask=mask)
+
+
+def fused_flip_row(wpacked, grad_w, rate: float, g_ref: float, seed: int,
+                   row_mean: torch.Tensor = None):
+    """Per-row version of fused_flip. row_mean: [N] mean|g| per output unit."""
+    N, K5 = wpacked.shape
+    K = grad_w.shape[1]
+    if row_mean is None:
+        row_mean = grad_w.abs().mean(dim=1).clamp_min(1e-8)
+    row_mean = row_mean.contiguous().float()
+    BLOCK = 1024
+    grid = (triton.cdiv(N * K5, BLOCK),)
+    _flip_row_kernel[grid](wpacked, grad_w, row_mean, N, K, K5,
+                           grad_w.stride(0), grad_w.stride(1), rate, g_ref, seed,
+                           BLOCK=BLOCK)

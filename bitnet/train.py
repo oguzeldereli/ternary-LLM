@@ -36,6 +36,7 @@ from .flip import (build_flip_transformer, build_stateless_transformer,
                    build_kernel_transformer, apply_flips, enable_flip_tracking,
                    collect_flip_stats, flip_accumulated, set_flip_accum,
                    set_flip_rate, set_abs_scale, set_err_feedback, set_lockout,
+                   set_norm_mode, set_inv_prob,
                    reset_lockout, lockout_stats)
 
 
@@ -97,6 +98,12 @@ def main():
                          "AdamW steps; fp32 is the honest ceiling)")
     ap.add_argument("--theta", type=float, default=24.0, help="flip fire threshold")
     ap.add_argument("--rate", type=float, default=2e-2, help="stateless flip rate")
+    ap.add_argument("--inv_prob", action="store_true",
+                    help="reverse the probability ramp: the SMALLEST gradients flip "
+                         "most often (p = (1 - min(|g|/g_ref,1)) * rate)")
+    ap.add_argument("--norm", default="tensor", choices=["tensor", "row"],
+                    help="normalise the flip threshold by the whole tensor's mean|g| "
+                         "(default) or by each output row's own mean|g|")
     ap.add_argument("--g_ref", type=float, default=3.0,
                     help="flip-probability saturation point, in units of mean|g|: "
                          "p = min(|g|/(g_ref*mean|g|), 1) * rate. Below the knee the "
@@ -240,6 +247,14 @@ def main():
         print(f"flip accumulation: one flip per {tc.grad_accum} micro-steps "
               f"({tc.grad_accum * tc.batch_size * tc.seq_len:,} tokens/step)", flush=True)
 
+    if args.inv_prob:
+        n = set_inv_prob(model, True)
+        print(f"reverse-magnitude flip probability ({n} layers)", flush=True)
+
+    if args.norm == "row":
+        n = set_norm_mode(model, "row")
+        print(f"per-row flip normalisation ({n} layers)", flush=True)
+
     if args.flip_lockout > 0:
         n = set_lockout(model, args.flip_lockout, args.lockout_mode)
         print(f"flip lockout: {args.lockout_mode}, epoch {args.flip_lockout} steps "
@@ -290,7 +305,9 @@ def main():
                     "int8": args.int8, "dw_mode": args.dw_mode, "rate_min": args.rate_min,
                     "int8_dx": args.int8_dx, "rate_schedule": args.rate_schedule,
                     "abs_scale": args.abs_scale, "err_feedback": args.err_feedback,
-                    "g_ref": args.g_ref, "flip_lockout": args.flip_lockout,
+                    "g_ref": args.g_ref, "norm": args.norm,
+                    "inv_prob": args.inv_prob,
+                    "flip_lockout": args.flip_lockout,
                     "lockout_mode": args.lockout_mode,
                     "ef_alpha": args.ef_alpha}, tmp)
         os.replace(tmp, ckpt_path)

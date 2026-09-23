@@ -259,7 +259,7 @@ def build_stateless_transformer(c: ModelConfig, grad_checkpoint: bool = True,
 from .kernel import (pack_rows, unpack_rows, tern_gemm, tern_gemm_dx, fused_flip,
                      fused_flip_ev, trit_beta, trit_diff, popcount,
                      tern_gemm_i8, tern_gemm_dx_i8, act_quant_i8, dw_int8, dw_sign,
-                     dw_cublas, expand_trit_mask, fused_flip_lock)
+                     dw_cublas, expand_trit_mask, fused_flip_lock, fused_flip_row)
 
 _FLIP_SEED = [0]
 
@@ -328,6 +328,11 @@ class _KernelTernFn(torch.autograd.Function):
         gx = _grad_x(layer, gyf, wpacked).view(ctx.xshape)
         if layer.capture:
             layer.gw = gw.detach().float()      # diagnostics (diag_snr.py): keep grad, no flip
+            if getattr(layer, "capture_h", False):
+                # Gauss-Newton diagonal for this layer: H[n,k] = sum_m (beta*gy)^2 x^2.
+                # Same shape and cost as the weight gradient, one extra GEMM.
+                xf = (xq.to(gyf.dtype) * xs[:, None].to(gyf.dtype)) if layer.int8 else xq
+                layer.hw = ((gyf * gyf).transpose(0, 1) @ (xf * xf)).detach().float()
             return gx.to(gy.dtype), None, None
         if layer.accum_steps > 1:
             # gradient accumulation: sum dL/dW over micro-steps and flip ONCE per
@@ -342,6 +347,12 @@ class _KernelTernFn(torch.autograd.Function):
             return gx.to(gy.dtype), None, None
         _FLIP_SEED[0] += 1
         before = wpacked.clone() if layer.track else None
+        if layer.norm_mode == "row":
+            fused_flip_row(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0])
+            if layer.track:
+                layer._record_flips(before, wpacked)
+            del gw
+            return gx.to(gy.dtype), None, None
         gm = layer._flip_scale(gw)
         if layer.lockout > 0:
             fused_flip_lock(wpacked, gw, layer.lock, layer.lock_dir, layer.rate,
@@ -351,7 +362,8 @@ class _KernelTernFn(torch.autograd.Function):
             fused_flip_ev(wpacked, gw, layer.evidence, layer.rate, layer.g_ref,
                           _FLIP_SEED[0], smax=layer.ev_max, gmean=gm)
         else:
-            fused_flip(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0], gmean=gm)
+            fused_flip(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0], gmean=gm,
+                       inv=layer.inv_prob)
         if before is not None:
             layer._record_flips(before, wpacked)
         del gw
@@ -420,6 +432,8 @@ class KernelTernaryLinear(nn.Module):
         self.act_bits = act_bits
         self.rate = rate
         self.g_ref = g_ref
+        self.norm_mode = "tensor"   # "tensor" = one mean|g| per layer; "row" = per output unit
+        self.inv_prob = 0           # 1 = flip the SMALLEST gradients first
         self.ev_max = 2 ** (ev_bits - 1) - 1      # 2-bit->1, 3-bit->3, 4-bit->7
         w = torch.empty(out_features, in_features)
         nn.init.normal_(w, std=1.0 / math.sqrt(in_features))
@@ -434,7 +448,9 @@ class KernelTernaryLinear(nn.Module):
             self.evidence = None
         # --- diagnostics: capture dL/dW instead of flipping (see diag_snr.py) ---
         self.capture = False
+        self.capture_h = False
         self.gw = None
+        self.hw = None
         # --- gradient accumulation for the flip rule ----------------------------
         self.accum_steps = 1      # micro-steps per optimizer step
         self.accum_seen = 0
@@ -638,6 +654,27 @@ def lockout_stats(model):
     if not locked:
         return None
     return float(torch.stack(locked).sum().item()) / tot
+
+
+def set_inv_prob(model, inv: bool):
+    """Reverse the probability ramp: small gradients flip most often."""
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.inv_prob = 1 if inv else 0; n += 1
+    return n
+
+
+def set_norm_mode(model, mode: str):
+    """'tensor' (default) or 'row': which mean|g| normalises the flip threshold."""
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            if mode == "row" and (m.evidence is not None or m.lockout > 0 or m.abs_scale):
+                raise ValueError("row normalisation is implemented for the plain "
+                                 "stochastic flip only")
+            m.norm_mode = mode; n += 1
+    return n
 
 
 def set_flip_rate(model, rate: float):
