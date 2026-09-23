@@ -56,13 +56,13 @@ for d, lab, c, _ in RUNS[1:3]:
     ax3.plot(t, [D[d][i]["flip_rate_cfg"] * 100 / 5 for i in s], color=c, lw=1.2, ls="--",
              label=lab + " (rate/5, schedule)")
 
-ax1.set_xscale("log"); ax1.set_yscale("log"); ax1.set_xlim(1e6, 3.5e7); ax1.set_ylim(3.6, 9)
+ax1.set_xscale("log"); ax1.set_yscale("log"); ax1.set_xlim(3e4, 3.5e7); ax1.set_ylim(3.6, 11)
 ax1.set_title("Train loss (50-step avg), first 33M tokens", loc="left", color=INK)
 ax1.set_ylabel("train loss", color=INK2)
-ax2.set_xscale("log"); ax2.set_xlim(1e6, 3.5e7)
+ax2.set_xscale("log"); ax2.set_xlim(3e4, 3.5e7)
 ax2.set_title("Loss difference: rate warmup minus look-ahead", loc="left", color=INK)
 ax2.set_ylabel("Δ train loss (+ = warmup worse)", color=INK2)
-ax3.set_xscale("log"); ax3.set_xlim(1e6, 3.5e7)
+ax3.set_xscale("log"); ax3.set_xlim(3e4, 3.5e7)
 ax3.set_title("Flips per step (% of weights)", loc="left", color=INK)
 ax3.set_ylabel("% of weights", color=INK2)
 for ax in (ax1, ax2, ax3):

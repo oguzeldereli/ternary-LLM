@@ -52,7 +52,7 @@ for ax, yl, title in ((ax1, "train loss (100-step avg)", "Train loss, log-log"),
     ax.set_title(title, color=INK, fontsize=12, loc="left")
     for sp in ax.spines.values(): sp.set_color(GRID)
     ax.tick_params(colors=INK2); ax.legend(fontsize=9, frameon=False)
-ax1.set_xlim(1e6, 7e8); ax1.set_ylim(2.5, 8)
+ax1.set_xlim(3e4, 7e8); ax1.set_ylim(2.5, 11)
 ax2.set_xlim(2.5e7, 7e8)
 fig.tight_layout()
 os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
