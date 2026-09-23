@@ -660,3 +660,26 @@ Starts ~1.2 behind, closes to 0.12 at 10M with 2-5x fewer flips per step. Local 
 6.6-10M: ramp **-0.176**, main -0.145, master -0.201. Steeper than the main run as the
 rate reaches full, but not yet ahead. Not decided: needs to run past ~20-30M tokens to
 see whether it crosses and whether the steeper slope persists.
+
+### `la_fastramp_lr15`: fast flip-rate ramp + master's float-tail LR (316 steps, 10M tokens)
+
+Two changes vs `armA_cos_la1` (not yet separated): flip rate ramps 0 -> 0.02 over **30
+steps** (~1M tokens, where master's loss cliff happens) instead of starting at 0.02, and
+the float tail (embeddings, norms) uses **master's LR schedule: peak 1.5e-3, floor
+1.5e-4** (5x the flip runs' 3e-4). Note: the old 305-step ramp already matched master's
+LR warmup step for step; master drops fast at only 3-10% of peak LR, flips don't at
+3-10% of peak rate. Same batches as the main run.
+
+| step (tokens) | fast ramp + tail LR | main look-ahead | slow ramp | master |
+|---|---|---|---|---|
+| 40 (1.3M) | **7.34** | 8.39 | 9.13 | 7.59 |
+| 60 (2.0M) | **6.71** | 7.99 | 8.47 | 7.16 |
+| 100 (3.3M) | **6.32** | 6.85 | 7.09 | 6.57 |
+| 200 (6.6M) | 5.71 | 6.08 | 6.28 | 5.68 |
+| 300 (9.9M) | 5.29 | 5.65 | 5.77 | 5.15 |
+
+It reproduces master's early cliff and is at or below master from 1M to ~5M tokens;
+at 10M it is 0.37 below the main look-ahead run and 0.14 above master (main: 0.50).
+But after ~3M tokens its slope equals the main run's (-0.136, -0.148 vs -0.152, -0.145;
+master -0.21, -0.20): the early offset shrinks, the later squash is untouched in this
+window. Val at step 316: 5.197.

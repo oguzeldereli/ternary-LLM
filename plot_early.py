@@ -14,6 +14,7 @@ RUNS = [  # dir, label, color, width
     ("armA_cos_la1", "look-ahead, rate 0.02 cosine",             "#c2185b", 2.6),
     ("la_rwarm",     "look-ahead, rate warmup 0.02 to 0.04",     "#2a78d6", 2.6),
     ("la_r0ramp",    "look-ahead, rate ramp 0 to 0.02",          "#7b3fb8", 2.6),
+    ("la_fastramp_lr15", "look-ahead, fast ramp (30 steps) + master's tail LR", "#111111", 2.8),
     ("armA_cosine",  "flips, plain rule (reference)",            "#1baf7a", 1.6),
 ]
 MAX_STEP = 1000
@@ -46,14 +47,14 @@ for d, lab, c, lw in RUNS:
 # difference vs the look-ahead main run, on identical batches
 base = D["armA_cos_la1"]
 ax2.axhline(0, color=INK2, lw=1)
-for d, lab, c, _ in RUNS[2:4]:
+for d, lab, c, _ in RUNS[2:5]:
     w = D[d]; s = sorted(set(base) & set(w))
     t = np.array([w[i]["tokens"] for i in s], float)
     ax2.plot(t, smooth(np.array([w[i]["loss"] - base[i]["loss"] for i in s])), color=c, lw=2.4,
              label=lab + " minus look-ahead")
 ax2.axvline(305 * 32768, color=GRID, lw=1.5, ls="--")
 
-for d, lab, c, _ in RUNS[1:4]:
+for d, lab, c, _ in RUNS[1:5]:
     s = sorted(D[d]); t = np.array([D[d][i]["tokens"] for i in s], float)
     ax3.plot(t, smooth(np.array([D[d][i].get("flip_frac", 0) * 100 for i in s]), 20), color=c, lw=2.2,
              label=lab + " (flips kept)")
@@ -61,7 +62,7 @@ for d, lab, c, _ in RUNS[1:4]:
              label=lab + " (rate/5, schedule)")
 
 ax1.set_xscale("log"); ax1.set_yscale("log"); ax1.set_xlim(3e4, 3.5e7); ax1.set_ylim(3.6, 11)
-ax1.set_title("Train loss (trailing avg), first 33M tokens (ramp run stops at 10M)", loc="left", color=INK)
+ax1.set_title("Train loss (trailing avg), first 33M tokens (ramp runs stop at 10M)", loc="left", color=INK)
 ax1.set_ylabel("train loss", color=INK2)
 ax2.set_xscale("log"); ax2.set_xlim(3e4, 3.5e7)
 ax2.set_title("Loss difference vs look-ahead (same batches); dashed = end of warmup", loc="left", color=INK)
