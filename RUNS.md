@@ -479,3 +479,33 @@ efficient rate region *late* in its anneal (its cosine reaches ~0.005 around ste
 6000), which is exactly when it makes its biggest gains, while the 0.005 run is by
 then annealed far below it. The target is a schedule that tracks the per-step optimum
 throughout — and the greedy controller shows that tracking has to be non-myopic.
+
+### Direct measurement: curvature is concentrated in the high-gradient tail
+
+No Hessian estimator. At step 1000, flip a random set of 1,200 weights drawn from one
+|g| quantile band, compare the measured held-out change with the first-order
+prediction from a 16-batch gradient, and solve for the effective curvature
+(3 seeds per band):
+
+| \|g\| band | first-order | measured | curvature cost / flip | Newton displacement |
+|---|---|---|---|---|
+| top 0.001% | -0.0625 | **-0.0043** | 4.9e-5 | **0.8 flips** |
+| 0.01-0.1% | -0.0328 | -0.0263 | 5.4e-6 | 2.5 |
+| 0.1-1% | -0.0134 | -0.0127 | 5.8e-7 | 9 |
+| 1-10% | -0.0042 | -0.0042 | ~0 | linear |
+| 20-50% | -0.0010 | -0.0010 | ~0 | linear |
+| 50-90% | -0.0003 | -0.0003 | ~0 | linear |
+
+- The typical weight is in the **linear regime**: outside the top ~1%, a flip's
+  measured effect equals the first-order prediction exactly. There is no nearby
+  optimum along its coordinate, only a gentle slope.
+- Curvature scales roughly as **g^2**, so Newton displacement scales as 1/|g|. The
+  largest-gradient weights are the ones nearest their optimum (a flip is ~right-sized
+  at 0.8), and they are where selection damage comes from.
+- Gauss-Newton's median of ~61 is roughly right for the typical weight but badly
+  underestimates curvature in the tail. The 0.034 reported in 1eeb2e7 was an artifact
+  of the broken surrogate.
+- **Gain per flip peaks in the 0.01-0.1% band** (-2.2e-5 per flip) and is 6x lower in
+  the top band. The ideal flip probability is a hump in |g|, not the current ramp and
+  not the full inversion (which lost alpha). With H ~ c g^2, predicted gain per flip
+  is |g| - c g^2.
