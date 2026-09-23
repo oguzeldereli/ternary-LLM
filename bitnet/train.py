@@ -9,6 +9,7 @@ norms) uses a real optimizer here.
 """
 from __future__ import annotations
 import os
+import shutil
 import json
 import math
 import time
@@ -122,7 +123,7 @@ def rate_search_step(model, rate_now, rs_state, args, tc, data, gen, device, ste
             **{f"rs_{f:g}": losses[f] - base for f in factors}}
 
 
-def lookahead_step(model, x, y, tail, device, step, iters=1):
+def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0):
     """Propose flips with the normal rule, then keep only the ones that are still
     downhill given all the others.
 
@@ -140,7 +141,7 @@ def lookahead_step(model, x, y, tail, device, step, iters=1):
     for l in layers:
         grads.append(l.gw.contiguous()); l.gw = None
     tail_g = [None if p.grad is None else p.grad.clone() for p in tail]
-    seed0 = 9_000_000 + step * 131
+    seed0 = 9_000_000 + step * 131 + flip_seed * 1_000_003
     D = []
     for i, (l, g) in enumerate(zip(layers, grads)):
         fused_flip(l.wpacked, g, l.rate, l.g_ref, seed0 + i,
@@ -255,6 +256,15 @@ def main():
                          "demand into grad_x (kernel mode, grad_accum 1 only)")
     ap.add_argument("--ef_alpha", type=float, default=1.0,
                     help="mixing weight of the error-feedback term in gy")
+    ap.add_argument("--rate_peak", type=float, default=0.0,
+                    help="with --rate_warmup: ramp linearly from --rate to this peak over "
+                         "the warmup, then run --rate_schedule from the peak (0 = off)")
+    ap.add_argument("--rate_warmup", type=int, default=0,
+                    help="steps of flip-rate warmup toward --rate_peak")
+    ap.add_argument("--snap_every", type=int, default=0,
+                    help="also keep a copy of the checkpoint every N steps (ckpt_<step>.pt)")
+    ap.add_argument("--flip_seed", type=int, default=0,
+                    help="offset for the flip RNG only (data order unchanged): replicates")
     ap.add_argument("--rate_min", type=float, default=0.0,
                     help="floor for --rate_schedule: the schedule decays from --rate "
                          "to this value instead of to zero (keeps flips alive)")
@@ -275,11 +285,11 @@ def main():
                     help="tokens per output-head chunk (peak VRAM knob; math is identical)")
     ap.add_argument("--save_secs", type=float, default=900.0,
                     help="wall-clock seconds between checkpoint saves")
-    ap.add_argument("--max_temp", type=int, default=86,
+    ap.add_argument("--max_temp", type=int, default=84,
                     help="save + stop if GPU temp (C) reaches this (crash guard)")
-    ap.add_argument("--resume_temp", type=int, default=None,
+    ap.add_argument("--resume_temp", type=int, default=79,
                     help="after a thermal pause, wait until GPU temp (C) is at or below "
-                         "this before resuming (default: just below --max_temp)")
+                         "this before resuming")
     ap.add_argument("--temp_check", type=int, default=4,
                     help="check GPU temp every N steps")
     args = ap.parse_args()
@@ -298,6 +308,9 @@ def main():
     tc.min_lr = args.min_lr if args.min_lr is not None else tc.lr / 10
     if args.eval_interval: tc.eval_interval = args.eval_interval
     if args.eval_iters: tc.eval_iters = args.eval_iters
+    if args.flip_seed:
+        from . import flip as _flip_mod
+        _flip_mod._FLIP_SEED[0] = args.flip_seed * 1_000_003
 
     BitTransformer.loss_chunk = args.loss_chunk
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -492,7 +505,7 @@ def main():
             if temp is not None and temp >= args.max_temp:
                 print(f"GPU {temp}C >= {args.max_temp}C -> pausing to cool "
                       f"(step {step})", flush=True)
-                resume_at = args.max_temp - 1 if args.resume_temp is None else args.resume_temp
+                resume_at = min(args.resume_temp, args.max_temp - 1)
                 while temp is not None and temp > resume_at:
                     time.sleep(5)
                     temp = gpu_temp()
@@ -506,10 +519,17 @@ def main():
             if args.rate_schedule == "exp":
                 # f(step) = rate * exp(-step / tau); never exactly zero
                 rate_now = args.rate * math.exp(-step / args.rate_tau)
+            elif args.rate_peak > 0 and step < args.rate_warmup:
+                rate_now = args.rate + (args.rate_peak - args.rate) * step / args.rate_warmup
             else:
+                top = args.rate
+                if args.rate_peak > 0:          # decay from the peak over what is left
+                    top = args.rate_peak
+                    prog = min(1.0, (step - args.rate_warmup)
+                               / max(1, tc.max_steps - args.rate_warmup))
                 mult = (0.5 * (1 + math.cos(math.pi * prog))
                         if args.rate_schedule == "cosine" else 1.0 - prog)
-                rate_now = args.rate_min + (args.rate - args.rate_min) * mult
+                rate_now = args.rate_min + (top - args.rate_min) * mult
             set_flip_rate(model, rate_now)
         if args.rate_search:
             rate_now = rate_now * rs_state["mult"]
@@ -538,7 +558,8 @@ def main():
         if args.mode in ("kernel", "evidence") and tc.grad_accum > 1:
             flip_accumulated(model)
         if args.lookahead:
-            rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead)
+            rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
+                                     args.flip_seed)
         elif search:
             rs_info = rate_search_step(model, rate_now, rs_state, args, tc, train_data,
                                        rs_gen, device, step)
@@ -581,6 +602,9 @@ def main():
             vl = evaluate(model, val_data, tc, device)
             log_metrics({"step": step, "val_loss": vl, "val_ppl": math.exp(vl)})
             print(f"  ---- val loss {vl:.3f} | ppl {math.exp(vl):.1f}", flush=True)
+        if args.snap_every and step > 0 and step % args.snap_every == 0:
+            save_ckpt(step)
+            shutil.copyfile(ckpt_path, os.path.join(tc.out_dir, f"ckpt_{step}.pt"))
         if time.time() - last_save >= args.save_secs:
             save_ckpt(step)
             last_save = time.time()

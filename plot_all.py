@@ -17,7 +17,9 @@ SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 GROUPS = [
     ("master weights + AdamW (ceiling)", "#eb6834", "p2_baseline", ["p2_baseline"]),
     ("stateless look-ahead filter", "#c2185b", "armA_cos_la1",
-     ["armA_cos_la1", "la1", "la2", "la_rwarm"]),
+     ["armA_cos_la1", "la1", "la2", "la_rwarm", "la_r0ramp"]),
+    ("look-ahead + fast flip ramp + master's tail LR (10M screen)", "#111111",
+     "la_fastramp_lr15", ["la_fastramp_lr15"]),
     ("stateless flips: rate schedules, batch, lr", "#1baf7a", "armA_cos_600M",
      ["armA_cosine", "armA_cos_600M", "armA_linear", "armA_cos_r005", "armA_cos_floor",
       "p3b_acc1", "p3b_acc4", "armA_cos_lr15", "lr_ctl"]),

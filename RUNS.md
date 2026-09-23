@@ -1,8 +1,8 @@
 # Runs
 
-![every training mode](docs/modes.png)
+![every run, grouped](docs/all_runs.png)
 
-*(regenerate with `python3 plot_modes.py`)*
+*(regenerate with `python3 plot_all.py`)*
 
 ## Headline
 
@@ -242,7 +242,7 @@ input dtype from `RMSNorm`, and chunking the output head dropped peak VRAM at
 
 ## Spatial error feedback (negative result)
 
-![error feedback](docs/error_feedback.png)
+(curve: see [docs/all_runs.png](docs/all_runs.png))
 
 Idea: a stochastic flip moves a weight by a full level (or not at all) where the
 rule's expectation is `p` of a level. Instead of storing that residual per weight,
@@ -281,7 +281,7 @@ post-flip weights.
 
 ## Per-weight flip lockout (negative result)
 
-![flip lockout](docs/flip_lockout.png)
+(curve: see [docs/all_runs.png](docs/all_runs.png))
 
 Idea: nearly all flip work is undone, so let each weight flip **once**, then lock it
 until the epoch ends (`--flip_lockout N --lockout_mode once`), or allow further flips
@@ -330,7 +330,7 @@ only.
 
 ## Scaling shape (log-log)
 
-![scaling](docs/scaling.png)
+(curve: see [docs/all_runs.png](docs/all_runs.png))
 
 Local power-law slopes of training loss vs tokens, fitted over the last three
 quarters of each run:
@@ -470,7 +470,7 @@ one-step optimum at step 1000) instead of 0.02, 300M tokens:
 | 262M | 101.7 | 100.6 |
 | **300M** | **100.95** | **98.56** |
 
-![rate](docs/rate_005.png)
+(curve: see [docs/all_runs.png](docs/all_runs.png))
 
 Ahead by up to 17 ppl through ~70% of training, then overtaken; the endpoint is 2.4
 ppl worse, which is inside the single-run noise band for this study. So the one-step

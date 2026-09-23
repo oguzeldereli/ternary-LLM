@@ -13,7 +13,7 @@ Two things live here:
 
 ## Headline numbers
 
-![every training mode](docs/modes.png)
+![every run, grouped](docs/all_runs.png)
 
 27B training on one 12 GB GPU (seq 512):
 
