@@ -640,3 +640,23 @@ look-ahead) and most of the final offset forms. Doubling the movement there does
 help, so the gap is not about *how much* moves but *what* moves: master makes some
 coordinated change there that independent flips don't. Next: structural probes (e.g.
 induction/copying loss on repeated sequences) on snapshots, master vs flips.
+
+### `la_r0ramp`: flip rate ramped from 0 (stopped at step 313, 10M tokens)
+
+Look-ahead as `armA_cos_la1`, but the flip rate ramps 0 -> 0.02 over the LR warmup
+(305 steps), then cosine. Hypothesis: full-rate flips from step 0 act on uninformative
+early gradients (39% of weights flipped by step 150), lock in a poor configuration and
+"squash" all later progress (look-ahead = master's curve compressed 1.67x in log-loss).
+Same batches as the main run; isolated code copy; main run paused meanwhile.
+
+| step (tokens) | ramp from 0 | main | master |
+|---|---|---|---|
+| 10 (0.4M) | 10.44 | 9.25 | 10.14 |
+| 100 (3.3M) | 7.09 | 6.85 | 6.57 |
+| 200 (6.6M) | 6.33 | 6.11 | 5.70 |
+| 313 (10.3M) | 5.79 | 5.67 | 5.17 |
+
+Starts ~1.2 behind, closes to 0.12 at 10M with 2-5x fewer flips per step. Local slope
+6.6-10M: ramp **-0.176**, main -0.145, master -0.201. Steeper than the main run as the
+rate reaches full, but not yet ahead. Not decided: needs to run past ~20-30M tokens to
+see whether it crosses and whether the steeper slope persists.
