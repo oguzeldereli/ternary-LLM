@@ -622,3 +622,21 @@ differs from an uninterrupted run; val batches are fixed.
   -0.065, master -0.149); 60-98M **-0.112** (reference -0.069, master -0.138). Every
   earlier flip rule flattened in this window; this one steepens.
 - Keeps 55-60% of proposed flips throughout; flips 0.19-0.20% of weights per step.
+
+### `la_rwarm`: flip-rate warmup in the early phase (stopped at step 790)
+
+Look-ahead exactly as `armA_cos_la1`, but the flip rate ramps linearly from 0.02 to
+**0.04** over the LR warmup (305 steps, 10M tokens), then cosine from 0.04 to 0. Run in
+parallel from an isolated code copy (the flags `--rate_peak/--rate_warmup/--snap_every`
+are not in the repo yet); the main run was paused with SIGSTOP meanwhile. Stopped at
+step 790 on request: the outcome was clear.
+
+Same batches as the main run for these steps. The warmup run flips ~0.5% of weights per
+step vs ~0.24% (the filter keeps 63-65% of proposals, so the extra flips are applied),
+yet train loss is **slightly worse throughout** (+0.01 to +0.027, 50-step average).
+
+The 10-30M-token window is where master pulls away (slope -0.26 to -0.28 vs -0.12 for
+look-ahead) and most of the final offset forms. Doubling the movement there does not
+help, so the gap is not about *how much* moves but *what* moves: master makes some
+coordinated change there that independent flips don't. Next: structural probes (e.g.
+induction/copying loss on repeated sequences) on snapshots, master vs flips.
