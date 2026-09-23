@@ -2,7 +2,7 @@
 # Run queue used for the flip-rule study. Each run resumes from its own
 # checkpoint if interrupted; see RUNS.md for the results.
 set -u
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../../.."
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONPATH=.
 LOG=checkpoints/orchestrate.log

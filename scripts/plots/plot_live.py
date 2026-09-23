@@ -36,7 +36,7 @@ def smooth(L, k=100):
     return np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(L))])
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/lookahead_live.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/lookahead_live.png")
 a = ap.parse_args()
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7.5), facecolor=SURFACE)
 for d, lab, c, lw in RUNS:

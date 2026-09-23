@@ -27,7 +27,7 @@ RUNS = [
 ]
 COLOR = {"ceiling": CEILING, "best": BEST, "flip": FLIP}
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/modes.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/modes.png")
 args = ap.parse_args()
 
 

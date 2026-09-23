@@ -31,7 +31,7 @@ def load(d):
     return t, np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(L))])
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/stretch.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/stretch.png")
 a = ap.parse_args()
 mt, mL = load("p2_baseline")
 lt, lL = load("armA_cos_la1")

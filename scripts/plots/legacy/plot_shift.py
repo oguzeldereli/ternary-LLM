@@ -68,7 +68,7 @@ def shift(t, Ls, mode):
     return t - t[0] + mt[j], Ls
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/all_runs_shifted.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/all_runs_shifted.png")
 a = ap.parse_args()
 fig, axes = plt.subplots(1, 2, figsize=(22, 9), facecolor=SURFACE)
 for ax, mode, title in ((axes[0], "tokens", f"Tokens counted from the cut at 10^5.5 (flip runs); master from 0"),

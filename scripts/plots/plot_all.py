@@ -60,7 +60,7 @@ def on_grid(t, Ls):
     return np.exp(y)
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/all_runs.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/all_runs.png")
 a = ap.parse_args()
 fig, ax = plt.subplots(figsize=(15, 9), facecolor=SURFACE)
 for label, color, best, members in GROUPS:

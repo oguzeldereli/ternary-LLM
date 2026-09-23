@@ -4,7 +4,7 @@
 #   2. full 300M-token run of the best, comparable to armA_cosine (98.56)
 # All arms keep the cosine flip-rate anneal, which is the one thing known to help.
 set -u
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../../.."
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONPATH=.
 LOG=checkpoints/lockout_overnight.log

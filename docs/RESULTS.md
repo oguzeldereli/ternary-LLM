@@ -226,5 +226,5 @@ python3 -m bitnet.train --preset small --mode kernel --int8 --dw_mode dense \
 python3 -m bitnet.train --preset small --mode master --master_dtype fp32 ... \
   --lr 1.5e-3 --min_lr 1.5e-4 --out_dir checkpoints/baseline
 python3 diag_snr.py --ckpt checkpoints/anneal/ckpt.pt --seq 2048   # gradient SNR
-python3 plot_compare.py checkpoints/anneal checkpoints/baseline    # plots
+python -m scripts.plots.plot_compare checkpoints/anneal checkpoints/baseline    # plots
 ```

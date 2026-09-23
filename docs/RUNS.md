@@ -1,8 +1,8 @@
 # Runs
 
-![every run, grouped](docs/all_runs.png)
+![every run, grouped](figures/all_runs.png)
 
-*(regenerate with `python3 plot_all.py`)*
+*(regenerate with `python -m scripts.plots.plot_all`; run directories are listed in [RUN_INDEX.md](RUN_INDEX.md))*
 
 ## Headline
 
@@ -242,7 +242,7 @@ input dtype from `RMSNorm`, and chunking the output head dropped peak VRAM at
 
 ## Spatial error feedback (negative result)
 
-(curve: see [docs/all_runs.png](docs/all_runs.png))
+(curve: see [figures/all_runs.png](figures/all_runs.png))
 
 Idea: a stochastic flip moves a weight by a full level (or not at all) where the
 rule's expectation is `p` of a level. Instead of storing that residual per weight,
@@ -281,7 +281,7 @@ post-flip weights.
 
 ## Per-weight flip lockout (negative result)
 
-(curve: see [docs/all_runs.png](docs/all_runs.png))
+(curve: see [figures/all_runs.png](figures/all_runs.png))
 
 Idea: nearly all flip work is undone, so let each weight flip **once**, then lock it
 until the epoch ends (`--flip_lockout N --lockout_mode once`), or allow further flips
@@ -330,7 +330,7 @@ only.
 
 ## Scaling shape (log-log)
 
-(curve: see [docs/all_runs.png](docs/all_runs.png))
+(curve: see [figures/all_runs.png](figures/all_runs.png))
 
 Local power-law slopes of training loss vs tokens, fitted over the last three
 quarters of each run:
@@ -470,7 +470,7 @@ one-step optimum at step 1000) instead of 0.02, 300M tokens:
 | 262M | 101.7 | 100.6 |
 | **300M** | **100.95** | **98.56** |
 
-(curve: see [docs/all_runs.png](docs/all_runs.png))
+(curve: see [figures/all_runs.png](figures/all_runs.png))
 
 Ahead by up to 17 ppl through ~70% of training, then overtaken; the endpoint is 2.4
 ppl worse, which is inside the single-run noise band for this study. So the one-step
@@ -728,7 +728,8 @@ long-context statistics early) and have not made that change by 5M tokens.
 ## Float tail precision: the norm gains never trained (bug) — `--tail_fp32`
 
 In kernel (flip) mode the float tail (embeddings + all 25 RMSNorm gains) has been bf16
-+ 8-bit Adam since the start. Near 1.0 bf16 spacing is 2^-7; an Adam step (~lr <=
++ bf16-state Adam since the start. RESULTS.md §0 described this exact bug as fixed; it
+was not fixed in the kernel path used for every run in this file. Near 1.0 bf16 spacing is 2^-7; an Adam step (~lr <=
 1.5e-3) is below half of it, so **every norm-gain update rounded away: all gains are
 exactly 1.0000 in every flip run** (master, fp32: mean 1.53 on the final norm after
 300M tokens, per-layer means 0.40-1.06, channels from ~0 to 2.3). Embedding updates

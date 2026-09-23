@@ -5,7 +5,7 @@
 #   2. full 300M-token run with the better nonzero alpha, directly comparable to
 #      armA_cosine (98.56): identical config plus --err_feedback
 set -u
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../../.."
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONPATH=.
 LOG=checkpoints/ef_overnight.log

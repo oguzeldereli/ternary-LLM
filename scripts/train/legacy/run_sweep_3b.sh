@@ -4,7 +4,7 @@
 # variable is tokens-per-step (gradient accumulation 1/4/16/64).
 # micro-batch 16 x seq 2048 = 32,768 tokens per micro-step.
 set -u
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../../.."
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONPATH=.
 export TRITON_CACHE_DIR=${TRITON_CACHE_DIR:-$HOME/.triton/cache}

@@ -22,7 +22,7 @@ def load(d):
     return P, T, tok
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/probes.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/probes.png")
 a = ap.parse_args()
 fig, axs = plt.subplots(2, 3, figsize=(21, 11), facecolor=SURFACE)
 ax = axs.ravel()

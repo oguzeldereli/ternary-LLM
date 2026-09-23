@@ -7,13 +7,15 @@ keep the weights packed at **1.58 bit** (5 trits/byte) even during training.
 Two things live here:
 - **A systems result:** a 27B ternary model *trains* on a single 12 GB consumer
   GPU (172 tok/s, ~9.9 GiB) — weights never materialized dense.
-- **A study:** how far can you get *without* the master weights, and does a cheap
-  per-weight accumulator recover the gap. See **[RESULTS.md](RESULTS.md)** and
-  **[NOTES.md](NOTES.md)**.
+- **A study:** how far can you get *without* the master weights. Stateless flip
+  rules, a look-ahead flip filter, and what still separates them from a
+  latent-master ceiling. See **[docs/RUNS.md](docs/RUNS.md)** (every run, newest
+  findings at the bottom), **[docs/RESULTS.md](docs/RESULTS.md)** and
+  **[docs/NOTES.md](docs/NOTES.md)**.
 
 ## Headline numbers
 
-![every run, grouped](docs/all_runs.png)
+![every run, grouped](docs/figures/all_runs.png)
 
 27B training on one 12 GB GPU (seq 512):
 
@@ -23,116 +25,109 @@ Two things live here:
 | + Triton kernels (fwd, grad_x, fused-flip) | **172** | **9.93 GiB** |
 | + int8 tensor-core forward, norms inside checkpoint | **170** | **8.55 GiB** |
 
-Master-free study, 110M params, seq 2048, 32,768 tokens/step, 300M tokens of
-Wikipedia, everything identical except the weight-update rule:
+Master-free study, 110M params, seq 2048, 32,768 tokens/step, Wikipedia (32k vocab),
+everything identical except the weight-update rule (val perplexity):
 
-| training mode | per-weight state | perplexity |
-|---|---|---|
-| latent master + STE + AdamW (**ceiling**) | 12 B/param | **15.79** |
-| stateless flips, annealed rate | 1.58 bit | **98.56** |
-| stateless flips, annealed rate, 600M tokens | 1.58 bit | **92.72** |
-| stateless flips, constant rate | 1.58 bit | 135.84 |
-| stateless flips, frozen absolute threshold | 1.58 bit | 160.68 |
+| training mode | per-weight state | tokens | perplexity |
+|---|---|---|---|
+| latent master + STE + AdamW (**ceiling**) | 12 B/param | 300M | **15.79** |
+| stateless flips + **look-ahead filter** (stopped early, still falling) | 1.58 bit | 200M | **65.3** |
+| stateless flips, annealed rate, 600M tokens | 1.58 bit | 600M | 92.72 |
+| stateless flips, annealed rate | 1.58 bit | 300M | 98.56 |
+| stateless flips, constant rate | 1.58 bit | 300M | 135.84 |
 
-Master-free ternary costs **6.2x perplexity** against its own ceiling. The plateau
-that earlier versions of this repo reported at 1552 ppl was two bugs (no weight
-scale in the forward, and a bf16 tail that froze every norm gain at exactly 1.0)
-plus a flip rule that never stops flipping — see [RESULTS.md](RESULTS.md) §0 and
-[NOTES.md](NOTES.md).
+Caveat: until `--tail_fp32` (see docs/RUNS.md, "Float tail precision"), every
+flip run trained its float tail (embeddings, norm gains) in bf16, which froze all
+RMSNorm gains at exactly 1.0. Master mode never had this. Flip-vs-flip comparisons
+are fair; flip-vs-master comparisons carry that handicap.
+
+## Layout
+
+```
+bitnet/                  the package: model, Triton kernels, flip rules, training loop
+  train.py               training entry point  (python -m bitnet.train --help)
+  kernel.py              packed-ternary Triton kernels (fwd GEMM, grad_x, fused flip)
+  flip.py                flip layers (stateless, evidence, kernel, look-ahead capture)
+  master.py              latent-master baseline (STE + AdamW), the ceiling
+  probe.py               in-training probes (--probe): copying, context use, norms
+  model.py, config.py    Llama-style transformer, presets (small = 110M ... b27 = 27B)
+  opt8.py, pack.py, packed.py, data_prep*.py
+scripts/
+  train/                 run launchers (screen_10m.sh, full_run.sh); legacy/ = old queues
+  analysis/              offline experiments on checkpoints (curvature, look-ahead,
+                         per-step efficiency, gradient SNR, superposition)
+  plots/                 figure scripts -> docs/figures/   (legacy/ = retired figures)
+  bench/                 kernel / throughput benchmarks (incl. 27B)
+  data/, generate/       data prep, text sampling
+tests/                   sanity tests
+docs/                    RUNS.md (lab notebook), RESULTS.md, NOTES.md, RUN_INDEX.md,
+                         figures/
+checkpoints/             run outputs, one dir per run (gitignored; see docs/RUN_INDEX.md)
+data/                    tokenized corpora (gitignored)
+```
+
+Everything runs **from the repo root**; scripts are modules:
+`python -m scripts.plots.plot_all`, `python -m scripts.analysis.efficiency_test <ckpts>`.
+
+## Quickstart
+
+```bash
+pip install -r requirements.txt
+python -m tests.test_flip                                   # sanity
+
+# data: Wikipedia with the 32k Llama tokenizer
+python -m scripts.data.prep_wiki 1.25e9
+
+# a 10M-token screen of the current best flip config (~20 min on one GPU)
+scripts/train/screen_10m.sh my_screen                       # extra flags are appended
+
+# a full 300M-token run of the current best flip config (~10 h)
+scripts/train/full_run.sh my_run
+
+# master-weights ceiling (same data, batch, schedule)
+python -m bitnet.train --preset small --mode master --master_dtype fp32 \
+    --data data/wiki32k_train.bin --val data/wiki32k_val.bin --seq_len 2048 \
+    --batch_size 16 --steps 9155 --warmup 305 --lr 1.5e-3 --min_lr 1.5e-4 \
+    --out_dir checkpoints/master
+
+# resume anything
+python -m bitnet.train <same flags> --out_dir checkpoints/<run> --resume
+
+# figures
+python -m scripts.plots.plot_all          # every run, grouped -> docs/figures/all_runs.png
+```
 
 ## Training modes (`--mode`)
 
 | mode | what | state per weight |
 |------|------|------------------|
 | `kernel` | pure-ternary, stochastic flips, Triton kernels (fastest) | trit only |
-| `master` | latent weights + STE + AdamW — the `bit -> inf` ceiling | fp32 latent + Adam |
+| `master` | latent weights + STE + AdamW — the ceiling | fp32 latent + Adam |
 | `evidence` | `kernel` + k-bit saturating counter (`--ev_bits`) | trit + k bits |
 | `stateless` | pure-ternary flips, torch path | trit only |
 | `flip` | learned flip-predictor + int8 evidence (torch) | trit + int8 |
 | `latent` | int8 latent master-free path | int8 |
 
-Key flags for the flip rule: `--rate_schedule {const,cosine,linear,exp}` (annealing
-the flip rate is the single biggest quality win), `--rate_min` (non-zero floor),
-`--abs_scale` (freeze the threshold denominator — measured *worse*),
-`--err_feedback --ef_alpha` (push unapplied flip residual into grad_x — measured
-*worse*: 156 vs 98.6), `--int8`
-(s8 tensor-core forward), `--track_flips` (per-layer flip-rate telemetry).
+Key flags (kernel mode):
 
-## Quickstart
-
-```bash
-pip install -r requirements.txt
-python3 test_flip.py                                   # sanity
-
-# data: your own text, or Wikipedia
-python3 prep_wiki.py 1.25e9                             # ~1.25B GPT-2 BPE tokens
-# or: python3 -m bitnet.data_prep_words --input corpus.jsonl   # word-level
-
-# train (kernel mode; add --max_temp N for the thermal guard)
-python3 -m bitnet.train --preset s50 --mode evidence --ev_bits 3 \
-    --data data/wiki_train.bin --val data/wiki_val.bin \
-    --seq_len 512 --batch_size 16 --lr 3e-4 --out_dir checkpoints/run
-
-# resume anytime
-python3 -m bitnet.train ... --out_dir checkpoints/run --resume
-
-# generate from a (mid-training) checkpoint
-python3 generate.py --ckpt checkpoints/run/ckpt.pt --vocab data/wiki_vocab.json \
-    --prompt "the history of" --tokens 80
-
-# deploy: collapse to packed ternary (~1.6 bit)
-python3 -m bitnet.pack --ckpt checkpoints/run/ckpt.pt --out deploy.pt
-```
-
-Presets (`bitnet/config.py`): `small` 110M · `s50` 51M · `d1024_l24` 340M ·
-`b27` 27B · `b40` 37B.
-
-## Features
-
-- **1.58-bit packed weights, resident during training** — 5 trits/byte, unpacked
-  only transiently one layer at a time.
-- **Triton packed-ternary kernels** (`bitnet/kernel.py`): `tern_gemm` (forward),
-  `tern_gemm_dx` (backward), `fused_flip` (in-place stochastic flips), autotuned,
-  trits decoded in-register — no dense weight ever built.
-- **Master-free training** — the ternary weight is the only stored state; updates
-  are discrete flips, optionally gated by a k-bit per-weight counter.
-- **bf16-state Adam** (`bitnet/opt8.py`) for the small float tail (embeddings).
-- **Resumable + atomic checkpoints + thermal guard** (`--max_temp` pauses on heat).
-
-## Files
-
-| path | role |
-|------|------|
-| `bitnet/kernel.py` | Triton packed-ternary GEMM (fwd, grad_x, fused flip) |
-| `bitnet/flip.py` | flip layers: stateless, k-bit evidence, kernel, predictor |
-| `bitnet/packed.py` | 5-trits/byte packing |
-| `bitnet/model.py` | Llama-style transformer (RMSNorm, RoPE, SwiGLU, GQA) |
-| `bitnet/config.py` | model/train config + presets |
-| `bitnet/train.py` | training loop (resume, checkpoint, thermal guard) |
-| `bitnet/opt8.py` | bf16-state AdamW for the float tail |
-| `bitnet/pack.py` | collapse checkpoint to deployable packed ternary |
-| `generate.py` | sample text from a checkpoint |
-| `prep_wiki.py`, `bitnet/data_prep*.py` | tokenize data to uint16 streams |
-| `superpose_test.py`, `superpose_sweep.py` | the superposition negative result |
-| `bitnet/master.py` | latent-master baseline (STE + AdamW) — the ceiling |
-| `diag_snr.py` | split-batch gradient SNR per layer |
-| `plot_run.py`, `plot_compare.py` | loss / flip-rate / never-flipped plots |
-| `gen.py` | sample text from a wiki32k checkpoint |
-| `RUNS.md` | every run: config, wall clock, final ppl |
+| flag | what |
+|---|---|
+| `--lookahead 1` | look-ahead filter: keep a proposed flip only if its slope is still downhill at W+Δ (the biggest win so far; ~1.8x per step) |
+| `--rate`, `--rate_schedule cosine`, `--rate_peak`, `--rate_warmup` | flip-rate schedule (ramp to the peak, then anneal) |
+| `--g_ref` | knee of the flip-probability ramp (broad optimum 3-10) |
+| `--tail_fp32` | float tail in fp32 + AdamW like master (otherwise norm gains freeze at 1.0) |
+| `--probe 0-40:5,40-9155:250` | log copying / context-use / norm probes |
+| `--max_temp 84 --resume_temp 79` | thermal guard: pause when hot, resume when cool (on by default) |
+| `--flip_seed N` | replicate with different flip randomness, same data order |
+| `--snap_every N` | keep a checkpoint copy every N steps |
+| `--int8`, `--track_flips` | int8 tensor-core forward; per-layer flip telemetry |
 
 ## Honest limitations
 
-- Master-free training **costs 6.2x perplexity** vs a latent-master baseline at
-  identical config (98.56 vs 15.79). Annealing the flip rate closed 27% of the
-  master-free gap; doubling the token budget to 600M buys only a few points, so the
-  rest looks rule-bound rather than data-bound.
-- **n = 1, one model size, one dataset, and everything is undertrained** (300M
-  tokens for a 110M model is ~7% of Chinchilla). Differences within the annealed
-  group are inside the ±5 ppl eval noise. See RESULTS.md §4.
-- The **accumulator bit-depth curve is currently unmeasured** — the 2-bit / 3-bit
-  evidence runs predate the beta fix and were not re-run.
-- 27B *fits* on one GPU but can't be *pretrained* there — 170 tok/s vs the ~540B
-  tokens Chinchilla wants is ~100 years. The wall is compute, not memory.
+- **n = 1 per config, one model size (110M), one dataset**, and everything is
+  undertrained (300M tokens for a 110M model is ~7% of Chinchilla).
+- The flip runs had frozen norm gains until `--tail_fp32` (above).
+- 27B *fits* on one GPU but can't be *pretrained* there — 170 tok/s against the
+  ~540B tokens Chinchilla wants is ~100 years. The wall is compute, not memory.
 - Ternary gives a real but modest compute win on current GPUs: the int8 tensor-core
-  forward is 1.7-2.0x per layer but only **1.12-1.15x end-to-end**, because
-  attention, norms and the output head don't touch those kernels.
+  forward is 1.7-2.0x per layer but only **1.12-1.15x end-to-end**.

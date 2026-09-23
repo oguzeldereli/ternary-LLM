@@ -11,7 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/scaling.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/scaling.png")
 args = ap.parse_args()
 
 RUNS = [("p2_baseline",   "master weights",                "#eb6834"),

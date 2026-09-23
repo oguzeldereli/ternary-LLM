@@ -30,7 +30,7 @@ def smooth(L, k=25):
     return np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(L))])
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/tail_fp32.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/tail_fp32.png")
 a = ap.parse_args()
 D = {d: load(d) for d, _, _ in RUNS}
 fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6.5), facecolor=SURFACE)

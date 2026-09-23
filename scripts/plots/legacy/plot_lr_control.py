@@ -12,7 +12,7 @@ SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 BASE, FLIP, CTL = "#eb6834", "#2a78d6", "#1baf7a"
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--out", default="docs/lr_control.png")
+ap.add_argument("--out", default="docs/figures/lr_control.png")
 ap.add_argument("--steps", type=int, default=1050)
 args = ap.parse_args()
 
