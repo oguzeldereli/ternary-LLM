@@ -697,3 +697,30 @@ window. Look-ahead kept a large constant lead but stopped pulling away around
 Five whole-machine hard resets during this run (no GPU/thermal errors logged, GPU at
 80-86 C each time). Added `--resume_temp` to the thermal guard (pause at `--max_temp`,
 wait until `--resume_temp`); 84/79 costs ~3% throughput, 75/70 ~33%.
+
+## Probes: what master learns in the early phase that flips don't (`bitnet/probe.py`)
+
+`--probe` logs, on fixed data: loss given only the last K tokens (K = 1, 8, 64, 512),
+in-context copying (loss on a random 64-token sequence minus loss on its exact repeat),
+the spread of the context-independent (unigram) part of the logits, final-norm gain and
+embedding norm. Reference levels on this data: unigram cross-entropy **7.18**, bigram
+~5.0-5.2 (computed from counts). Runs: `probe_master` (p2_baseline config) and
+`probe_fast` (look-ahead + fast ramp + master's tail LR), 161 steps (5.3M tokens) each.
+
+- The flip runs' first pause (~9.25) is at the level of a partially learned unigram
+  (p^0.2); master's first pause (~7.2) is the full unigram plateau.
+- **Logit scale is not the difference** once the tail LR matches: unigram-logit spread
+  1.52 vs 1.62 at 2M tokens, final-norm gain ~1.0 in both.
+- **Long-context use is not missing**: loss(K=8) - loss(K=512) is *larger* for flips
+  (0.57 vs 0.38 at 3.3M, 0.72 vs 0.44 at 4.9M).
+- **Copying shows a sharp transition in master that flips lack.** Both first learn to
+  expect tokens *not* to repeat (repeat loss > first-copy loss). Master snaps out of it
+  between 2.0M and 2.3M tokens (-0.52 -> -0.05 -> +0.01), exactly where its unigram
+  pause ends and its steeper second descent begins. Flips stay at -0.2 to -0.34 through
+  4.9M (-0.06 at the last point, 5.3M, possibly the start of it).
+- Val at 5.3M: master 5.79, flips 5.76 — equal here; master pulls ahead after ~6M.
+
+Reading: master goes through a sharp internal change (overriding the don't-repeat prior
+by attending to earlier occurrences, a precursor of induction) at the end of its pause,
+and its steeper regime starts there. Flips learn context gradually and greedily (more
+long-context statistics early) and have not made that change by 5M tokens.

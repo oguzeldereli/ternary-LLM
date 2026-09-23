@@ -35,6 +35,7 @@ from .bitlinear import STATE
 from .master import build_master_transformer, split_params, MasterTernaryLinear
 from .kernel import fused_flip, unpack_rows, pack_rows
 from .flip import KernelTernaryLinear
+from .probe import probe, parse_schedule
 from .flip import (build_flip_transformer, build_stateless_transformer,
                    build_kernel_transformer, apply_flips, enable_flip_tracking,
                    collect_flip_stats, flip_accumulated, set_flip_accum,
@@ -263,6 +264,8 @@ def main():
                     help="steps of flip-rate warmup toward --rate_peak")
     ap.add_argument("--snap_every", type=int, default=0,
                     help="also keep a copy of the checkpoint every N steps (ckpt_<step>.pt)")
+    ap.add_argument("--probe", default="",
+                    help="probe schedule, e.g. '0-40:5,40-160:20' (bitnet/probe.py)")
     ap.add_argument("--flip_seed", type=int, default=0,
                     help="offset for the flip RNG only (data order unchanged): replicates")
     ap.add_argument("--rate_min", type=float, default=0.0,
@@ -496,6 +499,7 @@ def main():
     t0 = time.time()
     last_save = time.time()
     end_step = tc.max_steps if args.stop_after is None else min(tc.max_steps, args.stop_after)
+    probe_steps = parse_schedule(args.probe)
     for step in range(start_step, end_step):
         _last["step"] = step
         # thermal guard: PAUSE (not stop) while GPU is at/above max_temp; resume
@@ -510,6 +514,8 @@ def main():
                     time.sleep(5)
                     temp = gpu_temp()
                 print(f"cooled to {temp}C -> resuming", flush=True)
+        if step in probe_steps:
+            log_metrics({"step": step, "probe": True, **probe(model, val_data, device)})
         if args.flip_lockout > 0 and step % args.flip_lockout == 0:
             reset_lockout(model)
         lr = lr_at(step, tc)
