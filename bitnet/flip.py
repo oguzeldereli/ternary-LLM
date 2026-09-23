@@ -368,7 +368,8 @@ class _KernelTernFn(torch.autograd.Function):
                           _FLIP_SEED[0], smax=layer.ev_max, gmean=gm)
         else:
             fused_flip(wpacked, gw, layer.rate, layer.g_ref, _FLIP_SEED[0], gmean=gm,
-                       inv=layer.inv_prob)
+                       inv=layer.inv_prob, hump=layer.hump, hump_g0=layer.hump_g0,
+                       hump_alpha=layer.hump_alpha)
         if before is not None:
             layer._record_flips(before, wpacked)
         del gw
@@ -439,6 +440,9 @@ class KernelTernaryLinear(nn.Module):
         self.g_ref = g_ref
         self.norm_mode = "tensor"   # "tensor" = one mean|g| per layer; "row" = per output unit
         self.inv_prob = 0           # 1 = flip the SMALLEST gradients first
+        self.hump = 0               # 1 = probability ~ measured net gain per flip
+        self.hump_g0 = 37.0
+        self.hump_alpha = 1.8
         self.ev_max = 2 ** (ev_bits - 1) - 1      # 2-bit->1, 3-bit->3, 4-bit->7
         w = torch.empty(out_features, in_features)
         nn.init.normal_(w, std=1.0 / math.sqrt(in_features))
@@ -659,6 +663,15 @@ def lockout_stats(model):
     if not locked:
         return None
     return float(torch.stack(locked).sum().item()) / tot
+
+
+def set_hump(model, g0: float, alpha: float):
+    """Flip probability proportional to measured net gain: (g/g_ref)(1-(g/g0)^alpha)."""
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.hump = 1; m.hump_g0 = g0; m.hump_alpha = alpha; n += 1
+    return n
 
 
 def set_inv_prob(model, inv: bool):

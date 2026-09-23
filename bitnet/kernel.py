@@ -211,7 +211,8 @@ def tern_gemm_dx(gy: torch.Tensor, wpacked: torch.Tensor, K: int) -> torch.Tenso
 
 @triton.jit
 def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
-                 inv: tl.constexpr, BLOCK: tl.constexpr):
+                 hump_g0, hump_alpha,
+                 inv: tl.constexpr, hump: tl.constexpr, BLOCK: tl.constexpr):
     # in-place stochastic flip on packed bytes: decode 5 trits, flip each toward
     # -sign(grad) with prob ~ |grad|, re-encode, write. No dense weight round-trip.
     pid = tl.program_id(0)
@@ -228,9 +229,15 @@ def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
         gmask = mask & (k < K)
         g = tl.load(g_ptr + n * sgn + k * sgk, mask=gmask, other=0.0)
         gn = g / gmean
-        ramp = tl.minimum(tl.abs(gn) / g_ref, 1.0)
+        ga = tl.abs(gn)
+        ramp = tl.minimum(ga / g_ref, 1.0)
         # inv=1: flip the SMALLEST gradients first (reverse magnitude)
         prob = tl.where(inv == 1, 1.0 - ramp, ramp) * rate
+        if hump == 1:
+            # probability proportional to measured net gain per flip:
+            # (g/g_ref) * (1 - (g/g0)^alpha): rises through the peak band, 0 at g0
+            taper = 1.0 - tl.exp(hump_alpha * tl.log(tl.maximum(ga, 1e-12) / hump_g0))
+            prob = tl.minimum((ga / g_ref) * tl.maximum(taper, 0.0) * rate, 1.0)
         r = tl.rand(seed, idx * 5 + j)
         fire = (r < prob) & gmask
         d = tl.where(gn > 0, -1, tl.where(gn < 0, 1, 0))         # -sign(grad)
@@ -240,7 +247,8 @@ def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
 
 
 def fused_flip(wpacked: torch.Tensor, grad_w: torch.Tensor, rate: float,
-               g_ref: float, seed: int, gmean: float = None, inv: int = 0):
+               g_ref: float, seed: int, gmean: float = None, inv: int = 0,
+               hump: int = 0, hump_g0: float = 37.0, hump_alpha: float = 1.8):
     """Apply stochastic ternary flips directly on the packed buffer, in place.
 
     gmean: denominator of the flip threshold. Default (None) is this step's own
@@ -257,7 +265,8 @@ def fused_flip(wpacked: torch.Tensor, grad_w: torch.Tensor, rate: float,
     grid = (triton.cdiv(total, BLOCK),)
     _flip_kernel[grid](wpacked, grad_w, N, K, K5,
                        grad_w.stride(0), grad_w.stride(1),
-                       gmean, rate, g_ref, seed, inv=inv, BLOCK=BLOCK)
+                       gmean, rate, g_ref, seed, hump_g0, hump_alpha,
+                       inv=inv, hump=hump, BLOCK=BLOCK)
 
 
 @triton.jit

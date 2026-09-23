@@ -32,13 +32,13 @@ from .config import ModelConfig, TrainConfig, PRESETS, DEFAULT_PRESET
 from .model import BitTransformer
 from .bitlinear import STATE
 from .master import build_master_transformer, split_params, MasterTernaryLinear
-from .kernel import fused_flip
+from .kernel import fused_flip, unpack_rows, pack_rows
 from .flip import KernelTernaryLinear
 from .flip import (build_flip_transformer, build_stateless_transformer,
                    build_kernel_transformer, apply_flips, enable_flip_tracking,
                    collect_flip_stats, flip_accumulated, set_flip_accum,
                    set_flip_rate, set_abs_scale, set_err_feedback, set_lockout,
-                   set_norm_mode, set_inv_prob,
+                   set_norm_mode, set_inv_prob, set_hump,
                    reset_lockout, lockout_stats)
 
 
@@ -122,6 +122,49 @@ def rate_search_step(model, rate_now, rs_state, args, tc, data, gen, device, ste
             **{f"rs_{f:g}": losses[f] - base for f in factors}}
 
 
+def lookahead_step(model, x, y, tail, device, step, iters=1):
+    """Propose flips with the normal rule, then keep only the ones that are still
+    downhill given all the others.
+
+    A lone flip is never right-sized (median |g|/H ~ 60, curv_single.py); flips
+    overshoot because they interact. So each flip is judged against the step the
+    rest are taking: with g at W and g' at W+Delta (same batch), flip i is kept iff
+    Delta_i * (g_i + g'_i) < 0 -- the midpoint slope along its own coordinate still
+    descends, which is its exact contribution for a quadratic. Stateless: g is held
+    only within the step. The tail (embedding, norms) keeps its first-pass gradient.
+    iters > 1 re-checks the surviving flips at the filtered point."""
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    saved = [l.wpacked.clone() for l in layers]
+    q0 = [unpack_rows(w, l.K) for l, w in zip(layers, saved)]
+    grads = []
+    for l in layers:
+        grads.append(l.gw.contiguous()); l.gw = None
+    tail_g = [None if p.grad is None else p.grad.clone() for p in tail]
+    seed0 = 9_000_000 + step * 131
+    D = []
+    for i, (l, g) in enumerate(zip(layers, grads)):
+        fused_flip(l.wpacked, g, l.rate, l.g_ref, seed0 + i,
+                   gmean=g.abs().mean().clamp_min(1e-8).item())
+        D.append(unpack_rows(l.wpacked, l.K) - q0[i])
+    n_prop = sum(int((d != 0).sum()) for d in D)
+    keep = [d != 0 for d in D]
+    for _ in range(iters):
+        for p in tail: p.grad = None
+        with torch.autocast(device_type=device.split(":")[0], dtype=torch.bfloat16):
+            _, loss = model(x, y)
+        loss.backward()                               # capture is still on: no flips
+        for i, l in enumerate(layers):
+            keep[i] &= D[i].float() * (grads[i] + l.gw) < 0
+            l.gw = None
+            l.wpacked.copy_(pack_rows(q0[i] + D[i] * keep[i].to(torch.int8)))
+    for p, g in zip(tail, tail_g): p.grad = g
+    for l, w in zip(layers, saved):
+        l.capture = False
+        if l.track: l._record_flips(w, l.wpacked)
+    n_keep = sum(int(k.sum()) for k in keep)
+    return {"la_proposed": n_prop, "la_kept": n_keep}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", default=DEFAULT_PRESET, choices=list(PRESETS))
@@ -146,6 +189,10 @@ def main():
                          "AdamW steps; fp32 is the honest ceiling)")
     ap.add_argument("--theta", type=float, default=24.0, help="flip fire threshold")
     ap.add_argument("--rate", type=float, default=2e-2, help="stateless flip rate")
+    ap.add_argument("--lookahead", type=int, default=0,
+                    help="look-ahead flip filter: propose flips, keep those whose "
+                         "midpoint slope (g + g at W+Delta) still descends; value = "
+                         "number of re-check passes (each one extra fwd/bwd)")
     ap.add_argument("--rate_search", action="store_true",
                     help="line-search the flip rate: every --rs_every steps, try "
                          "rate x each of --rs_factors on the step's gradient, score each "
@@ -156,6 +203,12 @@ def main():
     ap.add_argument("--rs_batch", type=int, default=4, help="tuning batch (sequences)")
     ap.add_argument("--rs_min", type=float, default=0.01)
     ap.add_argument("--rs_max", type=float, default=8.0)
+    ap.add_argument("--hump", action="store_true",
+                    help="flip probability ~ measured net gain per flip: "
+                         "(g/g_ref)*(1-(g/g0)^alpha), rising through the peak band "
+                         "and falling to 0 at g0 (g in units of mean|g|)")
+    ap.add_argument("--hump_g0", type=float, default=37.0)
+    ap.add_argument("--hump_alpha", type=float, default=1.8)
     ap.add_argument("--inv_prob", action="store_true",
                     help="reverse the probability ramp: the SMALLEST gradients flip "
                          "most often (p = (1 - min(|g|/g_ref,1)) * rate)")
@@ -305,6 +358,11 @@ def main():
         print(f"flip accumulation: one flip per {tc.grad_accum} micro-steps "
               f"({tc.grad_accum * tc.batch_size * tc.seq_len:,} tokens/step)", flush=True)
 
+    if args.hump:
+        n = set_hump(model, args.hump_g0, args.hump_alpha)
+        print(f"hump flip probability g0={args.hump_g0} alpha={args.hump_alpha} "
+              f"({n} layers)", flush=True)
+
     if args.inv_prob:
         n = set_inv_prob(model, True)
         print(f"reverse-magnitude flip probability ({n} layers)", flush=True)
@@ -336,6 +394,8 @@ def main():
     sampler = torch.Generator().manual_seed(tc.seed)
     rs_state = {"mult": 1.0}
     rs_gen = torch.Generator().manual_seed(tc.seed + 777)
+    if args.lookahead and (args.mode != "kernel" or tc.grad_accum != 1 or args.rate_search):
+        raise SystemExit("--lookahead requires --mode kernel, --grad_accum 1, no --rate_search")
     if args.rate_search:
         if args.mode != "kernel" or tc.grad_accum != 1:
             raise SystemExit("--rate_search requires --mode kernel and --grad_accum 1")
@@ -371,7 +431,8 @@ def main():
                     "int8_dx": args.int8_dx, "rate_schedule": args.rate_schedule,
                     "abs_scale": args.abs_scale, "err_feedback": args.err_feedback,
                     "g_ref": args.g_ref, "norm": args.norm,
-                    "inv_prob": args.inv_prob,
+                    "inv_prob": args.inv_prob, "hump": args.hump,
+                    "hump_g0": args.hump_g0, "hump_alpha": args.hump_alpha,
                     "flip_lockout": args.flip_lockout,
                     "lockout_mode": args.lockout_mode,
                     "ef_alpha": args.ef_alpha}, tmp)
@@ -461,7 +522,7 @@ def main():
         last_loss = 0.0
         # ---- flip-rate line search: capture this step's gradient instead of flipping
         search = (args.rate_search and step > 0 and step % args.rs_every == 0)
-        if search:
+        if search or args.lookahead:
             for l in model.modules():
                 if isinstance(l, KernelTernaryLinear): l.capture = True
         for micro in range(tc.grad_accum):
@@ -472,7 +533,9 @@ def main():
             last_loss = loss.item()
         if args.mode in ("kernel", "evidence") and tc.grad_accum > 1:
             flip_accumulated(model)
-        if search:
+        if args.lookahead:
+            rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead)
+        elif search:
             rs_info = rate_search_step(model, rate_now, rs_state, args, tc, train_data,
                                        rs_gen, device, step)
         else:
@@ -503,6 +566,8 @@ def main():
             dt = time.time() - t0
             mem = torch.cuda.max_memory_allocated() / 1024**3 if device == "cuda" else 0
             extra = f"| flips {n_flips:>7d} " if args.mode == "flip" else ""
+            if rs_info and "la_kept" in rs_info:
+                extra += f"| la kept {rs_info['la_kept'] / max(rs_info['la_proposed'], 1) * 100:.0f}% "
             if fs:
                 extra += (f"| flip {fs['flip_frac_total']*100:.3f}% "
                           f"| never {fs['never_frac_total']*100:.1f}% ")

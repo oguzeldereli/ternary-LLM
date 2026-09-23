@@ -509,3 +509,90 @@ prediction from a 16-batch gradient, and solve for the effective curvature
   the top band. The ideal flip probability is a hump in |g|, not the current ramp and
   not the full inversion (which lost alpha). With H ~ c g^2, predicted gain per flip
   is |g| - c g^2.
+
+**Correction to the last two bullets.** The "curvature" in the table above is a
+*group* quantity (1,200 flips at once), so it includes the cross-terms between them.
+Measured one weight at a time (next section), per-weight curvature is small everywhere
+and the Gauss-Newton estimate is accurate. The tail's excess curvature is interaction.
+
+### Hump-shaped flip probability (α screen, 300 steps)
+
+`p = min(r · ĝ/g_ref · (1 - (ĝ/37)^1.8), 1)`: the ramp for ĝ < 3, higher for 3-37 (peak
+at ĝ ≈ 21), zero above 37. Kernel verified against the formula on synthetic gradients.
+
+| rule | α (100-300) | loss @300 | flip% | never flipped |
+|---|---|---|---|---|
+| armA_cosine (ramp) | -0.154 | 5.977 | 0.401 | 38.7% |
+| hump | -0.154 | 5.997 | 0.436 | 35.6% |
+
+Null. Reshaping the probability as a function of |g| alone does not help.
+
+### Per-weight curvature, one weight at a time (`curv_single.py`)
+
+At step 1000 (`lr_ctl`), 80 weights from each |g| quantile band. Each weight is moved
++1 and -1 trit level alone on the dense surrogate; the loss change gives
+H = L₊ + L₋ - 2L₀ directly (4,096 tokens, float64 loss accumulation).
+
+**The int8-activation loss is rough at single-weight scale.** Nudging one weight by
+0.001 of a level changes the loss by up to 3e-4: a rounding boundary somewhere
+downstream flips. That is larger than a single flip's first-order effect
+(7e-7 to 1e-4), so on the rounded loss "per-weight curvature" measures rounding noise
+(70-97% of weights appear to have negative curvature). The measurement was repeated
+with activation rounding off: the smooth loss the STE gradient describes. There the
+finite-difference slope matches autograd to 1.00 in every band.
+
+| \|g\| band | d = \|g\|/H, median [q25, q75] |
+|---|---|
+| top 0.001% | 61 [42, 76] |
+| 0.001-0.01% | 53 [38, 76] |
+| 0.01-0.1% | 63 [39, 90] |
+| 0.1-1% | 93 [44, 141] |
+| 1-10% | 79 [52, 139] |
+| 10-50% | 47 [26, 106] |
+| 50-100% | 10 [4, 19] |
+
+- **In isolation, no flip is right-sized.** Every weight's own optimum is ~50-90 levels
+  away, including the top 0.001%. Only 5 of 560 have d in [0.5, 2], all in the bottom
+  half with near-zero gradient. A rule "flip iff right-sized by own curvature" flips
+  essentially nothing.
+- **Gauss-Newton diagonal is accurate per weight:** EF and MC-Fisher vs measured H:
+  Spearman 0.88, scale 1.1-1.3. The earlier "61" was right.
+- So the ~30x effective curvature of a 1,200-flip tail group, and the overshoot of the
+  full step, come from **off-diagonal interaction**: tail weights share rows, columns
+  and tokens, so their effects add coherently. Whether a flip is right-sized depends on
+  what the other flips in the same step do.
+
+### Look-ahead filter: judge each flip against the others
+
+Propose flips with the current rule (Δ), take the gradient g' at W + Δ on the same
+batch, keep flip i iff Δᵢ(gᵢ + g'ᵢ) < 0 (its midpoint slope still descends: the exact
+per-flip contribution of a quadratic, given all the other flips). Stateless: g lives
+only within the step. One extra forward/backward per step. (`lookahead_test.py`,
+one step at step 1000, 16 held-out batches; control = random subset of the proposal
+with the same count per layer.)
+
+| rate | proposal | midpoint filter (kept) | random, same count |
+|---|---|---|---|
+| 0.0194 (current) | -0.029 | **-0.124** (82%) | -0.088 |
+| 0.005 | -0.106 | -0.106 (99%) | -0.105 |
+| 0.05 | +0.825 | +0.062 (61%) | +0.194 |
+
+The filter selects better than chance and, at the current rate, beats the best rate
+alone (-0.106). At rate 0.005 there is almost no interaction left to remove. Caveat:
+a one-step greedy gain; the greedy rate search also looked good in one step and then
+collapsed in training.
+
+**α screen (300 steps, `--lookahead 1`, otherwise armA_cosine):**
+
+| rule | α (100-300) | loss @300 | val @300 | flip% | never flipped |
+|---|---|---|---|---|---|
+| ramp (armA_cosine) | -0.154 | 5.977 | - | 0.401 | 38.7% |
+| hump | -0.154 | 5.997 | 5.948 | 0.436 | 35.6% |
+| **look-ahead** | **-0.178** | **5.691** | **5.633** | 0.233 | 57.1% |
+| *master weights* | *-0.222* | *5.205* | - | - | - |
+
+The first stateless change to move α outside the noise: it closes 35% of the gap to
+master weights. It is not the lower flip count (g_ref=10 flips 0.13% and stays at
+-0.155). The filter keeps 55-60% of proposals throughout, so interaction is large for
+the whole window. Cost: 1.8x wall-clock per step (3.8 s vs 2.1 s); comparisons here
+are per token.
