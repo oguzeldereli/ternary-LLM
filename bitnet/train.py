@@ -277,6 +277,9 @@ def main():
                     help="wall-clock seconds between checkpoint saves")
     ap.add_argument("--max_temp", type=int, default=86,
                     help="save + stop if GPU temp (C) reaches this (crash guard)")
+    ap.add_argument("--resume_temp", type=int, default=None,
+                    help="after a thermal pause, wait until GPU temp (C) is at or below "
+                         "this before resuming (default: just below --max_temp)")
     ap.add_argument("--temp_check", type=int, default=4,
                     help="check GPU temp every N steps")
     args = ap.parse_args()
@@ -489,7 +492,8 @@ def main():
             if temp is not None and temp >= args.max_temp:
                 print(f"GPU {temp}C >= {args.max_temp}C -> pausing to cool "
                       f"(step {step})", flush=True)
-                while temp is not None and temp >= args.max_temp:
+                resume_at = args.max_temp - 1 if args.resume_temp is None else args.resume_temp
+                while temp is not None and temp > resume_at:
                     time.sleep(5)
                     temp = gpu_temp()
                 print(f"cooled to {temp}C -> resuming", flush=True)

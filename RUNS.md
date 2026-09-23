@@ -683,3 +683,17 @@ at 10M it is 0.37 below the main look-ahead run and 0.14 above master (main: 0.5
 But after ~3M tokens its slope equals the main run's (-0.136, -0.148 vs -0.152, -0.145;
 master -0.21, -0.20): the early offset shrinks, the later squash is untouched in this
 window. Val at step 316: 5.197.
+
+### `armA_cos_la1` stopped at step ~6160 (202M tokens), resumable
+
+Val ppl by step: 1000 124.9 | 2000 96.5 | 3000 80.1 | 4000 70.9 | 5000 67.2 | 6000 **65.3**
+(reference armA_cosine: 188.3 | 148.3 | 139.6 | 124.1 | 115.5 | 111.7; its final 98.56).
+It does bend, later than the plain rule: val slope (log loss vs log tokens) per 1000
+steps -0.097, -0.070, **-0.038**, the last equal to the reference's -0.038 in the same
+window. Look-ahead kept a large constant lead but stopped pulling away around
+130-200M tokens. Stopped on request to spend the GPU on the early-phase findings
+(fast ramp + master's tail LR); checkpoint at step 6119 kept.
+
+Five whole-machine hard resets during this run (no GPU/thermal errors logged, GPU at
+80-86 C each time). Added `--resume_temp` to the thermal guard (pause at `--max_temp`,
+wait until `--resume_temp`); 84/79 costs ~3% throughput, 75/70 ~33%.
