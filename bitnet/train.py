@@ -264,6 +264,9 @@ def main():
                     help="steps of flip-rate warmup toward --rate_peak")
     ap.add_argument("--snap_every", type=int, default=0,
                     help="also keep a copy of the checkpoint every N steps (ckpt_<step>.pt)")
+    ap.add_argument("--tail_fp32", action="store_true",
+                    help="float tail (embeddings, norm gains) in fp32 + AdamW, as in master "
+                         "mode (default bf16 + 8-bit Adam freezes the norm gains at 1.0)")
     ap.add_argument("--probe", default="",
                     help="probe schedule, e.g. '0-40:5,40-160:20' (bitnet/probe.py)")
     ap.add_argument("--flip_seed", type=int, default=0,
@@ -360,8 +363,26 @@ def main():
         print(f"master mode: {sum(p.numel() for p in master)/1e6:.1f}M latent "
               f"({args.master_dtype}) + {sum(p.numel() for p in emb+norms)/1e6:.1f}M tail, "
               f"AdamW fp32 states", flush=True)
+    elif args.tail_fp32:
+        # float tail kept in fp32 with a standard AdamW, exactly like master mode. In
+        # bf16 an Adam step (~lr <= 1.5e-3) on a norm gain of 1.0 is below half the
+        # representable gap (2^-7) and always rounds away: the gains never train.
+        tail = model.float_tail_parameters()
+        for p in tail:
+            p.data = p.data.float()
+        tids = {id(p) for p in tail}
+        norms = [p for n, p in model.named_parameters() if id(p) in tids and n.endswith("norm.weight")]
+        nids = {id(p) for p in norms}
+        emb = [p for p in tail if id(p) not in nids]
+        tail_opt = torch.optim.AdamW(
+            [{"params": emb, "weight_decay": tc.weight_decay},
+             {"params": norms, "weight_decay": 0.0}],
+            lr=tc.lr, betas=(tc.beta1, tc.beta2))
+        print(f"fp32 float tail: {sum(p.numel() for p in emb)/1e6:.1f}M emb + "
+              f"{sum(p.numel() for p in norms)/1e3:.1f}k norm gains, AdamW fp32 states", flush=True)
     else:
-        # float tail (embeddings + norms + flip predictor): bf16 params + 8-bit Adam
+        # float tail (embeddings + norms + flip predictor): bf16 params + 8-bit Adam.
+        # NOTE: norm gains cannot train in bf16 (see --tail_fp32).
         from .opt8 import Adam8bit
         for p in model.float_tail_parameters():
             p.data = p.data.to(torch.bfloat16)

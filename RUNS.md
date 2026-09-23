@@ -724,3 +724,22 @@ Reading: master goes through a sharp internal change (overriding the don't-repea
 by attending to earlier occurrences, a precursor of induction) at the end of its pause,
 and its steeper regime starts there. Flips learn context gradually and greedily (more
 long-context statistics early) and have not made that change by 5M tokens.
+
+## Float tail precision: the norm gains never trained (bug) — `--tail_fp32`
+
+In kernel (flip) mode the float tail (embeddings + all 25 RMSNorm gains) has been bf16
++ 8-bit Adam since the start. Near 1.0 bf16 spacing is 2^-7; an Adam step (~lr <=
+1.5e-3) is below half of it, so **every norm-gain update rounded away: all gains are
+exactly 1.0000 in every flip run** (master, fp32: mean 1.53 on the final norm after
+300M tokens, per-layer means 0.40-1.06, channels from ~0 to 2.3). Embedding updates
+(values ~0.02, spacing ~1.2e-4) also round away once the LR decays below ~1e-4, i.e.
+the last third of the 3e-4 runs. Every flip-vs-master comparison so far carries this
+handicap; flip-vs-flip comparisons are unaffected (all had it).
+
+`--tail_fp32`: tail in fp32 with AdamW (weight decay 0.1 on embeddings, 0 on norms),
+exactly master's treatment. 10M-token screen `la_fast_fp32tail` = `la_fastramp_lr15`
+with the fp32 tail, same batches: gains now train (1.012 at 3.3M, master ~1.006);
+loss slightly lower and the gap growing slowly (-0.014 at 3.3M, -0.019 at 9.9M, -0.022
+at 10.4M), val 5.188 vs 5.197. Slopes unchanged over 3-10M (-0.134/-0.144 vs
+-0.136/-0.143; master -0.21/-0.20): the gains barely move this early (~1%), so the
+effect should matter mainly in long runs.
