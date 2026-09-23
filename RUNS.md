@@ -589,6 +589,7 @@ collapsed in training.
 | ramp (armA_cosine) | -0.154 | 5.977 | - | 0.401 | 38.7% |
 | hump | -0.154 | 5.997 | 5.948 | 0.436 | 35.6% |
 | **look-ahead** | **-0.178** | **5.691** | **5.633** | 0.233 | 57.1% |
+| look-ahead, 2 passes | -0.181 | 5.610 | 5.536 | 0.171 | 61.0% |
 | *master weights* | *-0.222* | *5.205* | - | - | - |
 
 The first stateless change to move α outside the noise: it closes 35% of the gap to
@@ -596,3 +597,7 @@ master weights. It is not the lower flip count (g_ref=10 flips 0.13% and stays a
 -0.155). The filter keeps 55-60% of proposals throughout, so interaction is large for
 the whole window. Cost: 1.8x wall-clock per step (3.8 s vs 2.1 s); comparisons here
 are per token.
+
+A second pass (`--lookahead 2`: re-check the survivors at the filtered point, keeping
+46-51% of proposals) lowers loss by a further ~0.08 but leaves α within noise
+(-0.181 vs -0.178), at 5.8 s/step vs 3.8. The full run uses one pass.
