@@ -2,7 +2,7 @@
 
 For each checkpoint (same flip rate everywhere, one step, kernel path):
   pred_train   first-order loss change the kept flips intend, from the training batch's
-               gradient:  sum_l beta_l * <g_l, Delta_l>
+               gradient:  sum_l <g_l, Delta_l>  (g = dL/dq, trit units)
   pred_val     the same flips scored by a held-out gradient (2 val batches): the part of
                the intended change that is real signal rather than batch noise
   realized     measured held-out loss change after applying the kept flips
@@ -15,9 +15,22 @@ For each checkpoint (same flip rate everywhere, one step, kernel path):
 import sys, numpy as np, torch
 from bitnet.flip import build_kernel_transformer, KernelTernaryLinear
 from bitnet.kernel import fused_flip, unpack_rows, pack_rows, trit_beta
-from bitnet.train import get_batch
+from bitnet.train import get_batch, gpu_temp
+import time
+
+
+def cool(hi=82, lo=76):
+    """thermal guard: wait while the GPU is hot (sustained load has crashed the machine)"""
+    t = gpu_temp()
+    if t is not None and t >= hi:
+        while t is not None and t > lo:
+            time.sleep(5); t = gpu_temp()
 dev = "cuda"
 RATE, G_REF, BS, SEQ, EVAL_B = 0.02, 3.0, 16, 2048, 8
+# FRAC < 1 applies only a random fraction of the kept flips (linearity check: a small
+# enough step must realize ~ its first-order prediction)
+import os
+FRAC = float(os.environ.get("FRAC", "1"))
 
 train = np.memmap("data/wiki32k_train.bin", dtype=np.uint16, mode="r")
 val = np.memmap("data/wiki32k_val.bin", dtype=np.uint16, mode="r")
@@ -44,6 +57,7 @@ def run(path):
     def grad(batches):
         acc = None
         for x, y in batches:
+            cool()
             for l in Ls: l.capture = True
             for p in m.parameters(): p.grad = None
             with torch.autocast("cuda", dtype=torch.bfloat16):
@@ -57,7 +71,10 @@ def run(path):
 
     def held():
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
-            return float(np.mean([m(x, y)[1].item() for x, y in EV]))
+            out = []
+            for x, y in EV:
+                cool(); out.append(m(x, y)[1].item())
+            return float(np.mean(out))
 
     set_q(Q0); L0 = held()
     g = grad([(xa, ya)]); gval = grad(GV)
@@ -69,10 +86,14 @@ def run(path):
     set_q([q + d for q, d in zip(Q0, D)])
     g1 = grad([(xa, ya)])
     K = [(d != 0) & (d.float() * (a + c) < 0) for d, a, c in zip(D, g, g1)]
+    if FRAC < 1:
+        gsub = torch.Generator(device=dev).manual_seed(55)
+        K = [k & (torch.rand(k.shape, device=dev, generator=gsub) < FRAC) for k in K]
     Dk = [d * k.to(torch.int8) for d, k in zip(D, K)]
     set_q([q + d for q, d in zip(Q0, Dk)]); L1 = held()
-    pt = sum(bt * (gw * d.float()).sum().item() for bt, gw, d in zip(B0, g, Dk))
-    pv = sum(bt * (gw * d.float()).sum().item() for bt, gw, d in zip(B0, gval, Dk))
+    # l.gw is already dL/dq (beta is applied inside the kernel path): no extra beta
+    pt = sum((gw * d.float()).sum().item() for gw, d in zip(g, Dk))
+    pv = sum((gw * d.float()).sum().item() for gw, d in zip(gval, Dk))
     n = sum(int(k.sum()) for k in K)
     real = L1 - L0
     return dict(L0=L0, kept=n, pred_train=pt, pred_val=pv, realized=real,
@@ -80,7 +101,7 @@ def run(path):
                 per_flip=real / max(n, 1))
 
 
-print(f"rate {RATE}, one look-ahead step, held-out on {EVAL_B}x{BS}x{SEQ} tokens", flush=True)
+print(f"rate {RATE}, frac {FRAC}, one look-ahead step, held-out on {EVAL_B}x{BS}x{SEQ} tokens", flush=True)
 print(f"{'checkpoint':44s} {'L0':>6s} {'kept':>9s} {'pred_train':>10s} {'pred_val':>9s} "
       f"{'realized':>9s} {'signal':>7s} {'survive':>8s} {'eff':>6s} {'per flip':>9s}", flush=True)
 for c in sys.argv[1:]:

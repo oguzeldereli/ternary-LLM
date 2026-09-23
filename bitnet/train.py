@@ -124,7 +124,7 @@ def rate_search_step(model, rate_now, rs_state, args, tc, data, gen, device, ste
             **{f"rs_{f:g}": losses[f] - base for f in factors}}
 
 
-def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0):
+def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_batch=None):
     """Propose flips with the normal rule, then keep only the ones that are still
     downhill given all the others.
 
@@ -152,8 +152,12 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0):
     keep = [d != 0 for d in D]
     for _ in range(iters):
         for p in tail: p.grad = None
+        # cross-batch look-ahead: judge each flip on a *different* batch, so a flip
+        # survives only if it is downhill on both (removes interaction and much of the
+        # batch noise at the same cost)
+        xc, yc = extra_batch() if extra_batch is not None else (x, y)
         with torch.autocast(device_type=device.split(":")[0], dtype=torch.bfloat16):
-            _, loss = model(x, y)
+            _, loss = model(xc, yc)
         loss.backward()                               # capture is still on: no flips
         for i, l in enumerate(layers):
             keep[i] &= D[i].float() * (grads[i] + l.gw) < 0
@@ -191,6 +195,9 @@ def main():
                          "AdamW steps; fp32 is the honest ceiling)")
     ap.add_argument("--theta", type=float, default=24.0, help="flip fire threshold")
     ap.add_argument("--rate", type=float, default=2e-2, help="stateless flip rate")
+    ap.add_argument("--lookahead_xbatch", action="store_true",
+                    help="take the look-ahead pass(es) on fresh batches instead of the "
+                         "training batch (each pass a new batch)")
     ap.add_argument("--lookahead", type=int, default=0,
                     help="look-ahead flip filter: propose flips, keep those whose "
                          "midpoint slope (g + g at W+Delta) still descends; value = "
@@ -432,6 +439,10 @@ def main():
         print(f"flip tracking on for {n} ternary layers", flush=True)
 
     sampler = torch.Generator().manual_seed(tc.seed)
+    # separate stream for cross-batch look-ahead, so the training batch order is unchanged
+    la_gen = torch.Generator().manual_seed(tc.seed + 4242)
+    la_extra = ((lambda: get_batch(train_data, tc.batch_size, tc.seq_len, device, la_gen))
+                if args.lookahead_xbatch else None)
     rs_state = {"mult": 1.0}
     rs_gen = torch.Generator().manual_seed(tc.seed + 777)
     if args.lookahead and (args.mode != "kernel" or tc.grad_accum != 1 or args.rate_search):
@@ -586,7 +597,7 @@ def main():
             flip_accumulated(model)
         if args.lookahead:
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
-                                     args.flip_seed)
+                                     args.flip_seed, la_extra)
         elif search:
             rs_info = rate_search_step(model, rate_now, rs_state, args, tc, train_data,
                                        rs_gen, device, step)
