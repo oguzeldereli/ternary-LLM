@@ -25,8 +25,11 @@ def load(d):
 
 
 def smooth(L, k=50):
+    # trailing mean over min(k, ~20% of steps so far): a fixed window drags the
+    # starting loss into the first k points and flattens the fast early drop
     c = np.cumsum(np.insert(L, 0, 0.0))
-    return np.array([(c[i + 1] - c[max(0, i - k + 1)]) / (i + 1 - max(0, i - k + 1)) for i in range(len(L))])
+    w = [min(k, i // 5 + 1) for i in range(len(L))]
+    return np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(L))])
 
 
 ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/early_phase.png")

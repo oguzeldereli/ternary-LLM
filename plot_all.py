@@ -45,9 +45,10 @@ def load(d):
     s = sorted(tr)
     t = np.array([tr[i]["tokens"] for i in s], float)
     L = np.array([tr[i]["loss"] for i in s])
-    k = 50
+    # trailing mean over min(50, ~20% of steps so far), so the early drop isn't smeared
     c = np.cumsum(np.insert(L, 0, 0.0))
-    Ls = np.array([(c[i + 1] - c[max(0, i - k + 1)]) / (i + 1 - max(0, i - k + 1)) for i in range(len(L))])
+    w = [min(50, i // 5 + 1) for i in range(len(L))]
+    Ls = np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(L))])
     v = [r for r in rows if "val_loss" in r]
     return t, Ls, (np.exp(v[-1]["val_loss"]) if v else None)
 
