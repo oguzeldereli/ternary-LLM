@@ -18,6 +18,7 @@ RUNS = [
     ("armA_cosine",       "flips, annealed rate (cosine)",     "300M", "best"),
     ("armA_linear",       "flips, annealed rate (linear)",     "300M", "flip"),
     ("armA_cos_lockout",  "flips, annealed + per-weight lockout", "300M", "flip"),
+    ("armA_cos_r005",     "flips, annealed from 4x lower rate", "300M", "flip"),
     ("armA_cos_floor",    "flips, annealed to a 0.02% floor",  "300M", "flip"),
     ("p3b_acc4",          "flips, constant rate, 4x batch",    "400M", "flip"),
     ("p3b_acc1",          "flips, constant rate",              "300M", "flip"),

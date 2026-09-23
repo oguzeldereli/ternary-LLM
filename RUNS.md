@@ -457,5 +457,25 @@ search always prefers small steps (short-horizon bias), and the `g_ref` sweep al
 showed a 3x lower effective rate gives identical alpha over steps 100-300 — one-step
 gains do not compose linearly over a trajectory.
 
-**In flight:** `armA_cos_r005` — `armA_cosine` exactly, but cosine-annealed from rate
-0.005 (the one-step optimum at step 1000) instead of 0.02, full 300M tokens.
+### Result: the lower rate learns faster, then loses at the end
+
+`armA_cos_r005` — `armA_cosine` exactly, but cosine-annealed from rate 0.005 (the
+one-step optimum at step 1000) instead of 0.02, 300M tokens:
+
+| tokens | rate 0.005 | rate 0.02 |
+|---|---|---|
+| 33M | 178.4 | 188.3 |
+| 98M | 122.6 | 139.6 |
+| 197M | 108.3 | 111.7 |
+| 262M | 101.7 | 100.6 |
+| **300M** | **100.95** | **98.56** |
+
+![rate](docs/rate_005.png)
+
+Ahead by up to 17 ppl through ~70% of training, then overtaken; the endpoint is 2.4
+ppl worse, which is inside the single-run noise band for this study. So the one-step
+optimum is real but does not buy a better endpoint: the 0.02 run passes through the
+efficient rate region *late* in its anneal (its cosine reaches ~0.005 around step
+6000), which is exactly when it makes its biggest gains, while the 0.005 run is by
+then annealed far below it. The target is a schedule that tracks the per-step optimum
+throughout — and the greedy controller shows that tracking has to be non-myopic.
