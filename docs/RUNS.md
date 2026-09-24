@@ -817,3 +817,21 @@ flip config that ran for hours on earlier days crashed after 73 s. Every crash: 
 clocks locked at 1800-2000 MHz (~100-120 W, 73-83 C) ran stably. Reading: degraded GPU
 cooling (dust / pads); training now runs with the GPU clock locked at 2000 MHz
 (~7.85 s/step for cross-batch look-ahead x2).
+
+## Learned per-row and per-column scales (`--rc_scale`, `--rc_lr`)
+
+Each ternary layer gets a learnable row scale r (N floats) and column scale c (K floats),
+so W_ij = beta * r_i * c_j * q_ij: every weight gets its own magnitude from N + K floats
+per layer (175k at 110M = 0.2% of params; 7.4M at 27B = 0.033%, ~113 MiB with AdamW).
+Applied as y = r * ternary(c * x): kernels unchanged, the flip gradient comes out scaled by
+r_i c_j. fp32, no weight decay, start at 1 (step 0 identical). 10M screens on the plain
+cosine flip rule (`armA_cosine` config and batches):
+
+| run | scale LR | loss @300 (vs plain) | alpha 100-300 | val @316 | scales after 316 steps |
+|---|---|---|---|---|---|
+| plain (`armA_cosine`) | - | 5.977 | -0.154 | - | - |
+| `rc_plain` | float-tail LR (3e-4, in warmup) | +0.007 | -0.152 | 5.907 | 1.000 +- 0.004 (did not move) |
+| **`rc_plain_lr1e2`** | **constant 1e-2** | **-0.051** | **-0.160** | **5.850** | mean 0.97, std 0.18-0.19, range ~0-2.2 |
+
+With their own LR the scales spread like master's norm gains do, and the plain rule gains
+-0.05 in loss and 0.006 in alpha (above the +-0.003 noise). Next: on cross-batch look-ahead.

@@ -455,6 +455,10 @@ class KernelTernaryLinear(nn.Module):
                                  torch.zeros(out_features, in_features, dtype=torch.int8))
         else:
             self.evidence = None
+        # --- optional learned per-row / per-column scales (enable_rc_scale) -------
+        # effective weight W_ij = beta * r_i * c_j * q_ij, from N + K floats per layer
+        self.row_scale = None
+        self.col_scale = None
         # --- diagnostics: capture dL/dW instead of flipping (see diag_snr.py) ---
         self.capture = False
         self.capture_h = False
@@ -549,8 +553,21 @@ class KernelTernaryLinear(nn.Module):
         never = (self.N * self.K + pad) - popcount(self.touched) - pad
         return self.flips, never
 
+    def enable_rc_scale(self):
+        dev = self.wpacked.device
+        self.row_scale = nn.Parameter(torch.ones(self.N, device=dev))
+        self.col_scale = nn.Parameter(torch.ones(self.K, device=dev))
+
     def forward(self, x):
-        return _KernelTernFn.apply(x, self.wpacked, self)
+        # column scale before the GEMM (and before the int8 activation quantization),
+        # row scale after it: the packed kernels are unchanged, autograd handles r and c,
+        # and the flip rule's dL/dq comes out scaled by r_i * c_j per weight
+        if self.col_scale is not None:
+            x = x * self.col_scale.to(x.dtype)
+        y = _KernelTernFn.apply(x, self.wpacked, self)
+        if self.row_scale is not None:
+            y = y * self.row_scale.to(y.dtype)
+        return y
 
     @torch.no_grad()
     def _flip_from_grad(self, g, wpacked):
@@ -692,6 +709,15 @@ def set_norm_mode(model, mode: str):
                 raise ValueError("row normalisation is implemented for the plain "
                                  "stochastic flip only")
             m.norm_mode = mode; n += 1
+    return n
+
+
+def enable_rc_scales(model):
+    """Learned per-row and per-column scales on every kernel ternary layer."""
+    n = 0
+    for m in model.modules():
+        if isinstance(m, KernelTernaryLinear):
+            m.enable_rc_scale(); n += m.N + m.K
     return n
 
 

@@ -302,6 +302,12 @@ def main():
     ap.add_argument("--resume_temp", type=int, default=85,
                     help="after a thermal pause, wait until GPU temp (C) is at or below "
                          "this before resuming")
+    ap.add_argument("--rc_scale", action="store_true",
+                    help="learned per-row and per-column scales on every ternary layer "
+                         "(W_ij = beta * r_i * c_j * q_ij; N + K floats per layer, fp32, no decay)")
+    ap.add_argument("--rc_lr", type=float, default=0.0,
+                    help="constant LR for the row/column scales (no warmup/decay); 0 = use the "
+                         "float-tail LR schedule")
     ap.add_argument("--compile", action="store_true",
                     help="torch.compile the elementwise parts (RMSNorm, RoPE, SwiGLU)")
     ap.add_argument("--ckpt_skip", type=int, default=0,
@@ -366,6 +372,9 @@ def main():
     model.train()
     if args.ckpt_skip:
         model.ckpt_skip = args.ckpt_skip
+    if args.rc_scale:
+        from .flip import enable_rc_scales
+        print(f"row/column scales: {enable_rc_scales(model) / 1e3:.1f}k floats", flush=True)
     if args.compile:
         from .model import enable_compile
         enable_compile()
@@ -391,23 +400,34 @@ def main():
         for p in tail:
             p.data = p.data.float()
         tids = {id(p) for p in tail}
-        norms = [p for n, p in model.named_parameters() if id(p) in tids and n.endswith("norm.weight")]
-        nids = {id(p) for p in norms}
+        rc = [p for n, p in model.named_parameters() if n.endswith(("row_scale", "col_scale"))]
+        rcid = {id(p) for p in rc}
+        norms = [p for n, p in model.named_parameters() if id(p) in tids and id(p) not in rcid
+                 and n.endswith("norm.weight")]
+        nids = {id(p) for p in norms} | rcid
         emb = [p for p in tail if id(p) not in nids]
-        tail_opt = torch.optim.AdamW(
-            [{"params": emb, "weight_decay": tc.weight_decay},
-             {"params": norms, "weight_decay": 0.0}],
-            lr=tc.lr, betas=(tc.beta1, tc.beta2))
+        tail_groups = [{"params": emb, "weight_decay": tc.weight_decay},
+                       {"params": norms, "weight_decay": 0.0}]
+        if rc:
+            tail_groups.append({"params": rc, "weight_decay": 0.0, "rc_lr": args.rc_lr})
+        tail_opt = torch.optim.AdamW(tail_groups, lr=tc.lr, betas=(tc.beta1, tc.beta2))
         print(f"fp32 float tail: {sum(p.numel() for p in emb)/1e6:.1f}M emb + "
               f"{sum(p.numel() for p in norms)/1e3:.1f}k norm gains, AdamW fp32 states", flush=True)
     else:
         # float tail (embeddings + norms + flip predictor): bf16 params + 8-bit Adam.
         # NOTE: norm gains cannot train in bf16 (see --tail_fp32).
         from .opt8 import Adam8bit
+        rc = [p for n, p in model.named_parameters() if n.endswith(("row_scale", "col_scale"))]
+        rcid = {id(p) for p in rc}
         for p in model.float_tail_parameters():
-            p.data = p.data.to(torch.bfloat16)
+            if id(p) not in rcid:                 # scales stay fp32: bf16 would freeze them
+                p.data = p.data.to(torch.bfloat16)
         tail = model.float_tail_parameters()
-        tail_opt = Adam8bit(tail, lr=tc.lr, betas=(tc.beta1, tc.beta2),
+        groups = [{"params": [p for p in tail if id(p) not in rcid],
+                   "weight_decay": tc.weight_decay}]
+        if rc:
+            groups.append({"params": rc, "weight_decay": 0.0, "rc_lr": args.rc_lr})
+        tail_opt = Adam8bit(groups, lr=tc.lr, betas=(tc.beta1, tc.beta2),
                             weight_decay=tc.weight_decay)
 
     STATE.momentum = args.momentum
@@ -596,7 +616,7 @@ def main():
             set_flip_rate(model, rate_now)
         STATE.lr = lr
         for g in tail_opt.param_groups:
-            g["lr"] = lr
+            g["lr"] = g["rc_lr"] if g.get("rc_lr") else lr
 
         # gradient accumulation: BitLinear hooks apply lr*g/accum each micro-step
         # (SGD is linear, so summing micro-steps approximates one averaged step).
