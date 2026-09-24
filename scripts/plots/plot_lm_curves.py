@@ -10,22 +10,32 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
-RUNS = [  # dir, label, color
-    ("lm_lowrank256_xb2", "rank-256 momentum (fixed 0.97) + look-ahead x2", "#e53935"),
-    ("la_xb2_rc", "look-ahead x2 + row/col scales", "#2a78d6"),
-    ("la_xb2", "look-ahead x2", "#111111"),
-    ("lm_lowrank256_adapt_xb2", "adaptive momentum + look-ahead x2 (stopped @200)", "#00897b"),
-    ("la_fast_fp32tail", "same-batch look-ahead", "#c2185b"),
-    ("lm_plain", "plain flips", "#1baf7a"),
-    ("lm_frozen", "frozen random ternary", "#8e8c85"),
-    ("lm_lowrank256", "rank-256 momentum, no look-ahead", "#7b3fb8"),
+# every LM run with 32,768 tokens/step, cut at 10.4M tokens; families share a color, the
+# best of each family (lowest mean train loss over its last 20 steps in the window) is bold
+FAMILIES = [  # label, color, runs
+    ("master weights + AdamW", "#eb6834", ["p2_baseline", "probe_master"]),
+    ("momentum (rank 256) + cross-batch look-ahead", "#e53935", ["lm_lowrank256_xb2", "lm_lowrank256_adapt_xb2"]),
+    ("cross-batch look-ahead", "#111111", ["la_xb2", "la_xb2_rc", "la_xb1", "la_xb2_r0.125", "overnight_full"]),
+    ("same-batch look-ahead", "#c2185b", ["la_fast_fp32tail", "la_fastramp_lr15", "la_fast_fp32tail_r04", "la1", "la2",
+                                          "la_r0ramp", "la_rwarm", "armA_cos_la1", "probe_fast"]),
+    ("plain flips (rules, schedules, add-ons)", "#1baf7a",
+     ["lm_plain", "armA_cosine", "armA_cos_600M", "armA_linear", "armA_cos_r005", "armA_cos_floor", "armA_cos_lr15",
+      "armA_cos_lockout", "armA_cos_ef", "armB_absscale", "p3b_acc1", "lr_ctl", "lo_once_t200", "lo_once_t1000",
+      "lo_norev_t1000", "ef_probe_a0", "ef_probe_a0.01", "ef_probe_a0.03", "ef_probe_a0.1", "gref1", "gref7",
+      "gref10", "gref10_r3x", "gref25", "gref100", "hump", "invmag", "rownorm", "rs_smoke", "rc_plain",
+      "rc_plain_lr1e2"]),
+    ("frozen random ternary", "#8e8c85", ["lm_frozen"]),
+    ("momentum (rank 256), no look-ahead", "#7b3fb8", ["lm_lowrank256", "lm_lowrank256_r04", "lm_lowrank256_r1",
+                                                       "lm_lowrank256_adapt"]),
+    ("3-bit evidence counter", "#795548", ["ev3_screen"]),
 ]
+MAX_STEP = 316
 
 
 def load(d):
     rows = [json.loads(l) for l in open(f"checkpoints/{d}/metrics.jsonl")]
-    tr = {r["step"]: r["loss"] for r in rows if "loss" in r and "tokens" in r}
-    v = [r["val_loss"] for r in rows if r.get("final") and "val_loss" in r]
+    tr = {r["step"]: r["loss"] for r in rows if "loss" in r and "tokens" in r and r["step"] <= MAX_STEP}
+    v = [r["val_loss"] for r in rows if r.get("final") and "val_loss" in r and r["step"] <= MAX_STEP + 1]
     s = np.array(sorted(tr)); L = np.array([tr[i] for i in s])
     return s, L, (v[-1] if v else None)
 
@@ -39,15 +49,24 @@ def smooth(y, k=15):
 ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/lm_curves.png")
 a = ap.parse_args()
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 7.5), facecolor=SURFACE)
-for d, lab, col in RUNS:
-    s, L, v = load(d)
-    lab = f"{lab}  (val {v:.3f})" if v else lab
-    for ax in (ax1, ax2):
-        ax.plot(s, L, color=col, lw=0.7, alpha=0.25)
-        ax.plot(s, smooth(L), color=col, lw=2.4, label=lab)
+n = 0
+for fam, col, runs in FAMILIES:
+    D = {d: load(d) for d in runs if os.path.exists(f"checkpoints/{d}/metrics.jsonl")}
+    D = {d: v for d, v in D.items() if len(v[0]) > 20}
+    best = min(D, key=lambda d: D[d][1][-20:].mean() if D[d][0][-1] >= 290 else 99)
+    for d, (st, L, v) in D.items():
+        n += 1
+        if d == best:
+            lab = f"{fam}: best {d}" + (f" (val {v:.3f})" if v else "") + f"  [{len(D)} runs]"
+            for ax in (ax1, ax2):
+                ax.plot(st, smooth(L), color=col, lw=2.8, label=lab, zorder=5)
+        else:
+            for ax in (ax1, ax2):
+                ax.plot(st, smooth(L), color=col, lw=0.9, alpha=0.45, zorder=2)
+print(n, "runs")
 ax1.set_ylim(4.6, 10.8); ax1.set_xlim(0, 320)
-ax2.set_xlim(200, 318); ax2.set_ylim(4.7, 6.6)
-for ax, tt in zip((ax1, ax2), ("Train loss, 10M tokens (raw faint, 15-step mean bold)",
+ax2.set_xlim(200, 318); ax2.set_ylim(4.7, 6.8)
+for ax, tt in zip((ax1, ax2), ("Train loss, first 10M tokens of every LM run (15-step mean; bold = best of family)",
                                "Zoom: steps 200-316")):
     ax.set_title(tt, loc="left", color=INK, fontsize=12)
     ax.set_facecolor(SURFACE); ax.grid(True, color=GRID, lw=0.6)
