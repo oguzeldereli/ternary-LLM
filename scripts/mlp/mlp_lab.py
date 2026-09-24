@@ -136,8 +136,30 @@ def main():
     LR_U = {id(l): torch.linalg.qr(torch.randn(l.N, a.lowrank, device=dev))[0] for l in Ls} if a.lowrank else {}
     LR_V = {id(l): torch.zeros(l.K, a.lowrank, device=dev) for l in Ls} if a.lowrank else {}
 
+    def lowrank_flip(s, x=None, y=None):
+        """Flip from the rank-r momentum; with --lookahead, filter those proposals by
+        look-ahead (the keep test uses this step's gradient g_A, as in lookahead_step)."""
+        from bitnet.kernel import fused_flip, lookahead_filter
+        saved = [l.wpacked.clone() for l in Ls] if a.lookahead else None
+        gA = [l.gw.float().clone() for l in Ls] if a.lookahead else None
+        propose(s)
+        if not a.lookahead:
+            return
+        tail_g = [None if p.grad is None else p.grad.clone() for p in params]
+        for _ in range(a.lookahead):
+            for l in Ls: l.capture = True
+            for p in params: p.grad = None
+            xc, yc = extra() if extra is not None else (x, y)
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                model(xc, yc)[1].backward()
+            for i, l in enumerate(Ls):
+                lookahead_filter(saved[i], l.wpacked, gA[i], l.gw)
+                l.gw = None
+        for l in Ls: l.capture = False
+        for p, g in zip(params, tail_g): p.grad = g
+
     @torch.no_grad()
-    def lowrank_flip(s):
+    def propose(s):
         from bitnet.kernel import fused_flip
         for i, l in enumerate(Ls):
             g = l.gw.float(); l.gw = None; l.capture = False
@@ -167,10 +189,10 @@ def main():
             loss = model(x, y)[1]
         loss.backward()
         info = {}
-        if a.lookahead:
+        if a.lowrank:
+            lowrank_flip(s, x, y)
+        elif a.lookahead:
             info = lookahead_step(model, x, y, params, dev, s, a.lookahead, 0, extra)
-        elif a.lowrank:
-            lowrank_flip(s)
         torch.nn.utils.clip_grad_norm_(params, 1.0)
         opt.step()
         rec = {"step": s, "examples": (s + 1) * a.batch, "loss": loss.item(), **info}

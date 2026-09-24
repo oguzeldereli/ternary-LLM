@@ -979,3 +979,8 @@ with the usual rule and rate but driven by M instead of the current gradient.
 Closes half of the flip-to-master gap (0.333 of 0.652) and, unlike look-ahead, raises the
 slope (-0.062 vs -0.045), at plain-flip cost per step: accumulating the direction across steps
 is the lever. Memory r*(N+K) per layer (~12% of per-weight at MLP size, ~1.7% at 27B shapes).
+
+Rank-64 momentum + cross-batch look-ahead x2 (`mlp_lowrank64_xb2`): **val 4.615** (momentum
+alone 4.670, look-ahead alone 4.877, master 4.351) -- 60% of the flip-to-master gap closed.
+The two add up but only partly (-0.055 from look-ahead on top of momentum, vs -0.126 on top
+of plain flips), at 3 passes per step.
