@@ -124,7 +124,7 @@ Key flags (kernel mode):
 | `--lookahead_xbatch` | take the look-ahead pass(es) on fresh batches (best with `--lookahead 2`) |
 | `--compile` | torch.compile the elementwise parts (RMSNorm, RoPE, SwiGLU); differs from eager only by rounding |
 | `--ckpt_skip K` | no gradient checkpointing for the last K layers (faster, ~1.3 GiB VRAM per layer at 16x2048) |
-| `--prewarm S`, `--soft_start N` | ramp GPU power up at start (S seconds; N throttled steps, off by default) |
+| `--soft_start N` | throttle the first N steps after start (off by default) |
 
 ## Honest limitations
 

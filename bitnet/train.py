@@ -53,25 +53,6 @@ def get_batch(data, bs, seq_len, device, gen=None):
     return x.to(device, non_blocking=True), y.to(device, non_blocking=True)
 
 
-def gpu_prewarm(seconds, device):
-    """Ramp GPU load up gradually before compiling/autotuning: duty cycle ~10% -> ~90%
-    over `seconds`. A cold idle -> full-power jump (kernel autotuning at startup) has
-    hard-reset the machine several times."""
-    if seconds <= 0 or not device.startswith("cuda"):
-        return
-    g = torch.Generator(device=device).manual_seed(0)      # leaves the global RNG alone
-    a = torch.randn(2048, 2048, device=device, generator=g).to(torch.bfloat16) / 45
-    t0 = time.time()
-    while (el := time.time() - t0) < seconds:
-        duty = 0.1 + 0.8 * el / seconds
-        t1 = time.time()
-        while time.time() - t1 < 0.05 * duty:
-            a = (a @ a).clamp_(-1, 1)
-        torch.cuda.synchronize()
-        time.sleep(0.05 * (1 - duty))
-    del a
-
-
 def lr_at(step, tc: TrainConfig):
     if step < tc.warmup_steps:
         return tc.lr * (step + 1) / tc.warmup_steps
@@ -326,8 +307,6 @@ def main():
     ap.add_argument("--ckpt_skip", type=int, default=0,
                     help="leave the last K layers without gradient checkpointing (faster, "
                          "more VRAM; ~1.3 GiB per layer at 16x2048 tokens)")
-    ap.add_argument("--prewarm", type=float, default=30.0,
-                    help="seconds of gradually rising GPU load before anything else (0 = off)")
     ap.add_argument("--soft_start", type=int, default=0,
                     help="power ramp: over the first N steps after (re)start, sleep between "
                          "steps so the GPU duty cycle rises from ~15%% to 100%% (a cold "
@@ -356,7 +335,6 @@ def main():
 
     BitTransformer.loss_chunk = args.loss_chunk
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    gpu_prewarm(args.prewarm, device)
     torch.manual_seed(tc.seed)
     print(mc.report())
     use_beta = args.mode in ("kernel", "evidence") and not args.no_beta
