@@ -1053,3 +1053,21 @@ Same config and batches (fast rate ramp, fp32 tail, master's tail LR; `screen_10
 - The adaptive decay removes the stall (train 6.87 vs 7.28 at steps 80-100) but decreases
   slowly after; train ends level with fixed beta (6.19 vs 6.21) and val is worse (6.29).
   Plain flips stay ahead throughout (5.73).
+
+### Momentum + look-ahead on the LM: first momentum that helps
+
+| run | val @ 10M |
+|---|---|
+| `lm_lowrank256_xb2` (rank-256 momentum, fixed beta 0.97, proposes; cross-batch look-ahead x2 keeps) | **4.892** |
+| `la_xb2_rc` (look-ahead x2 + row/col scales) | 4.974 |
+| `la_xb2` (look-ahead x2, proposals from g) | 5.002 |
+| `lm_lowrank256_adapt_xb2` (decay 0.97*cos + look-ahead x2) | stopped at step 200, +0.02 behind la_xb2 |
+
+- `--lr_adapt` turned momentum off: from the logged cosines, mean |beta_t| 0.58 (no look-ahead)
+  and 0.16 (with look-ahead), i.e. effective memory 2.5 and 1.2 steps instead of 33.
+- With look-ahead, fixed-beta momentum no longer fights the gradient: cos(g, M) stays at 0 +- 0.05
+  (vs -0.5..-0.7 without). Behind la_xb2 early (+0.15 at step 20), crosses at step ~170, -0.08
+  train at 290 and still widening; val -0.110.
+- Half the flips: 0.06-0.08% of trits per step vs 0.12-0.16% for la_xb2; ~19% of momentum
+  proposals survive the filter (la_xb2: ~40%).
+- State: 256*(N+K) floats per layer = 44.8M floats (179 MB fp32) for 85M ternary weights.
