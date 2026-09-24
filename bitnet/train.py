@@ -33,7 +33,7 @@ from .config import ModelConfig, TrainConfig, PRESETS, DEFAULT_PRESET
 from .model import BitTransformer
 from .bitlinear import STATE
 from .master import build_master_transformer, split_params, MasterTernaryLinear
-from .kernel import fused_flip, unpack_rows, pack_rows
+from .kernel import fused_flip, unpack_rows, pack_rows, lookahead_filter
 from .flip import KernelTernaryLinear
 from .probe import probe, parse_schedule
 from .flip import (build_flip_transformer, build_stateless_transformer,
@@ -155,20 +155,16 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
     only within the step. The tail (embedding, norms) keeps its first-pass gradient.
     iters > 1 re-checks the surviving flips at the filtered point."""
     layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
-    saved = [l.wpacked.clone() for l in layers]
-    q0 = [unpack_rows(w, l.K) for l, w in zip(layers, saved)]
+    saved = [l.wpacked.clone() for l in layers]            # packed, 1.6 bit/weight
     grads = []
     for l in layers:
         grads.append(l.gw.contiguous()); l.gw = None
     tail_g = [None if p.grad is None else p.grad.clone() for p in tail]
     seed0 = 9_000_000 + step * 131 + flip_seed * 1_000_003
-    D = []
     for i, (l, g) in enumerate(zip(layers, grads)):
         fused_flip(l.wpacked, g, l.rate, l.g_ref, seed0 + i,
                    gmean=g.abs().mean().clamp_min(1e-8).item())
-        D.append(unpack_rows(l.wpacked, l.K) - q0[i])
-    n_prop = sum(int((d != 0).sum()) for d in D)
-    keep = [d != 0 for d in D]
+    n_prop = n_keep = None
     for _ in range(iters):
         for p in tail: p.grad = None
         # cross-batch look-ahead: judge each flip on a *different* batch, so a flip
@@ -178,15 +174,18 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
         with torch.autocast(device_type=device.split(":")[0], dtype=torch.bfloat16):
             _, loss = model(xc, yc)
         loss.backward()                               # capture is still on: no flips
+        cnt = torch.zeros(2, dtype=torch.int32, device=grads[0].device)
         for i, l in enumerate(layers):
-            keep[i] &= D[i].float() * (grads[i] + l.gw) < 0
+            # keep/revert straight on the packed bytes (bitnet.kernel.lookahead_filter)
+            lookahead_filter(saved[i], l.wpacked, grads[i], l.gw, cnt)
             l.gw = None
-            l.wpacked.copy_(pack_rows(q0[i] + D[i] * keep[i].to(torch.int8)))
+        if n_prop is None:
+            n_prop = int(cnt[0])
+        n_keep = int(cnt[1])
     for p, g in zip(tail, tail_g): p.grad = g
     for l, w in zip(layers, saved):
         l.capture = False
         if l.track: l._record_flips(w, l.wpacked)
-    n_keep = sum(int(k.sum()) for k in keep)
     return {"la_proposed": n_prop, "la_kept": n_keep}
 
 
@@ -322,6 +321,11 @@ def main():
     ap.add_argument("--resume_temp", type=int, default=80,
                     help="after a thermal pause, wait until GPU temp (C) is at or below "
                          "this before resuming")
+    ap.add_argument("--compile", action="store_true",
+                    help="torch.compile the elementwise parts (RMSNorm, RoPE, SwiGLU)")
+    ap.add_argument("--ckpt_skip", type=int, default=0,
+                    help="leave the last K layers without gradient checkpointing (faster, "
+                         "more VRAM; ~1.3 GiB per layer at 16x2048 tokens)")
     ap.add_argument("--prewarm", type=float, default=30.0,
                     help="seconds of gradually rising GPU load before anything else (0 = off)")
     ap.add_argument("--soft_start", type=int, default=0,
@@ -382,6 +386,11 @@ def main():
         model = BitTransformer(mc, grad_checkpoint=tc.grad_checkpoint)
     model = model.to(device)
     model.train()
+    if args.ckpt_skip:
+        model.ckpt_skip = args.ckpt_skip
+    if args.compile:
+        from .model import enable_compile
+        enable_compile()
 
     if args.mode == "master":
         # the baseline keeps everything in fp32 with a standard AdamW: no bf16

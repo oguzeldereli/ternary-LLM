@@ -14,6 +14,48 @@ from .config import ModelConfig
 from .bitlinear import BitLinear
 
 
+def _rmsnorm(x, w, eps: float):
+    # compute in fp32, return in the INPUT dtype: returning the weight dtype
+    # promoted the whole residual stream to fp32 whenever the norm gain is fp32.
+    dt = x.dtype
+    x = x.float()
+    x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)
+    return (x * w.float()).to(dt)
+
+
+def _swiglu(a, b):
+    return F.silu(a) * b
+
+
+def _rope_rot(x, freqs_cis):
+    xc = torch.view_as_complex(x.float().reshape(*x.shape[:-1], -1, 2))
+    f = freqs_cis[: x.shape[1]].unsqueeze(0).unsqueeze(2)  # [1,T,1,dim/2]
+    return torch.view_as_real(xc * f).flatten(-2).type_as(x)
+
+
+def _rope_rot_real(x, freqs_cis):
+    # the same complex multiply in real arithmetic, for torch.compile (inductor has no
+    # complex codegen). Rounds differently, so only used with --compile; the default
+    # path stays bit-identical to earlier runs.
+    xf = x.float().reshape(*x.shape[:-1], -1, 2)
+    a, b = xf[..., 0], xf[..., 1]
+    f = freqs_cis[: x.shape[1]].unsqueeze(0).unsqueeze(2)  # [1,T,1,dim/2]
+    c, s = f.real, f.imag
+    return torch.stack((a * c - b * s, a * s + b * c), -1).flatten(-2).type_as(x)
+
+
+# elementwise pieces, swappable for torch.compile'd versions (enable_compile)
+_FN = {"rmsnorm": _rmsnorm, "swiglu": _swiglu, "rope": _rope_rot}
+
+
+def enable_compile():
+    """torch.compile the elementwise parts (norm, RoPE rotation, SwiGLU): fuses their
+    reads/writes. The ternary GEMMs are Triton kernels and stay as they are."""
+    _FN["rope"] = _rope_rot_real
+    for k, f in list(_FN.items()):
+        _FN[k] = torch.compile(f, dynamic=None)
+
+
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-5):
         super().__init__()
@@ -21,12 +63,7 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
-        # compute in fp32, return in the INPUT dtype: returning the weight dtype
-        # promoted the whole residual stream to fp32 whenever the norm gain is fp32.
-        dt = x.dtype
-        x = x.float()
-        x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-        return (x * self.weight.float()).to(dt)
+        return _FN["rmsnorm"](x, self.weight, self.eps)
 
 
 def precompute_rope(dim: int, end: int, theta: float):
@@ -37,11 +74,7 @@ def precompute_rope(dim: int, end: int, theta: float):
 
 
 def apply_rope(xq, xk, freqs_cis):
-    def rot(x):
-        xc = torch.view_as_complex(x.float().reshape(*x.shape[:-1], -1, 2))
-        f = freqs_cis[: x.shape[1]].unsqueeze(0).unsqueeze(2)  # [1,T,1,dim/2]
-        return torch.view_as_real(xc * f).flatten(-2).type_as(x)
-    return rot(xq), rot(xk)
+    return _FN["rope"](xq, freqs_cis), _FN["rope"](xk, freqs_cis)
 
 
 class Attention(nn.Module):
@@ -79,7 +112,7 @@ class FeedForward(nn.Module):
         self.w_down = make_linear(c.hidden_dim, c.dim)
 
     def forward(self, x):
-        return self.w_down(F.silu(self.w_gate(x)) * self.w_up(x))
+        return self.w_down(_FN["swiglu"](self.w_gate(x), self.w_up(x)))
 
 
 class Block(nn.Module):
@@ -116,6 +149,9 @@ class BitTransformer(nn.Module):
     # tensor in the model (32k vocab x 16k tokens = 2 GiB in fp32), so the head +
     # cross-entropy run in checkpointed chunks and full logits are never stored.
     loss_chunk = 2048
+    # partial gradient checkpointing: the last `ckpt_skip` layers keep their activations
+    # (no forward recompute in backward) -- trades memory for ~1/3 of those layers' cost
+    ckpt_skip = 0
 
     def __init__(self, c: ModelConfig, grad_checkpoint: bool = True, make_linear=None):
         super().__init__()
@@ -157,8 +193,9 @@ class BitTransformer(nn.Module):
             h = h.to(torch.get_autocast_dtype(h.device.type))
         fc = self.freqs_cis.to(h.device)
         ckpt = self.grad_checkpoint and self.training
-        for layer in self.layers:
-            h = layer(h, fc, ckpt=ckpt)
+        n_ck = len(self.layers) - self.ckpt_skip
+        for i, layer in enumerate(self.layers):
+            h = layer(h, fc, ckpt=ckpt and i < n_ck)
         h = self.norm(h)
         w = self.tok_emb.weight if self.lm_head is None else self.lm_head.weight
         if targets is None:

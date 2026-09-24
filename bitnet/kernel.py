@@ -17,6 +17,9 @@ import triton.language as tl
 _P3 = [1, 3, 9, 27, 81]
 
 
+_P3_DEV = {}
+
+
 def pack_rows(w: torch.Tensor) -> torch.Tensor:
     """int8 {-1,0,1} [N,K] -> uint8 [N, ceil(K/5)] base-3, per row along K."""
     N, K = w.shape
@@ -26,7 +29,9 @@ def pack_rows(w: torch.Tensor) -> torch.Tensor:
     if pad:
         x = torch.cat([x, x.new_zeros(N, pad)], dim=1)
     x = x.view(N, K5, 5)
-    wts = torch.tensor(_P3, dtype=torch.int16, device=w.device)
+    wts = _P3_DEV.get(w.device)
+    if wts is None:                                   # cached: a per-call host copy syncs
+        wts = _P3_DEV[w.device] = torch.tensor(_P3, dtype=torch.int16, device=w.device)
     return (x * wts).sum(2).to(torch.uint8)           # [N, K5]
 
 
@@ -244,6 +249,58 @@ def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
         nt = tl.where(fire, tl.maximum(tl.minimum(t + d, 1), -1), t)
         newb += (nt + 1) * p3
     tl.store(w_ptr + idx, newb.to(tl.uint8), mask=mask)
+
+
+@triton.jit
+def _la_filter_kernel(p0_ptr, pc_ptr, g_ptr, g2_ptr, cnt_ptr, N, K, K5,
+                      sgn, sgk, s2n, s2k, BLOCK: tl.constexpr):
+    # look-ahead keep/revert on packed bytes. p0 = weights before the step, pc = current
+    # candidate (p0 + surviving proposals). A changed trit (d = tc - t0 != 0) is kept iff
+    # d * (g + g2) < 0 (its midpoint slope still descends), otherwise reverted to t0.
+    # cnt[0] += trits changed on entry, cnt[1] += trits kept.
+    pid = tl.program_id(0)
+    idx = pid * BLOCK + tl.arange(0, BLOCK)
+    mask = idx < N * K5
+    n = idx // K5
+    k5 = idx % K5
+    b0 = tl.load(p0_ptr + idx, mask=mask, other=0).to(tl.int32)
+    bc = tl.load(pc_ptr + idx, mask=mask, other=0).to(tl.int32)
+    newb = tl.zeros((BLOCK,), tl.int32)
+    n_in = tl.zeros((BLOCK,), tl.int32)
+    n_keep = tl.zeros((BLOCK,), tl.int32)
+    for j in tl.static_range(5):
+        p3 = 3 ** j
+        t0 = (b0 // p3) % 3 - 1
+        tc = (bc // p3) % 3 - 1
+        k = k5 * 5 + j
+        gmask = mask & (k < K)
+        d = tc - t0
+        ch = gmask & (d != 0)
+        g = tl.load(g_ptr + n * sgn + k * sgk, mask=ch, other=0.0)
+        g2 = tl.load(g2_ptr + n * s2n + k * s2k, mask=ch, other=0.0)
+        keep = ch & (d.to(tl.float32) * (g + g2) < 0)
+        nt = tl.where(keep, tc, t0)
+        newb += (nt + 1) * p3
+        n_in += ch.to(tl.int32)
+        n_keep += keep.to(tl.int32)
+    tl.store(pc_ptr + idx, newb.to(tl.uint8), mask=mask)
+    tl.atomic_add(cnt_ptr, tl.sum(n_in, 0))
+    tl.atomic_add(cnt_ptr + 1, tl.sum(n_keep, 0))
+
+
+def lookahead_filter(p0: torch.Tensor, pc: torch.Tensor, g: torch.Tensor, g2: torch.Tensor,
+                     cnt: torch.Tensor = None) -> torch.Tensor:
+    """In place on `pc`: keep a changed trit iff (tc - t0) * (g + g2) < 0, else revert.
+    Accumulates [changed on entry, kept] into the int32 `cnt` (2,) and returns it."""
+    N, K5 = p0.shape
+    K = g.shape[1]
+    if cnt is None:
+        cnt = torch.zeros(2, dtype=torch.int32, device=p0.device)
+    BLOCK = 1024
+    grid = (triton.cdiv(N * K5, BLOCK),)
+    _la_filter_kernel[grid](p0, pc, g, g2, cnt, N, K, K5, g.stride(0), g.stride(1),
+                            g2.stride(0), g2.stride(1), BLOCK=BLOCK)
+    return cnt
 
 
 def fused_flip(wpacked: torch.Tensor, grad_w: torch.Tensor, rate: float,
