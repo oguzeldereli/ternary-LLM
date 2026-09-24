@@ -1015,3 +1015,22 @@ Master puts a large share of its move in the important directions and moves alon
 perfectly. The flips put a random-sized share there (~what a random move would) with weakly
 positive alignment early that fades to zero: they barely move where it matters. Most of what the
 plain-flip model learns is the float embeddings adapting to near-random ternary layers.
+
+## LM 10M screens: frozen baseline, plain flips, rank-256 momentum
+
+Same config and batches (fast rate ramp, fp32 tail, master's tail LR; `screen_10m.sh`):
+
+| run | val @ 10M |
+|---|---|
+| `lm_frozen` (flip rate 0: ternary layers stay random) | 5.698 |
+| `lm_plain` (plain flips, r = 0.02) | 5.684 |
+| `la_fast_fp32tail` (same-batch look-ahead) | 5.188 |
+| `la_xb2` (cross-batch look-ahead x2) | 5.002 |
+| `lm_lowrank256` (rank-256 momentum, r = 0.02) | **6.047** |
+
+- On the LM too, **plain flips add almost nothing over frozen random ternary layers** (-0.014):
+  at 10M tokens the plain-flip model is the embeddings/norms adapting to random ternary layers.
+  Look-ahead adds 0.5-0.7 on top of that, so on the LM it is doing real work.
+- Rank-256 momentum at the plain rate is **worse than frozen** (stalls at the unigram level for
+  ~80 steps). Accumulation turns the flips' random walk into a drift, so the same rate is a much
+  larger effective step; the 12-layer transformer does not tolerate it. Needs a lower rate.
