@@ -904,3 +904,24 @@ Look-ahead barely changes which moves are chosen relative to master (+0.002-0.00
 in loss comes from removing flips that hurt together, not from picking master's moves. All
 gradient-based selections are ~2x random. Caveat: master's moves are one working solution, not
 the only good moves.
+
+## How master moves vs stateless flips (`scripts/mlp/geometry.py`)
+
+Ternary MLP, both runs from step 300 (1.2M examples), windows of N steps. sum(g) = sum of
+the gradients each run saw along its own trajectory. Cosines per layer, averaged.
+
+| window | master: latent move vs -sum(g) | master: trit change vs -sum(g) | master: trits changed | flips: trit change vs -sum(g) | flips: trits changed |
+|---|---|---|---|---|---|
+| 1 step | 0.37 | 0.04 | 0.5% | 0.08 | 0.4% |
+| 10 | 0.52 | 0.13 | 4.0% | 0.04 | 4.1% |
+| 50 | 0.79 | 0.30 | 10.4% | 0.02 | 17.3% |
+| 200 | **0.90** | **0.44** | 20.7% | **0.006** | **42.7%** |
+
+(Master's single Adam step vs -g: 0.40.)
+
+- Master moves along the **summed** gradient: its latent displacement lines up with -sum(g)
+  better and better as the window grows (0.90 over 200 steps), and its trits follow (0.44).
+- Stateless flips do the opposite: each step is somewhat aligned with its own gradient (0.08,
+  more than master's per-step trit change), but the moves do **not** add up. Over 200 steps
+  the net trit change is orthogonal to the summed gradient (0.006) while touching twice as
+  many trits (43% vs 21%). The flips are a random walk around the pull, not a drift along it.

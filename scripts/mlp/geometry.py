@@ -1,0 +1,125 @@
+"""How does master move, compared with the summed gradient and with stateless flips?
+
+Ternary MLP LM. Train master (BitNet STE + AdamW) and stateless flips (r = 0.02) to S0 steps,
+then over windows of N steps record, per layer, cosine similarities (averaged over layers):
+  master: latent displacement vs -sum(g) | trit change vs -sum(g) | trit change vs latent
+          displacement | one Adam step vs -g of that step
+  flips:  trit change vs -sum(g) | one step's flips vs -g of that step
+sum(g) is the sum of the gradients each run saw along its own trajectory (the "added
+gradient vector"). Trit changes are in trit units; cosines are scale-free within a layer.
+
+  python -m scripts.mlp.geometry
+"""
+import math, numpy as np, torch, torch.nn.functional as F
+from bitnet.master import MasterTernaryLinear
+from bitnet.flip import KernelTernaryLinear, set_flip_rate
+from bitnet.kernel import unpack_rows
+from scripts.mlp.mlp_lab import MLPLM, windows
+
+dev, BATCH, LR, WARM, TOTAL, RATE, S0 = "cuda", 4096, 1.5e-3, 100, 6000, 0.02, 300
+WINDOWS = (1, 10, 50, 200)
+train = np.memmap("data/wiki32k_train.bin", dtype=np.uint16, mode="r")
+
+
+def cos(a, b):
+    return F.cosine_similarity(a.flatten().float(), b.flatten().float(), 0).item()
+
+
+def lr_at(s):
+    if s < WARM: return LR * (s + 1) / WARM
+    return 1.5e-4 + 0.5 * (LR - 1.5e-4) * (1 + math.cos(math.pi * (s - WARM) / (TOTAL - WARM)))
+
+
+def rate_at(s):
+    if s < 10: return RATE * s / 10
+    return RATE * 0.5 * (1 + math.cos(math.pi * (s - 10) / (TOTAL - 10)))
+
+
+def run(mode):
+    torch.manual_seed(0)
+    mk = (lambda i, o: MasterTernaryLinear(i, o)) if mode == "master" else \
+         (lambda i, o: KernelTernaryLinear(i, o, rate=RATE, g_ref=3.0, beta=True, int8=True, dw_mode="dense"))
+    m = MLPLM(mk).to(dev).train()
+    opt = torch.optim.AdamW(
+        [{"params": [p for n, p in m.named_parameters() if "norm" not in n], "weight_decay": 0.1},
+         {"params": [p for n, p in m.named_parameters() if "norm" in n], "weight_decay": 0.0}],
+        lr=LR, betas=(0.9, 0.95))
+    Ls = [l for l in m.modules() if isinstance(l, (MasterTernaryLinear, KernelTernaryLinear))]
+    gen = torch.Generator().manual_seed(1234)
+
+    def trits():
+        if mode == "master":
+            out = []
+            for l in Ls:
+                w = l.weight.detach().float(); gm = w.abs().mean().clamp_min(1e-5)
+                out.append((w / gm).round().clamp(-1, 1))
+            return out
+        return [unpack_rows(l.wpacked, l.K).float() for l in Ls]
+
+    def one_step(s, record):
+        for g in opt.param_groups: g["lr"] = lr_at(s)
+        if mode != "master": set_flip_rate(m, rate_at(s))
+        for l in Ls:
+            if mode != "master": l.capture = record         # gradient only; flips applied below
+        x, y = windows(train, BATCH, 8, gen, dev)
+        opt.zero_grad(set_to_none=True)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            m(x, y)[1].backward()
+        if mode == "master":
+            gr = [l.weight.grad.float().clone() for l in Ls] if record else None
+            w0 = [l.weight.detach().float().clone() for l in Ls] if record else None
+            torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); opt.step()
+            upd = [l.weight.detach().float() - a for l, a in zip(Ls, w0)] if record else None
+            return gr, upd
+        gr = None
+        if record:
+            from bitnet.kernel import fused_flip
+            gr = [l.gw.float().clone() for l in Ls]
+            for i, l in enumerate(Ls):
+                fused_flip(l.wpacked, l.gw, l.rate, l.g_ref, 10_000 + s * 97 + i,
+                           gmean=l.gw.abs().mean().clamp_min(1e-8).item())
+                l.gw = None; l.capture = False
+        torch.nn.utils.clip_grad_norm_([p for p in m.parameters() if p.requires_grad], 1.0); opt.step()
+        return gr, None
+
+    for s in range(S0):
+        one_step(s, False)
+    res = {}
+    T0 = trits()
+    W0 = [l.weight.detach().float().clone() for l in Ls] if mode == "master" else None
+    gsum = [torch.zeros_like(t) for t in T0]
+    step_cos = []
+    for i in range(max(WINDOWS)):
+        Tb = trits()
+        gr, upd = one_step(S0 + i, True)
+        Ta = trits()
+        for a, g in zip(gsum, gr): a += g
+        if mode == "master":
+            step_cos.append((np.mean([cos(u, -g) for u, g in zip(upd, gr)]),
+                             np.mean([cos(b - a, -g) for a, b, g in zip(Tb, Ta, gr) if (b - a).abs().sum() > 0] or [np.nan])))
+        else:
+            step_cos.append((np.nan, np.mean([cos(b - a, -g) for a, b, g in zip(Tb, Ta, gr) if (b - a).abs().sum() > 0] or [np.nan])))
+        n = i + 1
+        if n in WINDOWS:
+            T = trits()
+            dT = [t - t0 for t, t0 in zip(T, T0)]
+            r = {"trit_vs_sumg": np.mean([cos(d, -g) for d, g in zip(dT, gsum)]),
+                 "trits_changed_%": np.mean([(d != 0).float().mean().item() * 100 for d in dT])}
+            if mode == "master":
+                dW = [l.weight.detach().float() - w0 for l, w0 in zip(Ls, W0)]
+                r["latent_vs_sumg"] = np.mean([cos(d, -g) for d, g in zip(dW, gsum)])
+                r["trit_vs_latent"] = np.mean([cos(t, w) for t, w in zip(dT, dW)])
+            res[n] = r
+    sc = np.array(step_cos)
+    return res, np.nanmean(sc[:, 0]), np.nanmean(sc[:, 1])
+
+
+for mode in ("master", "flip"):
+    res, adam_cos, trit_step_cos = run(mode)
+    print(f"\n=== {mode} (window starts at {S0 * BATCH / 1e6:.1f}M examples) ===")
+    if mode == "master":
+        print(f"  single step: Adam update vs -g {adam_cos:.3f} | trit change vs -g {trit_step_cos:.3f}")
+    else:
+        print(f"  single step: flips vs -g {trit_step_cos:.3f}")
+    for n, r in res.items():
+        print(f"  window {n:3d}: " + " | ".join(f"{k} {v:.3f}" for k, v in r.items()))
