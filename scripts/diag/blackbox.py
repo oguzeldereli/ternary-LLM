@@ -1,4 +1,4 @@
-"""Black-box logger for diagnosing hard resets: one fsync'd CSV line every ~0.5 s, so the
+"""Black-box logger for diagnosing hard resets: one fsync'd CSV line every ~0.05 s, so the
 last second before a crash survives on disk.
 
   python -m scripts.diag.blackbox            # runs until killed; one file per boot
@@ -56,11 +56,11 @@ def run():
     core_temps = sorted(glob.glob(core + "/temp*_input")) if core else []
     freqs = glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq")
     gpu = subprocess.Popen(["nvidia-smi", f"--query-gpu={GPU_Q}", "--format=csv,noheader,nounits",
-                            "-lms", "500"], stdout=subprocess.PIPE, text=True)
+                            "-lms", "50"], stdout=subprocess.PIPE, text=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     os.write(fd, (COLS + "\n").encode()); os.fsync(fd)
     prev = cpu_times()
-    for line in gpu.stdout:                                  # paced by nvidia-smi (~0.5 s)
+    for line in gpu.stdout:                                  # paced by nvidia-smi (~0.05 s)
         g = [x.strip() for x in line.split(",")]
         temps = [int(read(p, "0")) / 1000 for p in core_temps]
         pkg = temps[0] if temps else ""
@@ -69,7 +69,7 @@ def run():
         cur = cpu_times()
         busy = 1 - (cur[1] - prev[1]) / max(cur[0] - prev[0], 1); prev = cur
         bat_w = int(read("/sys/class/power_supply/BAT0/power_now", "0")) / 1e6
-        row = [time.strftime("%H:%M:%S") + f".{int(time.time() * 10) % 10}", pkg, mx, f"{mhz:.0f}",
+        row = [time.strftime("%H:%M:%S") + f".{int(time.time() * 100) % 100:02d}", pkg, mx, f"{mhz:.0f}",
                f"{busy:.2f}", int(read(acpi + "/temp1_input", "0")) / 1000 if acpi else "",
                *(read(f"{fans}/fan{i}_input") if fans else "" for i in (1, 2, 3)),
                read("/sys/class/power_supply/ADP0/online"),
