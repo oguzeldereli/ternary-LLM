@@ -577,7 +577,10 @@ def main():
                     "hump_g0": args.hump_g0, "hump_alpha": args.hump_alpha,
                     "flip_lockout": args.flip_lockout,
                     "lockout_mode": args.lockout_mode,
-                    "ef_alpha": args.ef_alpha}, tmp)
+                    "ef_alpha": args.ef_alpha,
+                    # low-rank momentum (U, V) per ternary layer, in module order
+                    "lowrank": [lr_state.get(id(m)) for m in model.modules()
+                                if isinstance(m, KernelTernaryLinear)] if lr_state else None}, tmp)
         os.replace(tmp, ckpt_path)
 
     start_step = 0
@@ -591,6 +594,12 @@ def main():
         if "opt" in blob:
             tail_opt.load_state_dict(blob["opt"])
         start_step = int(blob.get("step", 0)) + 1
+        if blob.get("lowrank"):
+            lays = [m for m in model.modules() if isinstance(m, KernelTernaryLinear)]
+            for m, uv in zip(lays, blob["lowrank"]):
+                if uv is not None:
+                    lr_state[id(m)] = tuple(t.to(device) for t in uv)
+            print(f"resumed low-rank momentum for {len(lr_state)} layers", flush=True)
         tmask = blob.get("touched") or {}
         nres = 0
         for n, m in model.named_modules():
