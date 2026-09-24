@@ -862,3 +862,29 @@ MLP at flip rate r = 1 (6000 steps, same schedule): plain flips 5.625 (stuck nea
 the cosine pulls the rate down), cross-batch look-ahead x2 **5.115**, against 5.003 / 4.877 at
 r = 0.02 and master 4.351. The filter makes r = 1 survivable but not good: a low rate still
 wins by 0.24.
+
+## Master-weights oracle: does the gradient predict the discrete moves that work?
+
+`scripts/mlp/oracle.py`, ternary MLP LM. Master (BitNet STE + AdamW) is trained to a
+checkpoint; its trits T0 are recorded; master continues N steps; the trits that changed are
+the oracle moves. Candidate signals, computed at the checkpoint, scored per layer then averaged:
+direction accuracy of -sign(signal) on moved trits (chance 0.5), AUC of |signal| for "moves
+within N steps", precision among the top-k (k = number of oracle moves).
+
+| checkpoint, horizon | trits moved | grad (1 batch) dir / AUC | grad (32 batches) dir / AUC | master momentum dir / AUC | latent near its rounding boundary AUC |
+|---|---|---|---|---|---|
+| 1.2M, 10 steps | 4.0% | 0.58 / 0.53 | 0.64 / 0.54 | 0.73 / 0.58 | **0.97** |
+| 1.2M, 200 steps | 20.7% | 0.53 / 0.50 | 0.55 / 0.51 | 0.56 / 0.52 | 0.80 |
+| 8.2M, 10 steps | 2.8% | 0.56 / 0.52 | 0.64 / 0.55 | 0.78 / 0.61 | **0.98** |
+| 8.2M, 200 steps | 11.9% | 0.53 / 0.51 | 0.58 / 0.52 | 0.53 / 0.51 | 0.90 |
+
+- The current gradient says almost nothing about **which** trits a working optimizer
+  changes (AUC 0.50-0.55), and only weakly **which way** (55-64% direction agreement, even
+  averaged over 32 batches to remove the noise). Denoising barely helps: the signal is weak
+  as a guide to discrete moves, not just noisy.
+- Master's moves are almost entirely explained by where its latent weight already sits
+  (close to a rounding boundary: AUC 0.90-0.98) -- i.e. by accumulated history, which a
+  stateless rule does not have. Momentum (the history of gradients) predicts direction better
+  than any single gradient at short horizons (0.73-0.78).
+- Caveat: "close to the boundary" partly restates how master works (a trit changes when the
+  latent crosses). The informative part is how little the present gradient carries.
