@@ -988,3 +988,9 @@ of plain flips), at 3 passes per step.
 Rank 256 (`mlp_lowrank256`, no look-ahead): **val 4.577** (rank 64: 4.670; master 4.351) --
 65% of the flip-to-master gap closed with one pass per step. Memory 256*(N+K) per layer
 (50% of per-weight at 1024x1024; ~7% at 27B layer shapes).
+
+Hashed (count-sketch) momentum at the memory of rank 64 (`mlp_sketch64`: 64*(N+K) buckets per
+layer, ~8 weights per bucket, fixed random signs): **val 4.804**, slope in between. Better than
+plain flips (5.003) and look-ahead (4.877), clearly worse than rank-64 momentum at equal memory
+(4.670): a random projection of the flattened gradient loses to the adaptive low-rank one,
+because it ignores the outer-product structure and adds per-weight reconstruction noise.
