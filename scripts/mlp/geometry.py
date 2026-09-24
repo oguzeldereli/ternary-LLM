@@ -106,6 +106,19 @@ def run(mode):
                  "win_trit": np.mean([cos(t - t0, -g) for t, t0, g in zip(T, Tw, gwin)]),
                  "cum_trit": np.mean([cos(t - t0, -g) for t, t0, g in zip(T, T00, gcum)]),
                  "win_changed_%": np.mean([((t - t0) != 0).float().mean().item() * 100 for t, t0 in zip(T, Tw)])}
+            # projection onto the top-r singular directions of this window's summed gradient:
+            # share of the trit move inside them and the alignment there
+            for rr in (16, 64):
+                fr, cr = [], []
+                for t, t0, g in zip(T, Tw, gwin):
+                    d = t - t0
+                    U, S, Vh = torch.linalg.svd(g.float(), full_matrices=False)
+                    Ur, Vr = U[:, :rr], Vh[:rr].T
+                    Pd = Ur @ (Ur.T @ d @ Vr) @ Vr.T
+                    gr_ = (Ur * S[:rr]) @ Vh[:rr]
+                    fr.append((Pd.norm() / d.norm().clamp_min(1e-12)).item())
+                    cr.append(cos(Pd, -gr_))
+                r[f"frac_top{rr}"] = float(np.mean(fr)); r[f"cos_top{rr}"] = float(np.mean(cr))
             if mode == "master":
                 W = [l.weight.detach().float().clone() for l in Ls]
                 r["win_latent"] = np.mean([cos(w - w0, -g) for w, w0, g in zip(W, Ww, gwin)])
@@ -118,7 +131,7 @@ def run(mode):
 
 import json, sys
 modes = sys.argv[1:] or ["master", "flip"]
-path = "checkpoints/mlp/geometry_full.json"
+path = os.environ.get("GEOM_OUT", "checkpoints/mlp/geometry_full.json")
 res = json.load(open(path)) if os.path.exists(path) else {}
 for mode in modes:
     res[mode] = run(mode)

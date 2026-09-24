@@ -994,3 +994,24 @@ layer, ~8 weights per bucket, fixed random signs): **val 4.804**, slope in betwe
 plain flips (5.003) and look-ahead (4.877), clearly worse than rank-64 momentum at equal memory
 (4.670): a random projection of the flattened gradient loses to the adaptive low-rank one,
 because it ignores the outer-product structure and adds per-weight reconstruction noise.
+
+### How does the random walk learn at all? Frozen baseline and projected geometry (MLP)
+
+**Frozen ternary baseline** (`mlp_frozen`, flip rate 0: ternary layers stay at their random
+init, only embeddings and norms learn): **val 5.066**. Plain flips reach 5.003, so they add only
+9% of what master's ternary layers add (master 4.351). Relative to this baseline: look-ahead x2
+26%, rank-64 momentum 55%, rank-256 momentum 68%, rank-256 + look-ahead 74%.
+
+**Projected geometry** (each 200-step window's trit move projected onto the top-r singular
+directions of that window's summed gradient): share of the move inside them, and alignment there.
+
+| examples | master: share top16 / top64, cos there | plain flips | look-ahead x2 |
+|---|---|---|---|
+| 1.6M | 0.25 / 0.40, cos 0.97 / 0.93 | 0.03 / 0.08, cos 0.30 / 0.18 | 0.03 / 0.09, cos 0.46 / 0.30 |
+| 8.2M | 0.14 / 0.26, cos 0.96 / 0.92 | 0.03 / 0.08, cos 0.14 / 0.08 | 0.02 / 0.08, cos 0.17 / 0.11 |
+| 20.5M | 0.10 / 0.18, cos 0.96 / 0.89 | 0.02 / 0.08, cos -0.01 / 0.00 | 0.02 / 0.08, cos -0.05 / -0.03 |
+
+Master puts a large share of its move in the important directions and moves along them almost
+perfectly. The flips put a random-sized share there (~what a random move would) with weakly
+positive alignment early that fades to zero: they barely move where it matters. Most of what the
+plain-flip model learns is the float embeddings adapting to near-random ternary layers.

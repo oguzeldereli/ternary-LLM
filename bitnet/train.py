@@ -170,6 +170,34 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
     return {"la_proposed": n_prop, "la_kept": n_keep}
 
 
+@torch.no_grad()
+def lowrank_step(model, state, r, beta, step, flip_seed=0):
+    """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
+
+    Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
+    r by one subspace-iteration step (two thin GEMMs + a QR, no SVD). The flip rule and rate
+    are unchanged; only its signal is the accumulated direction. State: r*(N+K) floats/layer."""
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    for i, l in enumerate(layers):
+        g = l.gw.float(); l.gw = None; l.capture = False
+        key = id(l)
+        if key not in state:
+            U0 = torch.linalg.qr(torch.randn(l.N, r, device=g.device))[0]
+            V = torch.linalg.qr(g.T @ U0)[0]
+            state[key] = (g @ V, V)
+        else:
+            U, V = state[key]
+            Vn = torch.linalg.qr(beta * V @ (U.T @ U) + g.T @ U)[0]
+            state[key] = (beta * U @ (V.T @ Vn) + g @ Vn, Vn)
+        U, V = state[key]
+        M = U @ V.T
+        before = l.wpacked.clone() if l.track else None
+        fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003,
+                   gmean=M.abs().mean().clamp_min(1e-12).item())
+        if before is not None:
+            l._record_flips(before, l.wpacked)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", default=DEFAULT_PRESET, choices=list(PRESETS))
@@ -194,6 +222,10 @@ def main():
                          "AdamW steps; fp32 is the honest ceiling)")
     ap.add_argument("--theta", type=float, default=24.0, help="flip fire threshold")
     ap.add_argument("--rate", type=float, default=2e-2, help="stateless flip rate")
+    ap.add_argument("--lowrank", type=int, default=0,
+                    help="flip signal = rank-r momentum of each layer's gradient (M ~ U V^T, "
+                         "r*(N+K) floats per layer) instead of the current gradient")
+    ap.add_argument("--lr_beta", type=float, default=0.97, help="decay of the low-rank momentum")
     ap.add_argument("--lookahead_xbatch", action="store_true",
                     help="take the look-ahead pass(es) on fresh batches instead of the "
                          "training batch (each pass a new batch)")
@@ -474,11 +506,12 @@ def main():
     sampler = torch.Generator().manual_seed(tc.seed)
     # separate stream for cross-batch look-ahead, so the training batch order is unchanged
     la_gen = torch.Generator().manual_seed(tc.seed + 4242)
+    lr_state = {}
     la_extra = ((lambda: get_batch(train_data, tc.batch_size, tc.seq_len, device, la_gen))
                 if args.lookahead_xbatch else None)
     rs_state = {"mult": 1.0}
     rs_gen = torch.Generator().manual_seed(tc.seed + 777)
-    if args.lookahead and (args.mode != "kernel" or tc.grad_accum != 1 or args.rate_search):
+    if (args.lookahead or args.lowrank) and (args.mode != "kernel" or tc.grad_accum != 1 or args.rate_search):
         raise SystemExit("--lookahead requires --mode kernel, --grad_accum 1, no --rate_search")
     if args.rate_search:
         if args.mode != "kernel" or tc.grad_accum != 1:
@@ -626,7 +659,7 @@ def main():
         last_loss = 0.0
         # ---- flip-rate line search: capture this step's gradient instead of flipping
         search = (args.rate_search and step > 0 and step % args.rs_every == 0)
-        if search or args.lookahead:
+        if search or args.lookahead or args.lowrank:
             for l in model.modules():
                 if isinstance(l, KernelTernaryLinear): l.capture = True
         for micro in range(tc.grad_accum):
@@ -637,7 +670,10 @@ def main():
             last_loss = loss.item()
         if args.mode in ("kernel", "evidence") and tc.grad_accum > 1:
             flip_accumulated(model)
-        if args.lookahead:
+        if args.lowrank:
+            lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step, args.flip_seed)
+            rs_info = None
+        elif args.lookahead:
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
         elif search:
