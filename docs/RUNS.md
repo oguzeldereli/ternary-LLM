@@ -944,3 +944,21 @@ With cross-batch look-ahead x2 (same test): window alignment 0.046 at 0.8M, 0.01
 ~0 from ~8M on, cumulative 0.024-0.037; trits changed per window 23-31% (vs 30-42% for plain
 flips). Look-ahead touches fewer trits but its moves do not add up either: it removes
 harmful combinations within a step, not the random walk across steps.
+
+## Is the accumulated gradient low-rank? (`scripts/mlp/lowrank.py`)
+
+MLP master run; sum of the gradients over a 200-step window, rank-r truncated SVD per layer
+(layers 1024-2048 wide). "keeps" = cos(rank-r sum_g, sum_g); "vs master moves" = cos with
+master's trit change over the window (full sum_g: 0.437 at 1.2M, 0.347 at 8.2M).
+
+| rank | keeps (1.2M / 8.2M) | vs master moves (1.2M / 8.2M) | one batch's gradient keeps |
+|---|---|---|---|
+| 1 | 0.23 / 0.18 | 0.06 / 0.03 | 0.44 / 0.31 |
+| 16 | 0.63 / 0.51 | 0.21 / 0.14 | 0.89 / 0.73 |
+| 64 | 0.87 / 0.76 | 0.34 / 0.23 | 0.97 / 0.90 |
+| 256 | 0.98 / 0.95 | 0.42 / 0.32 | 0.995 / 0.98 |
+
+The summed gradient is only moderately compressible, and less so than a single batch's
+(the summed direction spreads over more components as training goes on). Rank 64 keeps
+~0.8 of it and ~70% of its alignment with master's moves; at 27B layer sizes rank 64 would
+be ~1.7% of per-weight memory.
