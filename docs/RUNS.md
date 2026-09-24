@@ -835,3 +835,7 @@ cosine flip rule (`armA_cosine` config and batches):
 
 With their own LR the scales spread like master's norm gains do, and the plain rule gains
 -0.05 in loss and 0.006 in alpha (above the +-0.003 noise). Next: on cross-batch look-ahead.
+
+On the best config (`la_xb2`: cross-batch look-ahead x2 + fast ramp + fp32 tail + master's
+tail LR), `la_xb2_rc` adds `--rc_scale --rc_lr 1e-2`: train loss -0.04 to -0.05 throughout
+(same batches), **val 4.974 vs 5.002** at 10M tokens. The two improvements add up.
