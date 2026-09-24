@@ -324,7 +324,7 @@ def main():
                          "this before resuming")
     ap.add_argument("--prewarm", type=float, default=30.0,
                     help="seconds of gradually rising GPU load before anything else (0 = off)")
-    ap.add_argument("--soft_start", type=int, default=60,
+    ap.add_argument("--soft_start", type=int, default=0,
                     help="power ramp: over the first N steps after (re)start, sleep between "
                          "steps so the GPU duty cycle rises from ~15%% to 100%% (a cold "
                          "idle -> full-power jump has reset the machine); 0 = off")
