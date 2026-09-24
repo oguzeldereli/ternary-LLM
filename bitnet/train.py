@@ -53,6 +53,25 @@ def get_batch(data, bs, seq_len, device, gen=None):
     return x.to(device, non_blocking=True), y.to(device, non_blocking=True)
 
 
+def gpu_prewarm(seconds, device):
+    """Ramp GPU load up gradually before compiling/autotuning: duty cycle ~10% -> ~90%
+    over `seconds`. A cold idle -> full-power jump (kernel autotuning at startup) has
+    hard-reset the machine several times."""
+    if seconds <= 0 or not device.startswith("cuda"):
+        return
+    g = torch.Generator(device=device).manual_seed(0)      # leaves the global RNG alone
+    a = torch.randn(2048, 2048, device=device, generator=g).to(torch.bfloat16) / 45
+    t0 = time.time()
+    while (el := time.time() - t0) < seconds:
+        duty = 0.1 + 0.8 * el / seconds
+        t1 = time.time()
+        while time.time() - t1 < 0.05 * duty:
+            a = (a @ a).clamp_(-1, 1)
+        torch.cuda.synchronize()
+        time.sleep(0.05 * (1 - duty))
+    del a
+
+
 def lr_at(step, tc: TrainConfig):
     if step < tc.warmup_steps:
         return tc.lr * (step + 1) / tc.warmup_steps
@@ -298,11 +317,17 @@ def main():
                     help="tokens per output-head chunk (peak VRAM knob; math is identical)")
     ap.add_argument("--save_secs", type=float, default=900.0,
                     help="wall-clock seconds between checkpoint saves")
-    ap.add_argument("--max_temp", type=int, default=84,
+    ap.add_argument("--max_temp", type=int, default=85,
                     help="save + stop if GPU temp (C) reaches this (crash guard)")
-    ap.add_argument("--resume_temp", type=int, default=79,
+    ap.add_argument("--resume_temp", type=int, default=80,
                     help="after a thermal pause, wait until GPU temp (C) is at or below "
                          "this before resuming")
+    ap.add_argument("--prewarm", type=float, default=30.0,
+                    help="seconds of gradually rising GPU load before anything else (0 = off)")
+    ap.add_argument("--soft_start", type=int, default=60,
+                    help="power ramp: over the first N steps after (re)start, sleep between "
+                         "steps so the GPU duty cycle rises from ~15%% to 100%% (a cold "
+                         "idle -> full-power jump has reset the machine); 0 = off")
     ap.add_argument("--temp_check", type=int, default=4,
                     help="check GPU temp every N steps")
     args = ap.parse_args()
@@ -327,6 +352,7 @@ def main():
 
     BitTransformer.loss_chunk = args.loss_chunk
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    gpu_prewarm(args.prewarm, device)
     torch.manual_seed(tc.seed)
     print(mc.report())
     use_beta = args.mode in ("kernel", "evidence") and not args.no_beta
@@ -532,7 +558,16 @@ def main():
     last_save = time.time()
     end_step = tc.max_steps if args.stop_after is None else min(tc.max_steps, args.stop_after)
     probe_steps = parse_schedule(args.probe)
+    ramp_t = time.time()
     for step in range(start_step, end_step):
+        k = step - start_step
+        if k < args.soft_start:
+            # soft start: idle for a shrinking fraction of the previous step's time
+            dt = time.time() - ramp_t
+            duty = 0.15 + 0.85 * k / args.soft_start
+            if k > 0:
+                time.sleep(min(dt * (1.0 / duty - 1.0), 15.0))   # step 0 includes compiling
+            ramp_t = time.time()
         _last["step"] = step
         # thermal guard: PAUSE (not stop) while GPU is at/above max_temp; resume
         # in place once it cools. No exit, no save — just wait it out.
