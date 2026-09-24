@@ -839,3 +839,21 @@ With their own LR the scales spread like master's norm gains do, and the plain r
 On the best config (`la_xb2`: cross-batch look-ahead x2 + fast ramp + fp32 tail + master's
 tail LR), `la_xb2_rc` adds `--rc_scale --rc_lr 1e-2`: train loss -0.04 to -0.05 throughout
 (same batches), **val 4.974 vs 5.002** at 10M tokens. The two improvements add up.
+
+## Ternary MLP testbed (`scripts/mlp/mlp_lab.py`)
+
+Next-token prediction on wiki32k from the previous 8 tokens (embeddings -> concat ->
+3-layer ternary residual MLP, 4.5M ternary weights -> tied head), 4096 examples/step x
+6000 steps (25M examples), the same ternary layer classes as the LM. Minutes per run.
+
+| run | final val | slope, first 10% | slope, last 90% |
+|---|---|---|---|
+| master (BitNet STE + AdamW) | 4.351 | -0.107 | -0.079 |
+| stateless flips | 5.003 | -0.090 | -0.045 |
+| flips + cross-batch look-ahead x2 | 4.877 | -0.098 | -0.040 |
+
+It reproduces the LM's gap: all three track until ~4e5 examples, then flips bend to about
+half master's slope (0.045/0.079 = 0.57, LM ~0.6). Look-ahead gives an offset (-0.13), not
+a better slope, as on the LM. A single-factor stretch fits less cleanly than on the LM
+(14-16% deviation): the MLP's bend is sharper. Usable as a ~100x cheaper testbed for the
+flip rule and the filter.
