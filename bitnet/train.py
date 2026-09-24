@@ -594,6 +594,13 @@ def main():
         if "opt" in blob:
             tail_opt.load_state_dict(blob["opt"])
         start_step = int(blob.get("step", 0)) + 1
+        # fast-forward the data streams, so a resumed run sees the batches the uninterrupted
+        # run would have (not the step-0 batches again)
+        for _ in range(start_step * tc.grad_accum):
+            torch.randint(len(train_data) - tc.seq_len - 1, (tc.batch_size,), generator=sampler)
+        if args.lookahead_xbatch:
+            for _ in range(start_step * args.lookahead):
+                torch.randint(len(train_data) - tc.seq_len - 1, (tc.batch_size,), generator=la_gen)
         if blob.get("lowrank"):
             lays = [m for m in model.modules() if isinstance(m, KernelTernaryLinear)]
             for m, uv in zip(lays, blob["lowrank"]):
@@ -621,10 +628,12 @@ def main():
 
     # save on SIGTERM/SIGINT so `kill` (or Ctrl-C) leaves a fresh resumable ckpt
     import signal
-    _last = {"step": start_step}
+    # the checkpoint's "step" is the last COMPLETED step (resume starts at step + 1), so the
+    # handler only sets a flag and the loop saves and exits at the end of the current step
+    _last = {"stop": False}
     def _graceful(signum, frame):
-        print(f"signal {signum}: saving ckpt at step {_last['step']} ...", flush=True)
-        save_ckpt(_last["step"]); print("saved. exiting.", flush=True); raise SystemExit(0)
+        print(f"signal {signum}: saving ckpt after the current step ...", flush=True)
+        _last["stop"] = True
     signal.signal(signal.SIGTERM, _graceful)
     signal.signal(signal.SIGINT, _graceful)
 
@@ -642,7 +651,6 @@ def main():
             if k > 0:
                 time.sleep(min(dt * (1.0 / duty - 1.0), 15.0))   # step 0 includes compiling
             ramp_t = time.time()
-        _last["step"] = step
         # thermal guard: PAUSE (not stop) while GPU is at/above max_temp; resume
         # in place once it cools. No exit, no save — just wait it out.
         if step % args.temp_check == 0:
@@ -768,8 +776,11 @@ def main():
             save_ckpt(step)
             last_save = time.time()
             print(f"  ---- checkpoint saved at step {step}", flush=True)
+        if _last["stop"]:
+            save_ckpt(step); print(f"saved at step {step}. exiting.", flush=True)
+            raise SystemExit(0)
 
-    save_ckpt(end_step)
+    save_ckpt(end_step - 1)
     vl = evaluate(model, val_data, tc, device)
     log_metrics({"step": end_step, "val_loss": vl, "val_ppl": math.exp(vl),
                  "final": True})
