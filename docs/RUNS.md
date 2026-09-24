@@ -1034,3 +1034,22 @@ Same config and batches (fast rate ramp, fp32 tail, master's tail LR; `screen_10
 - Rank-256 momentum at the plain rate is **worse than frozen** (stalls at the unigram level for
   ~80 steps). Accumulation turns the flips' random walk into a drift, so the same rate is a much
   larger effective step; the 12-layer transformer does not tolerate it. Needs a lower rate.
+
+### Rank-256 momentum on the LM: rate and angle-scaled decay
+
+| run | val @ 10M |
+|---|---|
+| `lm_lowrank256` (r = 0.02, beta 0.97) | 6.047 |
+| `lm_lowrank256_r04` (r = 0.04) | 6.072 |
+| `lm_lowrank256_r1` (r = 0.1) | stopped at step ~175: same 7.3 stall, off it at ~150 |
+| `lm_lowrank256_adapt` (beta_t = 0.97 * cos(g, M), `--lr_adapt`) | 6.293 |
+
+- Rate does not move the stall: 0.02, 0.04 and 0.1 all sit at 7.3 until step ~150.
+- cos(g_t, M_{t-1}) (logged by `--lr_adapt`): +0.25..+0.49 for steps 1-7 (flip rate still ~0),
+  negative from step ~9 on, -0.5..-0.7 in 99.8% of layer-steps, all 84 layers. Not noise: each
+  step's flips overshoot along the dominant directions and the next gradient points back
+  (ping-pong). Fixed beta keeps pushing through it (likely the stall); the adaptive decay
+  reflects M every step.
+- The adaptive decay removes the stall (train 6.87 vs 7.28 at steps 80-100) but decreases
+  slowly after; train ends level with fixed beta (6.19 vs 6.21) and val is worse (6.29).
+  Plain flips stay ahead throughout (5.73).

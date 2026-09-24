@@ -124,7 +124,8 @@ def rate_search_step(model, rate_now, rs_state, args, tc, data, gen, device, ste
             **{f"rs_{f:g}": losses[f] - base for f in factors}}
 
 
-def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_batch=None):
+def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_batch=None,
+                   signals=None):
     """Propose flips with the normal rule, then keep only the ones that are still
     downhill given all the others.
 
@@ -134,7 +135,9 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
     Delta_i * (g_i + g'_i) < 0 -- the midpoint slope along its own coordinate still
     descends, which is its exact contribution for a quadratic. Stateless: g is held
     only within the step. The tail (embedding, norms) keeps its first-pass gradient.
-    iters > 1 re-checks the surviving flips at the filtered point."""
+    iters > 1 re-checks the surviving flips at the filtered point.
+    signals: per-layer tensors to propose from instead of g (e.g. the low-rank momentum);
+    the keep test still uses the true gradients g and g'."""
     layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
     saved = [l.wpacked.clone() for l in layers]            # packed, 1.6 bit/weight
     grads = []
@@ -143,8 +146,9 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
     tail_g = [None if p.grad is None else p.grad.clone() for p in tail]
     seed0 = 9_000_000 + step * 131 + flip_seed * 1_000_003
     for i, (l, g) in enumerate(zip(layers, grads)):
-        fused_flip(l.wpacked, g, l.rate, l.g_ref, seed0 + i,
-                   gmean=g.abs().mean().clamp_min(1e-8).item())
+        sig = g if signals is None else signals[i]
+        fused_flip(l.wpacked, sig, l.rate, l.g_ref, seed0 + i,
+                   gmean=sig.abs().mean().clamp_min(1e-8).item())
     n_prop = n_keep = None
     for _ in range(iters):
         for p in tail: p.grad = None
@@ -171,15 +175,25 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
 
 
 @torch.no_grad()
-def lowrank_step(model, state, r, beta, step, flip_seed=0):
+def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
     r by one subspace-iteration step (two thin GEMMs + a QR, no SVD). The flip rule and rate
-    are unchanged; only its signal is the accumulated direction. State: r*(N+K) floats/layer."""
+    are unchanged; only its signal is the accumulated direction. State: r*(N+K) floats/layer.
+
+    adapt: the decay follows the turn of the gradient, beta_t = beta * cos(g_t, M_{t-1}) per
+    layer. Aligned: plain momentum; 90 deg: reset (M = g); 180 deg: -beta, so the old momentum
+    is reflected onto the new direction and adds to it. Returns the per-layer cosines.
+
+    propose_only: update M but do not flip; leave l.gw and capture on and return the M's,
+    so lookahead_step proposes from M and filters with the true gradients."""
     layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    cs, Ms = [], []
     for i, l in enumerate(layers):
-        g = l.gw.float(); l.gw = None; l.capture = False
+        g = l.gw.float()
+        if not propose_only:
+            l.gw = None; l.capture = False
         key = id(l)
         if key not in state:
             U0 = torch.linalg.qr(torch.randn(l.N, r, device=g.device))[0]
@@ -187,15 +201,23 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0):
             state[key] = (g @ V, V)
         else:
             U, V = state[key]
-            Vn = torch.linalg.qr(beta * V @ (U.T @ U) + g.T @ U)[0]
-            state[key] = (beta * U @ (V.T @ Vn) + g @ Vn, Vn)
+            # cos(g, M) with M = U V^T, V orthonormal: <g, M> = sum((g V) * U), |M| = |U|
+            c = ((g @ V) * U).sum() / (g.norm() * U.norm()).clamp_min(1e-30)
+            cs.append(c.item())
+            b = beta * c if adapt else beta
+            Vn = torch.linalg.qr(b * V @ (U.T @ U) + g.T @ U)[0]
+            state[key] = (b * U @ (V.T @ Vn) + g @ Vn, Vn)
         U, V = state[key]
         M = U @ V.T
+        if propose_only:
+            Ms.append(M); continue
         before = l.wpacked.clone() if l.track else None
         fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003,
                    gmean=M.abs().mean().clamp_min(1e-12).item())
         if before is not None:
             l._record_flips(before, l.wpacked)
+    info = {"lr_cos": sum(cs) / len(cs), "lr_cos_layers": cs} if cs else {}
+    return (info, Ms) if propose_only else (info or None)
 
 
 def main():
@@ -226,6 +248,9 @@ def main():
                     help="flip signal = rank-r momentum of each layer's gradient (M ~ U V^T, "
                          "r*(N+K) floats per layer) instead of the current gradient")
     ap.add_argument("--lr_beta", type=float, default=0.97, help="decay of the low-rank momentum")
+    ap.add_argument("--lr_adapt", action="store_true",
+                    help="low-rank momentum decay = lr_beta * cos(g, M): reset at 90 deg, "
+                         "reflected at 180 deg")
     ap.add_argument("--lookahead_xbatch", action="store_true",
                     help="take the look-ahead pass(es) on fresh batches instead of the "
                          "training batch (each pass a new batch)")
@@ -671,8 +696,15 @@ def main():
         if args.mode in ("kernel", "evidence") and tc.grad_accum > 1:
             flip_accumulated(model)
         if args.lowrank:
-            lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step, args.flip_seed)
-            rs_info = None
+            if args.lookahead:          # propose from M, keep by the look-ahead test
+                rs_info, Ms = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
+                                           args.flip_seed, args.lr_adapt, propose_only=True)
+                rs_info.update(lookahead_step(model, x, y, tail, device, step, args.lookahead,
+                                              args.flip_seed, la_extra, signals=Ms))
+                del Ms
+            else:
+                rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
+                                       args.flip_seed, args.lr_adapt)
         elif args.lookahead:
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
@@ -707,6 +739,8 @@ def main():
             dt = time.time() - t0
             mem = torch.cuda.max_memory_allocated() / 1024**3 if device == "cuda" else 0
             extra = f"| flips {n_flips:>7d} " if args.mode == "flip" else ""
+            if rs_info and "lr_cos" in rs_info:
+                extra += f"| cos(g,M) {rs_info['lr_cos']:+.3f} "
             if rs_info and "la_kept" in rs_info:
                 extra += f"| la kept {rs_info['la_kept'] / max(rs_info['la_proposed'], 1) * 100:.0f}% "
             if fs:
