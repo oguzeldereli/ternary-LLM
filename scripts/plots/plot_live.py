@@ -1,6 +1,6 @@
-"""Look-ahead full run against the reference runs; safe to re-run while it trains.
+"""The running long run against the reference runs; safe to re-run while it trains.
 
-  python3 plot_live.py --out docs/lookahead_live.png
+  python -m scripts.plots.plot_live
 """
 import argparse, json, os
 import numpy as np
@@ -9,13 +9,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
-RUNS = [  # dir, label, color, width
-    ("p2_baseline",   "master weights (ceiling)",           "#eb6834", 2.2),
-    ("overnight_full", "CROSS-BATCH LOOK-AHEAD x2 + fast ramp + fp32 tail (running)", "#111111", 3.0),
-    ("armA_cos_la1",  "look-ahead (same batch), stopped at 202M", "#c2185b", 2.4),
-    ("armA_cosine",   "flips, cosine rate (reference)",     "#1baf7a", 2.2),
-    ("armA_cos_r005", "flips, cosine from 4x lower rate",   "#2a78d6", 1.4),
-    ("armA_cos_600M", "flips, cosine rate, 600M schedule",  "#8e8c85", 1.4),
+RUNS = [  # dir, label, color, width, highlight
+    ("p2_baseline",   "master weights (ceiling)",           "#eb6834", 2.4, False),
+    ("lm_lowrank256_xb2_100M", "RANK-256 MOMENTUM + CROSS-BATCH LOOK-AHEAD x2 (running)", "#e53935", 3.0, True),
+    ("overnight_full", "cross-batch look-ahead x2, stopped at 131M", "#111111", 2.4, False),
+    ("armA_cos_la1",  "look-ahead (same batch), stopped at 202M", "#c2185b", 1.8, False),
+    ("armA_cosine",   "flips, cosine rate (reference)",     "#1baf7a", 1.8, False),
+    ("armA_cos_600M", "flips, cosine rate, 600M schedule",  "#8e8c85", 1.4, False),
 ]
 
 
@@ -37,27 +37,39 @@ def smooth(L, k=100):
     return np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(L))])
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/lookahead_live.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/live.png")
 a = ap.parse_args()
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7.5), facecolor=SURFACE)
-for d, lab, c, lw in RUNS:
+fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 7.5), facecolor=SURFACE)
+G = np.logspace(np.log10(1e6), np.log10(6e8), 120)
+for d, lab, c, lw, hi in RUNS:
     t, L, vt, vp = load(d)
-    ax1.plot(t, smooth(L), color=c, lw=lw, label=lab, zorder=6 if "CROSS" in lab else 4)
+    Ls = smooth(L)
+    z = 6 if hi else 4
+    ax1.plot(t, Ls, color=c, lw=lw, label=lab, zorder=z)
     if len(vp):
-        ax2.plot(vt, vp, "o-", color=c, lw=lw, ms=5, label=lab, zorder=6 if "CROSS" in lab else 4)
-        if "CROSS" in lab:
+        ax2.plot(vt, vp, "o-", color=c, lw=lw, ms=5, label=lab, zorder=z)
+        if hi:
             ax2.annotate(f"{vp[-1]:.1f}", (vt[-1], vp[-1]), textcoords="offset points",
                          xytext=(8, 4), color=c, fontsize=11, weight="bold")
+    # local power-law exponent d ln L / d ln t, over a factor-1.6 window of tokens
+    g = G[(G > t[0] * 1.3) & (G < t[-1] / 1.3)]
+    if len(g) > 2:
+        lo = np.interp(np.log(g / 1.25), np.log(t), np.log(Ls))
+        hi_ = np.interp(np.log(g * 1.25), np.log(t), np.log(Ls))
+        ax3.plot(g, (hi_ - lo) / np.log(1.25 ** 2), color=c, lw=lw, label=lab, zorder=z)
 for ax, yl, title in ((ax1, "train loss (100-step avg)", "Train loss, log-log"),
-                      (ax2, "val perplexity", "Validation perplexity (every 1000 steps)")):
-    ax.set_xscale("log"); ax.set_yscale("log")
+                      (ax2, "val perplexity", "Validation perplexity"),
+                      (ax3, "d ln(loss) / d ln(tokens)", "Local power-law slope of train loss")):
+    ax.set_xscale("log")
+    if ax is not ax3: ax.set_yscale("log")
     ax.set_facecolor(SURFACE); ax.grid(True, which="both", color=GRID, lw=0.6)
     ax.set_xlabel("tokens", color=INK2); ax.set_ylabel(yl, color=INK2)
     ax.set_title(title, color=INK, fontsize=12, loc="left")
     for sp in ax.spines.values(): sp.set_color(GRID)
     ax.tick_params(colors=INK2); ax.legend(fontsize=9, frameon=False)
 ax1.set_xlim(3e4, 7e8); ax1.set_ylim(2.5, 11)
-ax2.set_xlim(2.5e7, 7e8)
+ax2.set_xlim(5e6, 7e8); ax2.set_ylim(12, 250)
+ax3.set_xlim(1e6, 7e8); ax3.set_ylim(-0.5, 0.05); ax3.axhline(0, color=INK2, lw=1)
 fig.tight_layout()
 os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
 fig.savefig(a.out, dpi=130, facecolor=SURFACE)
