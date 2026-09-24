@@ -939,3 +939,8 @@ Master's float weights move along each window's summed gradient at ~0.90 for the
 and its trits keep ~0.48 of the cumulative direction. The flips' 200-step moves have zero
 alignment with the summed gradient from 1.6M examples on, while changing 30-42% of all trits
 per window: a random walk, which only stops when the annealed rate stops it.
+
+With cross-batch look-ahead x2 (same test): window alignment 0.046 at 0.8M, 0.011 at 4M,
+~0 from ~8M on, cumulative 0.024-0.037; trits changed per window 23-31% (vs 30-42% for plain
+flips). Look-ahead touches fewer trits but its moves do not add up either: it removes
+harmful combinations within a step, not the random walk across steps.

@@ -10,7 +10,7 @@ gradient vector"). Trit changes are in trit units; cosines are scale-free within
 
   python -m scripts.mlp.geometry
 """
-import math, numpy as np, torch, torch.nn.functional as F
+import math, os, numpy as np, torch, torch.nn.functional as F
 from bitnet.master import MasterTernaryLinear
 from bitnet.flip import KernelTernaryLinear, set_flip_rate
 from bitnet.kernel import unpack_rows
@@ -46,6 +46,7 @@ def run(mode):
         lr=LR, betas=(0.9, 0.95))
     Ls = [l for l in m.modules() if isinstance(l, (MasterTernaryLinear, KernelTernaryLinear))]
     gen = torch.Generator().manual_seed(1234)
+    gla = torch.Generator().manual_seed(4242)
 
     def trits():
         if mode == "master":
@@ -72,6 +73,13 @@ def run(mode):
             upd = [l.weight.detach().float() - a for l, a in zip(Ls, w0)] if record else None
             return gr, upd
         gr = None
+        if mode == "xb2":
+            from bitnet.train import lookahead_step
+            gr = [l.gw.float().clone() for l in Ls]
+            lookahead_step(m, x, y, [p for p in m.parameters() if p.requires_grad], dev, s, 2, 0,
+                           lambda: windows(train, BATCH, 8, gla, dev))
+            torch.nn.utils.clip_grad_norm_([p for p in m.parameters() if p.requires_grad], 1.0); opt.step()
+            return gr, None
         if record:
             from bitnet.kernel import fused_flip
             gr = [l.gw.float().clone() for l in Ls]
@@ -108,11 +116,13 @@ def run(mode):
     return out
 
 
-import json
-res = {}
-for mode in ("master", "flip"):
+import json, sys
+modes = sys.argv[1:] or ["master", "flip"]
+path = "checkpoints/mlp/geometry_full.json"
+res = json.load(open(path)) if os.path.exists(path) else {}
+for mode in modes:
     res[mode] = run(mode)
     print(f"\n=== {mode}: alignment with the summed gradient along the run ===")
     for r in res[mode]:
         print("  " + " | ".join(f"{k} {v:.3f}" if isinstance(v, float) else f"{k} {v}" for k, v in r.items()))
-json.dump(res, open("checkpoints/mlp/geometry_full.json", "w"))
+    json.dump(res, open(path, "w"))
