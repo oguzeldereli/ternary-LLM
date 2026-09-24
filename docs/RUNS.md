@@ -984,3 +984,7 @@ Rank-64 momentum + cross-batch look-ahead x2 (`mlp_lowrank64_xb2`): **val 4.615*
 alone 4.670, look-ahead alone 4.877, master 4.351) -- 60% of the flip-to-master gap closed.
 The two add up but only partly (-0.055 from look-ahead on top of momentum, vs -0.126 on top
 of plain flips), at 3 passes per step.
+
+Rank 256 (`mlp_lowrank256`, no look-ahead): **val 4.577** (rank 64: 4.670; master 4.351) --
+65% of the flip-to-master gap closed with one pass per step. Memory 256*(N+K) per layer
+(50% of per-weight at 1024x1024; ~7% at 27B layer shapes).
