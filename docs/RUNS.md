@@ -796,3 +796,24 @@ switched to 84/79 at step 3965 and the machine reset within minutes of the resta
 Best stateless result by far, but flattening: val slope 2000->3000 is -0.057
 (same-batch look-ahead -0.103, master -0.123). Extrapolating the slope plus the usual
 anneal drop puts the end of the schedule around ppl 33-40.
+
+### Flip rate with cross-batch look-ahead: r = 0.125 (`la_xb2_r0.125`, stopped at ~200 steps)
+
+`la_xb2` with peak rate 0.125 instead of 0.02 (GPU clocks locked at 2000 MHz, see below).
+Far ahead at the very start (-0.85 at 0.15M tokens), crosses to worse at ~1M, then
+~+0.19 behind at 6M, while applying 5-7x the flips per step (0.7-1.0% vs 0.12-0.16%).
+Same shape as same-batch look-ahead at 0.04 (-0.37 early, +0.28 at 10M): the
+cross-batch filter absorbs more of the extra proposals, but a low rate is still
+covering for the rule and the filter. Stopped on request.
+
+### Machine resets (2026-09-24)
+
+The laptop (ASUS ROG, i9-14900HX, RTX 4080 Laptop, 330 W adapter) hard-reset many times
+under training load. A 50 ms fsync'd sensor log (`scripts/diag/blackbox.py`) over five
+crashes: no power-supply signal (adapter online, no GPU power brake, battery never
+discharging); CPU turbo off did not help (hottest core 78 C, still crashed); the plain
+flip config that ran for hours on earlier days crashed after 73 s. Every crash: GPU at
+84-88 C and 135-160 W, the last one with GPU *hardware* thermal slowdown active. GPU
+clocks locked at 1800-2000 MHz (~100-120 W, 73-83 C) ran stably. Reading: degraded GPU
+cooling (dust / pads); training now runs with the GPU clock locked at 2000 MHz
+(~7.85 s/step for cross-batch look-ahead x2).
