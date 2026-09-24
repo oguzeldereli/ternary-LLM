@@ -61,7 +61,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["master", "flip"], required=True)
     ap.add_argument("--name", required=True)
-    ap.add_argument("--steps", type=int, default=3000)
+    ap.add_argument("--steps", type=int, default=6000)
     ap.add_argument("--batch", type=int, default=4096)
     ap.add_argument("--ctx", type=int, default=8)
     ap.add_argument("--emb", type=int, default=256)

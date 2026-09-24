@@ -857,3 +857,8 @@ half master's slope (0.045/0.079 = 0.57, LM ~0.6). Look-ahead gives an offset (-
 a better slope, as on the LM. A single-factor stretch fits less cleanly than on the LM
 (14-16% deviation): the MLP's bend is sharper. Usable as a ~100x cheaper testbed for the
 flip rule and the filter.
+
+MLP at flip rate r = 1 (6000 steps, same schedule): plain flips 5.625 (stuck near 7.2 until
+the cosine pulls the rate down), cross-batch look-ahead x2 **5.115**, against 5.003 / 4.877 at
+r = 0.02 and master 4.351. The filter makes r = 1 survivable but not good: a low rate still
+wins by 0.24.

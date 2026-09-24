@@ -4,16 +4,22 @@ scaled onto master's).
 
   python -m scripts.plots.plot_mlp
 """
-import argparse, json, os
+import argparse, glob, json, os
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
-RUNS = [("mlp_master", "master weights (BitNet STE + AdamW)", "#eb6834"),
-        ("mlp_flip", "stateless flips", "#1baf7a"),
-        ("mlp_xb2", "flips + cross-batch look-ahead x2", "#111111")]
+FIXED = {"mlp_master": ("master weights (BitNet STE + AdamW)", "#eb6834"),
+         "mlp_flip": ("stateless flips, r=0.02", "#1baf7a"),
+         "mlp_xb2": ("flips + cross-batch look-ahead x2, r=0.02", "#111111")}
+# every run in checkpoints/mlp/ goes on the graph; known ones keep fixed labels/colors
+_names = sorted(os.path.basename(f)[:-6] for f in glob.glob("checkpoints/mlp/*.jsonl"))
+_names = [n for n in FIXED if n in _names] + [n for n in _names if n not in FIXED]
+_cmap = plt.get_cmap("tab10")
+RUNS = [(n, FIXED[n][0] if n in FIXED else n.replace("mlp_", ""),
+         FIXED[n][1] if n in FIXED else _cmap(i % 10)) for i, n in enumerate(_names)]
 
 
 def load(n):
@@ -46,8 +52,8 @@ M = D["mlp_master"]
 if M is not None:
     tm, Lm = M
     ax3.plot(tm, Lm, color="#eb6834", lw=2.6, label="master weights")
-    for n, lab, c in RUNS[1:]:
-        if D[n] is None: continue
+    for n, lab, c in RUNS:
+        if n == "mlp_master" or D[n] is None: continue
         t, L = D[n]
         cut = np.searchsorted(t, t[0] * 3)               # skip the first drop, as for the LM
         t, L = t[cut:], L[cut:]
