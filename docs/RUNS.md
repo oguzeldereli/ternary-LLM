@@ -888,3 +888,19 @@ within N steps", precision among the top-k (k = number of oracle moves).
   than any single gradient at short horizons (0.73-0.78).
 - Caveat: "close to the boundary" partly restates how master works (a trit changes when the
   latent crosses). The informative part is how little the present gradient carries.
+
+**With look-ahead.** Same checkpoints: flips proposed by the rule (r = 0.02) from the one-batch
+gradient, then filtered by cross-batch look-ahead x2 on the ternary network at T0. Precision =
+fraction of chosen flips that master also makes (same direction) within the horizon:
+
+| checkpoint, horizon | proposal | look-ahead kept (~74% of proposals) | top-|g|, same count | random move |
+|---|---|---|---|---|
+| 1.2M, 10 | 0.039 | 0.042 | 0.042 | ~0.020 |
+| 1.2M, 200 | 0.178 | 0.184 | 0.166 | ~0.103 |
+| 8.2M, 10 | 0.023 | 0.025 | 0.030 | ~0.014 |
+| 8.2M, 200 | 0.098 | 0.101 | 0.094 | ~0.059 |
+
+Look-ahead barely changes which moves are chosen relative to master (+0.002-0.006): its gain
+in loss comes from removing flips that hurt together, not from picking master's moves. All
+gradient-based selections are ~2x random. Caveat: master's moves are one working solution, not
+the only good moves.

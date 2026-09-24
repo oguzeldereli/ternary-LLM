@@ -23,6 +23,17 @@ dev = "cuda"
 CKPTS, HORIZONS, K, BATCH, LR, WARM, TOTAL = (300, 2000), (10, 50, 200), 32, 4096, 1.5e-3, 100, 6000
 
 
+class FixedTern(torch.nn.Module):
+    """The master's ternary network at a fixed point: W = t * gamma (a float parameter only
+    so autograd returns dL/dW, identical to master's STE gradient at that point)."""
+    def __init__(self, t, gamma):
+        super().__init__()
+        self.W = torch.nn.Parameter((t.float() * gamma).clone()); self.gamma = gamma
+    def forward(self, x):
+        from bitnet.bitlinear import _act_quant_ste
+        return F.linear(_act_quant_ste(x, 8), self.W)
+
+
 def ternarize(w):
     g = w.abs().mean().clamp_min(1e-5)
     return (w / g).round().clamp(-1, 1).to(torch.int8), w / g
@@ -33,6 +44,42 @@ def auc(score, label):
     if s.numel() == 0 or n.numel() == 0: return float("nan")
     allv = torch.cat([s, n]); r = torch.empty_like(allv); r[allv.argsort()] = torch.arange(1, allv.numel() + 1, device=allv.device, dtype=allv.dtype)
     return ((r[:s.numel()].sum() - s.numel() * (s.numel() + 1) / 2) / (s.numel() * n.numel())).item()
+
+
+def lookahead_sets(master, T0, g1, rate=0.02, g_ref=3.0, passes=2):
+    """Propose flips from the one-batch gradient with the flip rule, then filter them with
+    cross-batch look-ahead on a copy of the ternary network fixed at T0. Returns per layer
+    (proposal directions, kept directions) as int tensors in {-1,0,1}."""
+    probe = copy.deepcopy(master)
+    ms = [m for m in master.modules() if isinstance(m, MasterTernaryLinear)]
+    fx = []
+    for (name, mod), t0 in zip([(n, m) for n, m in probe.named_modules() if isinstance(m, MasterTernaryLinear)], T0):
+        gamma = [mm for mm in ms][len(fx)].weight.detach().float().abs().mean().clamp_min(1e-5)
+        f = FixedTern(t0, gamma).to(dev)
+        parent = probe.get_submodule(name.rsplit(".", 1)[0]) if "." in name else probe
+        setattr(parent, name.rsplit(".", 1)[-1], f); fx.append(f)
+    train = np.memmap("data/wiki32k_train.bin", dtype=np.uint16, mode="r")
+    gb = torch.Generator().manual_seed(4242)
+    gen = torch.Generator(device=dev).manual_seed(7)
+    P, cur = [], []
+    for f, t0, g in zip(fx, T0, g1):
+        gn = g / g.abs().mean().clamp_min(1e-12)
+        prob = (gn.abs() / g_ref).clamp(max=1) * rate
+        fire = torch.rand(g.shape, device=dev, generator=gen) < prob
+        d = (-gn.sign()).int() * fire.int()
+        d = torch.where((t0.int() + d).abs() <= 1, d, torch.zeros_like(d))
+        P.append(d); cur.append(d.clone())
+    for _ in range(passes):
+        for f, t0, d in zip(fx, T0, cur):
+            f.W.data = (t0.int() + d).float() * f.gamma
+        x, y = windows(train, BATCH, 8, gb, dev)
+        probe.zero_grad(set_to_none=True)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            probe(x, y)[1].backward()
+        for i, (f, g) in enumerate(zip(fx, g1)):
+            keep = (cur[i].float() * (g + f.W.grad.float())) < 0
+            cur[i] = cur[i] * keep.int()
+    return list(zip(P, cur))
 
 
 def main():
@@ -79,6 +126,7 @@ def main():
         g1 = grads(model, 1, torch.Generator().manual_seed(777))
         gK = grads(model, K, torch.Generator().manual_seed(778))
         print(f"\n=== checkpoint step {ck} ({ck * BATCH / 1e6:.1f}M examples) ===")
+        LA = lookahead_sets(model, T0, g1)
         # continue a copy of master for the horizons (same data stream as the real run)
         m2, o2 = copy.deepcopy(model), None
         o2 = torch.optim.AdamW([{"params": [p for n, p in m2.named_parameters() if "norm" not in n], "weight_decay": 0.1},
@@ -120,6 +168,23 @@ def main():
                                        auc(close[can].flatten(), label[can].flatten()),
                                        label.flatten()[top].float().mean().item()))
             print(f"  horizon {H:3d} steps: master changed {np.mean(moved_frac) * 100:.2f}% of trits")
+            # look-ahead (rule r=0.02, cross-batch x2) as a signal: precision of its kept flips
+            tot = {"proposal": [0, 0], "look-ahead kept": [0, 0], "top-|g| same count": [0, 0]}
+            for li in range(len(Ls)):
+                mvl = (T1[li].int() - T0[li].int()).sign()
+                P, Kp = LA[li]
+                for name, D in (("proposal", P), ("look-ahead kept", Kp)):
+                    sel = D != 0
+                    tot[name][0] += int((sel & (D == mvl)).sum()); tot[name][1] += int(sel.sum())
+                d = -g1[li].sign().int(); can = (T0[li].int() + d).abs() <= 1
+                k = int((Kp != 0).sum())
+                if k:
+                    top = g1[li].abs().masked_fill(~can, -1).flatten().topk(k).indices
+                    tot["top-|g| same count"][0] += int((d.flatten()[top] == mvl.flatten()[top]).sum())
+                    tot["top-|g| same count"][1] += k
+            base = np.mean(moved_frac)
+            print("    " + " | ".join(f"{n}: {a / max(b, 1):.3f} of {b}" for n, (a, b) in tot.items())
+                  + f"  (chance of a random move matching: ~{base / 2:.3f})")
             print(f"    {'signal':8s} {'dir. accuracy':>14s} {'AUC':>7s} {'precision@k':>12s}")
             for name, r in rows.items():
                 r = np.array(r)
