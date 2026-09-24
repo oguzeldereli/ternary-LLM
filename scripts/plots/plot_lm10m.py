@@ -16,6 +16,10 @@ RUNS = [  # dir, label, color, width, style
     ("lm_frozen",        "frozen random ternary (no flips)",    "#8e8c85", 2.4, "--"),
     ("lm_plain",         "plain flips, r=0.02",                 "#1baf7a", 2.4, "-"),
     ("lm_lowrank256",    "rank-256 momentum, r=0.02",           "#7b3fb8", 2.4, "-"),
+    ("lm_lowrank256_r04", "rank-256 momentum, r=0.04",          "#b39ddb", 1.8, "-"),
+    ("lm_lowrank256_r1", "rank-256 momentum, r=0.1 (stopped)",  "#d1c4e9", 1.6, "-"),
+    ("lm_lowrank256_adapt", "rank-256 momentum, decay 0.97*cos(g,M)", "#e0a100", 2.4, "-"),
+    ("lm_lowrank256_adapt_xb2", "adaptive momentum + cross-batch look-ahead x2", "#00897b", 2.8, "-"),
     ("la_fast_fp32tail", "same-batch look-ahead",               "#c2185b", 2.4, "-"),
     ("la_xb2",           "cross-batch look-ahead x2",           "#111111", 2.6, "-"),
     ("la_xb2_rc",        "cross-batch look-ahead x2 + row/col scales", "#2a78d6", 2.2, ":"),
@@ -33,22 +37,27 @@ def load(d):
     w = [min(15, i // 5 + 1) for i in range(len(L))]
     Ls = np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(L))])
     v = [r for r in rows if r.get("final") and "val_loss" in r]
-    return t, Ls, (v[-1]["val_loss"] if v and d != "p2_baseline" else None)
+    c = [(r["step"], r["lr_cos"]) for r in rows if "lr_cos" in r]
+    return t, Ls, (v[-1]["val_loss"] if v and d != "p2_baseline" else None), c
 
 
 ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/lm10m.png")
 a = ap.parse_args()
 D = {d: load(d) for d, *_ in RUNS if os.path.exists(f"checkpoints/{d}/metrics.jsonl")}
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6.5), facecolor=SURFACE,
-                                    gridspec_kw={"width_ratios": [1.2, 1.2, 0.9]})
-tf, Lf, _ = D["lm_frozen"]
+fig, axs = plt.subplots(2, 2, figsize=(20, 13), facecolor=SURFACE)
+(ax1, ax2), (ax4, ax3) = axs
+tf, Lf, *_ = D["lm_frozen"]
 for d, lab, col, lw, ls in RUNS:
     if d not in D: continue
-    t, L, _ = D[d]
+    t, L, _, c = D[d]
     ax1.plot(t, L, color=col, lw=lw, ls=ls, label=lab)
     if d != "lm_frozen":
         ax2.plot(t, np.interp(t, tf, Lf) - L, color=col, lw=lw, ls=ls, label=lab)
+    if c:
+        st = np.array([a for a, _ in c]); cv = np.array([b for _, b in c])
+        ax4.plot(st * 32768, cv, color=col, lw=1.8, label=lab)
 ax2.axhline(0, color="#8e8c85", lw=2.0, ls="--")
+ax4.axhline(0, color=INK2, lw=1)
 vals = [(lab, col, D[d][2]) for d, lab, col, *_ in RUNS if d in D and D[d][2] is not None]
 vals.sort(key=lambda r: -r[2])
 y = np.arange(len(vals))
@@ -60,17 +69,19 @@ ax3.set_xlim(4.6, 6.5)
 ax1.set_ylim(4.6, 11); ax2.set_ylim(-0.8, 3.2)
 titles = ("Train loss (smoothed), same batches",
           "Gain over frozen random ternary (frozen loss - run loss)",
-          "Validation loss at 10M tokens")
-for ax, tt in zip((ax1, ax2, ax3), titles):
+          "Validation loss at 10M tokens",
+          "cos(gradient, low-rank momentum), mean over 84 layers")
+for ax, tt in zip((ax1, ax2, ax3, ax4), titles):
     ax.set_title(tt, loc="left", color=INK, fontsize=11.5)
     ax.set_facecolor(SURFACE); ax.grid(True, which="both", color=GRID, lw=0.6)
     ax.tick_params(colors=INK2)
     for sp in ax.spines.values(): sp.set_color(GRID)
-for ax in (ax1, ax2):
+for ax in (ax1, ax2, ax4):
     ax.set_xscale("log"); ax.set_xlabel("training tokens", color=INK2)
     ax.set_xlim(3e4, MAX_TOK)
 ax1.set_yscale("log"); ax1.legend(fontsize=9, frameon=False)
 ax2.legend(fontsize=9, frameon=False, loc="upper right")
+ax4.set_ylim(-1, 1); ax4.legend(fontsize=9, frameon=False)
 fig.tight_layout()
 os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
 fig.savefig(a.out, dpi=125, facecolor=SURFACE)
