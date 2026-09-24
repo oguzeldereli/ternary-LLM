@@ -316,9 +316,9 @@ def main():
                     help="tokens per output-head chunk (peak VRAM knob; math is identical)")
     ap.add_argument("--save_secs", type=float, default=900.0,
                     help="wall-clock seconds between checkpoint saves")
-    ap.add_argument("--max_temp", type=int, default=85,
+    ap.add_argument("--max_temp", type=int, default=86,
                     help="save + stop if GPU temp (C) reaches this (crash guard)")
-    ap.add_argument("--resume_temp", type=int, default=80,
+    ap.add_argument("--resume_temp", type=int, default=85,
                     help="after a thermal pause, wait until GPU temp (C) is at or below "
                          "this before resuming")
     ap.add_argument("--compile", action="store_true",
