@@ -962,3 +962,20 @@ The summed gradient is only moderately compressible, and less so than a single b
 (the summed direction spreads over more components as training goes on). Rank 64 keeps
 ~0.8 of it and ~70% of its alignment with master's moves; at 27B layer sizes rank 64 would
 be ~1.7% of per-weight memory.
+
+## Rank-64 momentum as the flip signal (`--lowrank 64`, MLP)
+
+Each ternary layer keeps a rank-64 momentum of its gradient, M ~ U V^T (M <- 0.97 M + g,
+re-compressed with one subspace-iteration step; 64 floats per row and per column), and flips
+with the usual rule and rate but driven by M instead of the current gradient.
+
+| run (6000 steps) | final val | slope, last 90% |
+|---|---|---|
+| master | 4.351 | -0.079 |
+| **flips, rank-64 momentum** | **4.670** | **-0.062** |
+| flips + cross-batch look-ahead x2 | 4.877 | -0.040 |
+| plain flips | 5.003 | -0.045 |
+
+Closes half of the flip-to-master gap (0.333 of 0.652) and, unlike look-ahead, raises the
+slope (-0.062 vs -0.045), at plain-flip cost per step: accumulating the direction across steps
+is the lever. Memory r*(N+K) per layer (~12% of per-weight at MLP size, ~1.7% at 27B shapes).

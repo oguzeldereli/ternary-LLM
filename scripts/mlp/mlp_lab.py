@@ -75,6 +75,9 @@ def main():
     ap.add_argument("--g_ref", type=float, default=3.0)
     ap.add_argument("--lookahead", type=int, default=0)
     ap.add_argument("--xbatch", action="store_true")
+    ap.add_argument("--lowrank", type=int, default=0,
+                    help="flip signal = rank-r momentum of the gradient (0 = current gradient)")
+    ap.add_argument("--lr_beta", type=float, default=0.97, help="decay of the low-rank momentum")
     ap.add_argument("--eval_every", type=int, default=100)
     ap.add_argument("--max_temp", type=int, default=86)
     ap.add_argument("--seed", type=int, default=0)
@@ -128,6 +131,25 @@ def main():
         model.train()
         return v
 
+    # rank-r momentum per layer, M ~ U V^T: one subspace-iteration step per update
+    # (M <- beta*M + g, re-compressed to rank r without an SVD), memory r*(N+K) per layer
+    LR_U = {id(l): torch.linalg.qr(torch.randn(l.N, a.lowrank, device=dev))[0] for l in Ls} if a.lowrank else {}
+    LR_V = {id(l): torch.zeros(l.K, a.lowrank, device=dev) for l in Ls} if a.lowrank else {}
+
+    @torch.no_grad()
+    def lowrank_flip(s):
+        from bitnet.kernel import fused_flip
+        for i, l in enumerate(Ls):
+            g = l.gw.float(); l.gw = None; l.capture = False
+            U, V = LR_U[id(l)], LR_V[id(l)]
+            Vn = torch.linalg.qr(a.lr_beta * V @ (U.T @ U) + g.T @ U)[0] if V.abs().sum() > 0 \
+                else torch.linalg.qr(g.T @ U)[0]                         # K x r basis
+            Un = a.lr_beta * U @ (V.T @ Vn) + g @ Vn                     # N x r coefficients
+            LR_U[id(l)], LR_V[id(l)] = Un, Vn
+            M = Un @ Vn.T                                                # transient N x K
+            fused_flip(l.wpacked, M, l.rate, l.g_ref, 50_000 + s * 131 + i,
+                       gmean=M.abs().mean().clamp_min(1e-12).item())
+
     t0 = time.time()
     for s in range(a.steps):
         if s % 4 == 0:
@@ -138,7 +160,7 @@ def main():
             g["lr"] = lr_at(s)
         if Ls:
             set_flip_rate(model, rate_at(s))
-            for l in Ls: l.capture = bool(a.lookahead)
+            for l in Ls: l.capture = bool(a.lookahead or a.lowrank)
         x, y = windows(train, a.batch, a.ctx, gtr, dev)
         opt.zero_grad(set_to_none=True)
         with torch.autocast("cuda", dtype=torch.bfloat16):
@@ -147,6 +169,8 @@ def main():
         info = {}
         if a.lookahead:
             info = lookahead_step(model, x, y, params, dev, s, a.lookahead, 0, extra)
+        elif a.lowrank:
+            lowrank_flip(s)
         torch.nn.utils.clip_grad_norm_(params, 1.0)
         opt.step()
         rec = {"step": s, "examples": (s + 1) * a.batch, "loss": loss.item(), **info}
