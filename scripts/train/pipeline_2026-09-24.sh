@@ -6,13 +6,13 @@
 #   3. efficiency test (per-step signal vs curvature) on existing checkpoints
 #   4. full 300M run of the best of {same-batch look-ahead (la_fast_fp32tail, val 5.1883),
 #      la_xb1, la_xb2}, resumed if interrupted
-# Thermal: pause at 82 C, resume at 76 C, checked every step (the machine has hard-reset
+# Thermal: pause at 84 C, resume at 79 C, checked every step (the machine has hard-reset
 # under sustained full load at 80-86 C).
 set -u
 cd "$(dirname "$0")/../.."
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True PYTHONPATH=.
 LOG=checkpoints/pipeline_2026-09-24.log
-GUARD="--max_temp 82 --resume_temp 76 --temp_check 1"
+GUARD="--max_temp 84 --resume_temp 79 --temp_check 1"
 say() { echo "$(date '+%F %T') $*" | tee -a "$LOG"; }
 final_val() { grep -oE "FINAL val loss [0-9.]+" "checkpoints/$1/train.log" 2>/dev/null | tail -1 | awk '{print $4}'; }
 

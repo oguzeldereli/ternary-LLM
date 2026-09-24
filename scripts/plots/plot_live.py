@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 RUNS = [  # dir, label, color, width
     ("p2_baseline",   "master weights (ceiling)",           "#eb6834", 2.2),
-    ("armA_cos_la1",  "LOOK-AHEAD (running)",               "#c2185b", 3.0),
+    ("overnight_full", "CROSS-BATCH LOOK-AHEAD x2 + fast ramp + fp32 tail (running)", "#111111", 3.0),
+    ("armA_cos_la1",  "look-ahead (same batch), stopped at 202M", "#c2185b", 2.4),
     ("armA_cosine",   "flips, cosine rate (reference)",     "#1baf7a", 2.2),
     ("armA_cos_r005", "flips, cosine from 4x lower rate",   "#2a78d6", 1.4),
     ("armA_cos_600M", "flips, cosine rate, 600M schedule",  "#8e8c85", 1.4),
@@ -41,10 +42,10 @@ a = ap.parse_args()
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7.5), facecolor=SURFACE)
 for d, lab, c, lw in RUNS:
     t, L, vt, vp = load(d)
-    ax1.plot(t, smooth(L), color=c, lw=lw, label=lab, zorder=6 if "LOOK" in lab else 4)
+    ax1.plot(t, smooth(L), color=c, lw=lw, label=lab, zorder=6 if "CROSS" in lab else 4)
     if len(vp):
-        ax2.plot(vt, vp, "o-", color=c, lw=lw, ms=5, label=lab, zorder=6 if "LOOK" in lab else 4)
-        if "LOOK" in lab:
+        ax2.plot(vt, vp, "o-", color=c, lw=lw, ms=5, label=lab, zorder=6 if "CROSS" in lab else 4)
+        if "CROSS" in lab:
             ax2.annotate(f"{vp[-1]:.1f}", (vt[-1], vp[-1]), textcoords="offset points",
                          xytext=(8, 4), color=c, fontsize=11, weight="bold")
 for ax, yl, title in ((ax1, "train loss (100-step avg)", "Train loss, log-log"),

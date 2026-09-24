@@ -744,3 +744,55 @@ loss slightly lower and the gap growing slowly (-0.014 at 3.3M, -0.019 at 9.9M, 
 at 10.4M), val 5.188 vs 5.197. Slopes unchanged over 3-10M (-0.134/-0.144 vs
 -0.136/-0.143; master -0.21/-0.20): the gains barely move this early (~1%), so the
 effect should matter mainly in long runs.
+
+## Night of 2026-09-24: cross-batch look-ahead
+
+### Per-step efficiency, calibrated (`scripts/analysis/efficiency_test.py`)
+
+One look-ahead step at rate 0.02 on checkpoints from 3M to 23M tokens. First-order
+prediction of the kept flips, from the training batch's gradient ("intended") and from
+a held-out gradient ("real"), against the measured held-out loss change. Calibration:
+applying only 1% of the kept flips (a linear step), measured / held-out prediction =
+0.95-1.15 at every checkpoint, so the prediction is right. (An earlier version
+multiplied by beta twice; its magnitudes were off by ~1/beta.)
+
+| full step | range over checkpoints |
+|---|---|
+| signal = real / intended | **0.17-0.35** |
+| survive = measured / real | **0.06-0.44** |
+| efficiency = measured / intended | **1-12%** |
+
+Two separate leaks: about two-thirds of what a step intends is batch noise (the
+same-batch look-ahead filter cannot see it), and of the real part most is lost to the
+flips' interaction and curvature even after filtering.
+
+### Cross-batch look-ahead (`--lookahead_xbatch`), 10M-token screens
+
+The look-ahead pass(es) use a fresh batch (separate RNG stream; training batch order
+unchanged), so a flip survives only if it is downhill on both batches. Base config
+`la_fast_fp32tail` (same-batch look-ahead, val 5.1883).
+
+| run | passes | val @ 10M |
+|---|---|---|
+| `la_fast_fp32tail` | 1, same batch | 5.1883 |
+| `la_xb1` | 1, cross-batch | 5.1817 |
+| **`la_xb2`** | **2, each on a new batch** | **5.0021** |
+
+A second pass only pays once it brings new evidence: two cross-batch passes are the
+largest single gain of any change so far (-0.19).
+
+### `overnight_full`: full-schedule run of `la_xb2` (stopped at step ~3980, 130M tokens)
+
+Look-ahead 2 passes cross-batch + fast rate ramp + fp32 tail + master's tail LR,
+9155-step schedule. Thermal guard 82/76 C for 8 h without a crash (~7.4 s/step);
+switched to 84/79 at step 3965 and the machine reset within minutes of the restart.
+
+| val ppl @ step | overnight_full | look-ahead (same batch) | plain flips | master |
+|---|---|---|---|---|
+| 1000 | **80.4** | 124.9 | 188.3 | 41.4 |
+| 2000 | **55.7** | 96.5 | 148.3 | 28.7 |
+| 3000 | **50.8** | 80.1 | 139.6 | 24.3 |
+
+Best stateless result by far, but flattening: val slope 2000->3000 is -0.057
+(same-batch look-ahead -0.103, master -0.123). Extrapolating the slope plus the usual
+anneal drop puts the end of the schedule around ppl 33-40.
