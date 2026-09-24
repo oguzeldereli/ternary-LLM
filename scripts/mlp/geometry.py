@@ -17,7 +17,7 @@ from bitnet.kernel import unpack_rows
 from scripts.mlp.mlp_lab import MLPLM, windows
 
 dev, BATCH, LR, WARM, TOTAL, RATE, S0 = "cuda", 4096, 1.5e-3, 100, 6000, 0.02, 300
-WINDOWS = (1, 10, 50, 200)
+EVERY = 200
 train = np.memmap("data/wiki32k_train.bin", dtype=np.uint16, mode="r")
 
 
@@ -82,44 +82,37 @@ def run(mode):
         torch.nn.utils.clip_grad_norm_([p for p in m.parameters() if p.requires_grad], 1.0); opt.step()
         return gr, None
 
-    for s in range(S0):
-        one_step(s, False)
-    res = {}
-    T0 = trits()
-    W0 = [l.weight.detach().float().clone() for l in Ls] if mode == "master" else None
-    gsum = [torch.zeros_like(t) for t in T0]
-    step_cos = []
-    for i in range(max(WINDOWS)):
-        Tb = trits()
-        gr, upd = one_step(S0 + i, True)
-        Ta = trits()
-        for a, g in zip(gsum, gr): a += g
-        if mode == "master":
-            step_cos.append((np.mean([cos(u, -g) for u, g in zip(upd, gr)]),
-                             np.mean([cos(b - a, -g) for a, b, g in zip(Tb, Ta, gr) if (b - a).abs().sum() > 0] or [np.nan])))
-        else:
-            step_cos.append((np.nan, np.mean([cos(b - a, -g) for a, b, g in zip(Tb, Ta, gr) if (b - a).abs().sum() > 0] or [np.nan])))
-        n = i + 1
-        if n in WINDOWS:
+    # full run: every step records its gradient; every EVERY steps report the alignment of
+    # (a) the last EVERY-step window and (b) everything since step 0, with the summed gradient
+    out = []
+    T00 = trits(); Tw = T00
+    W00 = [l.weight.detach().float().clone() for l in Ls] if mode == "master" else None
+    Ww = W00
+    gcum = [torch.zeros_like(t) for t in T00]; gwin = [torch.zeros_like(t) for t in T00]
+    for s in range(TOTAL):
+        gr, _ = one_step(s, True)
+        for a, b, g in zip(gcum, gwin, gr): a += g; b += g
+        if (s + 1) % EVERY == 0:
             T = trits()
-            dT = [t - t0 for t, t0 in zip(T, T0)]
-            r = {"trit_vs_sumg": np.mean([cos(d, -g) for d, g in zip(dT, gsum)]),
-                 "trits_changed_%": np.mean([(d != 0).float().mean().item() * 100 for d in dT])}
+            r = {"step": s + 1,
+                 "win_trit": np.mean([cos(t - t0, -g) for t, t0, g in zip(T, Tw, gwin)]),
+                 "cum_trit": np.mean([cos(t - t0, -g) for t, t0, g in zip(T, T00, gcum)]),
+                 "win_changed_%": np.mean([((t - t0) != 0).float().mean().item() * 100 for t, t0 in zip(T, Tw)])}
             if mode == "master":
-                dW = [l.weight.detach().float() - w0 for l, w0 in zip(Ls, W0)]
-                r["latent_vs_sumg"] = np.mean([cos(d, -g) for d, g in zip(dW, gsum)])
-                r["trit_vs_latent"] = np.mean([cos(t, w) for t, w in zip(dT, dW)])
-            res[n] = r
-    sc = np.array(step_cos)
-    return res, np.nanmean(sc[:, 0]), np.nanmean(sc[:, 1])
+                W = [l.weight.detach().float().clone() for l in Ls]
+                r["win_latent"] = np.mean([cos(w - w0, -g) for w, w0, g in zip(W, Ww, gwin)])
+                r["cum_latent"] = np.mean([cos(w - w0, -g) for w, w0, g in zip(W, W00, gcum)])
+                Ww = W
+            out.append(r); Tw = T
+            gwin = [torch.zeros_like(t) for t in T00]
+    return out
 
 
+import json
+res = {}
 for mode in ("master", "flip"):
-    res, adam_cos, trit_step_cos = run(mode)
-    print(f"\n=== {mode} (window starts at {S0 * BATCH / 1e6:.1f}M examples) ===")
-    if mode == "master":
-        print(f"  single step: Adam update vs -g {adam_cos:.3f} | trit change vs -g {trit_step_cos:.3f}")
-    else:
-        print(f"  single step: flips vs -g {trit_step_cos:.3f}")
-    for n, r in res.items():
-        print(f"  window {n:3d}: " + " | ".join(f"{k} {v:.3f}" for k, v in r.items()))
+    res[mode] = run(mode)
+    print(f"\n=== {mode}: alignment with the summed gradient along the run ===")
+    for r in res[mode]:
+        print("  " + " | ".join(f"{k} {v:.3f}" if isinstance(v, float) else f"{k} {v}" for k, v in r.items()))
+json.dump(res, open("checkpoints/mlp/geometry_full.json", "w"))

@@ -925,3 +925,17 @@ the gradients each run saw along its own trajectory. Cosines per layer, averaged
   more than master's per-step trit change), but the moves do **not** add up. Over 200 steps
   the net trit change is orthogonal to the summed gradient (0.006) while touching twice as
   many trits (43% vs 21%). The flips are a random walk around the pull, not a drift along it.
+
+Along the full 6000-step run (every 200 steps; window = last 200 steps, cumulative = since step 0):
+
+| examples | master window: float / trits | master cumulative: float / trits | master trits changed / window | flips window | flips cumulative | flips trits changed / window |
+|---|---|---|---|---|---|---|
+| 0.8M | 0.49 / 0.29 | 0.49 / 0.29 | 25% | 0.06 | 0.06 | 40% |
+| 4M | 0.90 / 0.39 | 0.64 / 0.40 | 16% | 0.004 | 0.034 | 42% |
+| 12M | 0.90 / 0.32 | 0.82 / 0.48 | 10% | -0.001 | 0.031 | 30% |
+| 25M | 0.92 / 0.18 | 0.82 / 0.48 | 3% | -0.006 | 0.029 | 0.1% |
+
+Master's float weights move along each window's summed gradient at ~0.90 for the whole run
+and its trits keep ~0.48 of the cumulative direction. The flips' 200-step moves have zero
+alignment with the summed gradient from 1.6M examples on, while changing 30-42% of all trits
+per window: a random walk, which only stops when the annealed rate stops it.
