@@ -126,7 +126,7 @@ def rate_search_step(model, rate_now, rs_state, args, tc, data, gen, device, ste
 
 
 def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_batch=None,
-                   signals=None, diag=False):
+                   signals=None, diag=False, gacc=None):
     """Propose flips with the normal rule, then keep only the ones that are still
     downhill given all the others.
 
@@ -144,6 +144,9 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
     grads = []
     for l in layers:
         grads.append(l.gw.contiguous()); l.gw = None
+    if gacc is not None:                      # --move_window: sum of the gradients the run sees
+        for i, g in enumerate(grads):
+            gacc.add(i, g)
     tail_g = [None if p.grad is None else p.grad.clone() for p in tail]
     seed0 = 9_000_000 + step * 131 + flip_seed * 1_000_003
     for i, (l, g) in enumerate(zip(layers, grads)):
@@ -258,6 +261,68 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     return (info, Ms) if propose_only else (info or None)
 
 
+class MoveWindow:
+    """Per window of N steps, per ternary layer: D = net trit move, S = sum of the first-pass
+    gradients the run saw, M0 = momentum at the window start. Logs (mean over layers, and per layer
+    type) the moved share; sign agreement of the moved trits with -S and -M0 and cos(D, -S),
+    cos(D, -M0); cos(S, M0); coherence |S|^2 / sum |g_t|^2 (1 = pure noise, N = one consistent
+    direction); cos(S, S of the previous window)."""
+
+    def __init__(self, n):
+        self.n = n; self.S_prev = None
+
+    def layers(self, model):
+        return [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+
+    @torch.no_grad()
+    def open(self, model, lr_state):
+        from .kernel import unpack_rows
+        Ls = self.layers(model)
+        self.T0 = [unpack_rows(l.wpacked, l.K).to(torch.int8).clone() for l in Ls]
+        self.M0 = [((lr_state[id(l)][0] @ lr_state[id(l)][1].T).to(torch.bfloat16)
+                    if id(l) in lr_state else None) for l in Ls]
+        self.S = [torch.zeros(l.N, l.K, device=l.wpacked.device) for l in Ls]
+        self.sq = [torch.zeros((), device=l.wpacked.device) for l in Ls]
+        self.k = 0
+
+    def add(self, i, g):
+        self.S[i] += g
+        self.sq[i] += (g.float() ** 2).sum()
+        if i == 0:
+            self.k += 1
+
+    def due(self, step):
+        return self.k >= self.n
+
+    @torch.no_grad()
+    def close(self, model, lr_state):
+        from .kernel import unpack_rows
+        cos = lambda a, b: F.cosine_similarity(a.flatten().float(), b.flatten().float(), 0)
+        out = {k: [] for k in ("w_moved", "w_agree_S", "w_cos_S", "w_agree_M", "w_cos_M",
+                               "w_cos_SM", "w_coh", "w_cos_Sprev")}
+        for i, l in enumerate(self.layers(model)):
+            D = (unpack_rows(l.wpacked, l.K).to(torch.int8) - self.T0[i]).float()
+            nz = D != 0
+            S = self.S[i]
+            out["w_moved"].append(nz.float().mean())
+            out["w_agree_S"].append(((D * S)[nz] < 0).float().mean())
+            out["w_cos_S"].append(cos(D, -S))
+            out["w_coh"].append((S ** 2).sum() / self.sq[i].clamp_min(1e-30))
+            if self.M0[i] is not None:
+                M = self.M0[i].float()
+                out["w_agree_M"].append(((D * M)[nz] < 0).float().mean())
+                out["w_cos_M"].append(cos(D, -M))
+                out["w_cos_SM"].append(cos(S, M))
+            if self.S_prev is not None:
+                out["w_cos_Sprev"].append(cos(S, self.S_prev[i]))
+        self.S_prev = self.S
+        rec = {"w_steps": self.k}
+        for k, v in out.items():
+            if v:
+                rec.update(_diag_agg(k, torch.stack(v).cpu().tolist()))
+        return rec
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", default=DEFAULT_PRESET, choices=list(PRESETS))
@@ -286,6 +351,10 @@ def main():
                     help="flip signal = rank-r momentum of each layer's gradient (M ~ U V^T, "
                          "r*(N+K) floats per layer) instead of the current gradient")
     ap.add_argument("--lr_beta", type=float, default=0.97, help="decay of the low-rank momentum")
+    ap.add_argument("--move_window", type=int, default=0,
+                    help="every N steps log how the net trit move of the window relates to the "
+                         "summed gradient of the window and to the momentum at its start "
+                         "(needs --lookahead; see MoveWindow)")
     ap.add_argument("--profile", type=int, default=0,
                     help="profile this many steps (after 20 warm-up steps), print the tables, exit")
     ap.add_argument("--track_reversals", action="store_true",
@@ -694,6 +763,10 @@ def main():
     probe_steps = parse_schedule(args.probe)
     ramp_t = time.time()
     prof = None
+    mwin = None
+    if args.move_window:
+        mwin = MoveWindow(args.move_window)
+        mwin.open(model, lr_state)
     for step in range(start_step, end_step):
         if args.profile and step == start_step + 20:         # after autotune / warm-up
             from torch.profiler import profile, ProfilerActivity
@@ -786,7 +859,7 @@ def main():
                                            diag=args.lr_diag)
                 rs_info.update(lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                               args.flip_seed, la_extra, signals=Ms,
-                                              diag=args.lr_diag))
+                                              diag=args.lr_diag, gacc=mwin))
                 del Ms
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
@@ -823,6 +896,9 @@ def main():
                        flip_frac_layers=fs["flip_frac"], never_frac_layers=fs["never_frac"],
                        gmean_layers=fs["gmean_layers"],
                        frozen_scale_layers=fs["frozen_scale_layers"])
+        if mwin is not None and mwin.due(step):
+            rec.update(mwin.close(model, lr_state))
+            mwin.open(model, lr_state)
         log_metrics(rec)
 
         if step % tc.log_interval == 0:
