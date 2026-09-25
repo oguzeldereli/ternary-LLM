@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 B = [("branch340_A", "A: momentum M proposes, look-ahead x2 keeps", "#e53935"),
-     ("branch340_B", "B: gradient g proposes, look-ahead x2 keeps", "#111111")]
+     ("branch340_B", "B: gradient g proposes, look-ahead x2 keeps", "#111111"),
+     ("branch340_C", "C: g proposes at rate 0.0072 (flip count of A), look-ahead x2 keeps", "#2a78d6")]
 NW = 84_934_656  # ternary weights (sum of N*K over the 84 layers)
 
 

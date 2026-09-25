@@ -1071,3 +1071,32 @@ Same config and batches (fast rate ramp, fp32 tail, master's tail LR; `screen_10
 - Half the flips: 0.06-0.08% of trits per step vs 0.12-0.16% for la_xb2; ~19% of momentum
   proposals survive the filter (la_xb2: ~40%).
 - State: 256*(N+K) floats per layer = 44.8M floats (179 MB fp32) for 85M ternary weights.
+
+### How does the momentum help? (diagnostics at 11M and 210M tokens, branches from step 340)
+
+Per-step diagnostics (`--lr_diag`, `docs/figures/m_diag.png`): |M|/|g| reaches 33 (fully
+consistent) at ~0.6M tokens and falls to ~4 (the pure-noise level for beta 0.97) by ~4M; the top 1%
+|M| agree in sign with the batch gradient 85% early, ~48% from 1M on; the gradient after the
+proposed flips points back (cos(g, g') ~ -0.3 from 3M on: the proposal overshoots); the share of g
+inside M's rank-256 subspace falls from ~0.9 to 0.58-0.65 for w_gate/w_up by 10M.
+
+8-batch snapshots (`scripts/analysis/m_snapshot.py`): at step 340 (11M) cos(gbar, M) = -0.003 and
+the top 1% |M| agree in sign with gbar 49%; at 210M, 0.05 and 57%.
+
+Proposal precision at step 340 (`scripts/analysis/proposal_precision.py`, truth = 16-batch mean):
+M proposals are downhill on the true gradient 49.5% of the time (g proposals 67.9%); after the
+look-ahead x2 filter, M-kept 56.9% vs g-kept 65.0%, true gain per flip 0.86e-7 vs 2.3e-7. The
+filter keeps 15% of M proposals vs 41% of g proposals.
+
+60-step branches from step 340, same batches (`docs/figures/branch340.png`):
+
+| branch | flips | reversals | val |
+|---|---|---|---|
+| A: M proposes, look-ahead x2 (r 0.02) | 4.00M | 0.8% | **4.679** |
+| B: g proposes, look-ahead x2 (r 0.02) | 7.73M | 3.9% | 4.714 |
+| C: g proposes, look-ahead x2 at r 0.0072 (flip count of A) | 3.75M | 1.9% | 4.687 |
+
+At this point the momentum works mostly as a step-size reducer: its proposals carry no direction
+information, so the filter rejects most of them and fewer flips get through (the flips overshoot
+together). Matching the flip count with plain gradient proposals recovers ~75% of the A-B gap;
+the rest (0.008) is within noise, with somewhat fewer reversals for A.
