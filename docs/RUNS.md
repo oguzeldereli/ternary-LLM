@@ -1100,3 +1100,11 @@ At this point the momentum works mostly as a step-size reducer: its proposals ca
 information, so the filter rejects most of them and fewer flips get through (the flips overshoot
 together). Matching the flip count with plain gradient proposals recovers ~75% of the A-B gap;
 the rest (0.008) is within noise, with somewhat fewer reversals for A.
+
+### `lm_lowrank256_xb2_100M` finished: 300M tokens, val 3.127 (ppl 22.8)
+
+Rank-256 momentum proposes, cross-batch look-ahead x2 keeps, full 9155-step schedule (paused and
+resumed three times, exact resumes). Val ppl 44.6 @ 33M, 30.9 @ 98M, 25.1 @ 197M, **22.8 @ 300M**;
+master 41.4 / 24.3 / 18.2 / 15.8. The best stateless-flip run before this: ppl 92.7 at 600M (plain
+flips), 50.8 at 131M (look-ahead only). Token stretch vs master (tokens needed for the same loss)
+rose from ~1 at 10-20M to ~1.8 by 100M and stayed flat to the end (`docs/figures/live.png`).
