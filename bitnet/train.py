@@ -17,6 +17,7 @@ import argparse
 import subprocess
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 
 def gpu_temp():
@@ -125,7 +126,7 @@ def rate_search_step(model, rate_now, rs_state, args, tc, data, gen, device, ste
 
 
 def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_batch=None,
-                   signals=None):
+                   signals=None, diag=False):
     """Propose flips with the normal rule, then keep only the ones that are still
     downhill given all the others.
 
@@ -150,7 +151,8 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
         fused_flip(l.wpacked, sig, l.rate, l.g_ref, seed0 + i,
                    gmean=sig.abs().mean().clamp_min(1e-8).item())
     n_prop = n_keep = None
-    for _ in range(iters):
+    gg = []
+    for it in range(iters):
         for p in tail: p.grad = None
         # cross-batch look-ahead: judge each flip on a *different* batch, so a flip
         # survives only if it is downhill on both (removes interaction and much of the
@@ -160,6 +162,11 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
             _, loss = model(xc, yc)
         loss.backward()                               # capture is still on: no flips
         cnt = torch.zeros(2, dtype=torch.int32, device=grads[0].device)
+        if diag and it == 0:
+            # cos(g, g'): g' is on another batch at the proposed point; with independent
+            # batch noise this is |signal|^2 / |g|^2, the per-step signal fraction
+            gg = [F.cosine_similarity(grads[i].flatten().float(), l.gw.flatten().float(), 0).item()
+                  for i, l in enumerate(layers)]
         for i, l in enumerate(layers):
             # keep/revert straight on the packed bytes (bitnet.kernel.lookahead_filter)
             lookahead_filter(saved[i], l.wpacked, grads[i], l.gw, cnt)
@@ -171,11 +178,22 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
     for l, w in zip(layers, saved):
         l.capture = False
         if l.track: l._record_flips(w, l.wpacked)
-    return {"la_proposed": n_prop, "la_kept": n_keep}
+    out = {"la_proposed": n_prop, "la_kept": n_keep}
+    if gg:
+        out.update(_diag_agg("d_gg", gg))
+    return out
 
 
 @torch.no_grad()
-def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False):
+def _diag_agg(name, vals, per_block=7):
+    """{name: mean over layers, name_types: mean per layer type (position in the block)}"""
+    t = torch.tensor(vals)
+    return {name: t.mean().item(),
+            name + "_types": [t[j::per_block].mean().item() for j in range(per_block)]}
+
+
+def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
+                 diag=False):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -187,9 +205,14 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     is reflected onto the new direction and adds to it. Returns the per-layer cosines.
 
     propose_only: update M but do not flip; leave l.gw and capture on and return the M's,
-    so lookahead_step proposes from M and filters with the true gradients."""
+    so lookahead_step proposes from M and filters with the true gradients.
+
+    diag: also log, per step, how M_{t-1} relates to this step's gradient g: mean |g|, mean |M|,
+    sign agreement (all weights and the top 1% |M|, the ones the rule proposes) and the share
+    of |g| inside M's rank-r row x column subspace."""
     layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
     cs, Ms = [], []
+    D = {k: [] for k in ("d_gabs", "d_mabs", "d_agree", "d_agree_top", "d_insub")}
     for i, l in enumerate(layers):
         g = l.gw.float()
         if not propose_only:
@@ -204,6 +227,17 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             # cos(g, M) with M = U V^T, V orthonormal: <g, M> = sum((g V) * U), |M| = |U|
             c = ((g @ V) * U).sum() / (g.norm() * U.norm()).clamp_min(1e-30)
             cs.append(c.item())
+            if diag:
+                Mo = U @ V.T
+                a = Mo.abs().flatten()
+                thr = a.kthvalue(max(1, int(a.numel() * 0.99))).values
+                ag = (Mo.sign() == g.sign()).flatten()
+                D["d_gabs"].append(g.abs().mean().item()); D["d_mabs"].append(a.mean().item())
+                D["d_agree"].append(ag.float().mean().item())
+                D["d_agree_top"].append(ag[a >= thr].float().mean().item())
+                Qu = torch.linalg.qr(U)[0]
+                D["d_insub"].append(((Qu.T @ g @ V).norm() / g.norm().clamp_min(1e-30)).item())
+                del Mo, a, ag
             b = beta * c if adapt else beta
             Vn = torch.linalg.qr(b * V @ (U.T @ U) + g.T @ U)[0]
             state[key] = (b * U @ (V.T @ Vn) + g @ Vn, Vn)
@@ -217,6 +251,10 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
         if before is not None:
             l._record_flips(before, l.wpacked)
     info = {"lr_cos": sum(cs) / len(cs), "lr_cos_layers": cs} if cs else {}
+    if diag and cs:
+        for k, v in D.items():
+            info.update(_diag_agg(k, v))
+        info.update(_diag_agg("d_cos", cs))
     return (info, Ms) if propose_only else (info or None)
 
 
@@ -248,6 +286,9 @@ def main():
                     help="flip signal = rank-r momentum of each layer's gradient (M ~ U V^T, "
                          "r*(N+K) floats per layer) instead of the current gradient")
     ap.add_argument("--lr_beta", type=float, default=0.97, help="decay of the low-rank momentum")
+    ap.add_argument("--lr_diag", action="store_true",
+                    help="log per step how the low-rank momentum relates to the gradient "
+                         "(|g|, |M|, sign agreement, subspace share, cos(g, g') across batches)")
     ap.add_argument("--lr_adapt", action="store_true",
                     help="low-rank momentum decay = lr_beta * cos(g, M): reset at 90 deg, "
                          "reflected at 180 deg")
@@ -715,9 +756,11 @@ def main():
         if args.lowrank:
             if args.lookahead:          # propose from M, keep by the look-ahead test
                 rs_info, Ms = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
-                                           args.flip_seed, args.lr_adapt, propose_only=True)
+                                           args.flip_seed, args.lr_adapt, propose_only=True,
+                                           diag=args.lr_diag)
                 rs_info.update(lookahead_step(model, x, y, tail, device, step, args.lookahead,
-                                              args.flip_seed, la_extra, signals=Ms))
+                                              args.flip_seed, la_extra, signals=Ms,
+                                              diag=args.lr_diag))
                 del Ms
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,

@@ -24,4 +24,4 @@ exec python -m bitnet.train --preset small --mode kernel \
   --lr 1.5e-3 --min_lr 1.5e-4 --stop_after 9155 --probe 0-40:5,40-320:20 \
   --eval_iters 30 --eval_interval 250 --save_secs 900 \
   --out_dir $D --lookahead 2 --lookahead_xbatch --lowrank 256 --ckpt_skip 2 \
-  --resume >> $D/train.log 2>&1
+  --lr_diag --resume >> $D/train.log 2>&1
