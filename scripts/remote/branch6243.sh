@@ -15,7 +15,7 @@ ARGS="--preset small --mode kernel --data data/wiki32k_train.bin --val data/wiki
   --tail_fp32 --lr 1.5e-3 --min_lr 1.5e-4 --stop_after 6544 --eval_iters 30 --eval_interval 100000
   --save_secs 100000 --lookahead 2 --lookahead_xbatch --ckpt_skip 2 --resume"
 run() {  # name, rate_peak, extra flags
-  mkdir -p checkpoints/$1; cp $S/ckpt_6243.pt checkpoints/$1/ckpt.pt
+  mkdir -p checkpoints/$1; ln -sf $S/ckpt_6243.pt checkpoints/$1/ckpt.pt   # symlink: the .pt sync skips it
   python -m bitnet.train $ARGS --rate_peak $2 --out_dir checkpoints/$1 ${3:-} > checkpoints/$1/train.log 2>&1
   rm -f checkpoints/$1/ckpt.pt          # the branch end state is not needed; keep only the metrics
   echo "$(date '+%F %T') DONE $1 $(grep -oE 'FINAL val loss [0-9.]+' checkpoints/$1/train.log)"
