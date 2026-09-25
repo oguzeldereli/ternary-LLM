@@ -39,8 +39,12 @@ def smooth(L, k=100):
 
 ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/live.png")
 a = ap.parse_args()
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 7.5), facecolor=SURFACE)
+fig, axs = plt.subplots(2, 2, figsize=(20, 13), facecolor=SURFACE)
+(ax1, ax2), (ax3, ax4) = axs
 G = np.logspace(np.log10(1e6), np.log10(6e8), 120)
+tm_, Lm_, *_ = load("p2_baseline"); Lm_ = smooth(Lm_)
+lnm = lambda t: np.interp(np.log(t), np.log(tm_), np.log(Lm_))
+CS = np.linspace(0.5, 4.0, 351)
 for d, lab, c, lw, hi in RUNS:
     t, L, vt, vp = load(d)
     Ls = smooth(L)
@@ -57,11 +61,26 @@ for d, lab, c, lw, hi in RUNS:
         lo = np.interp(np.log(g / 1.25), np.log(t), np.log(Ls))
         hi_ = np.interp(np.log(g * 1.25), np.log(t), np.log(Ls))
         ax3.plot(g, (hi_ - lo) / np.log(1.25 ** 2), color=c, lw=lw, label=lab, zorder=z)
+    # token stretch vs master: in a factor-2 window around each point, the c for which
+    # L_run(t) ~ L_master(t / c) fits best (c > 1: the run needs c x master's tokens)
+    if d != "p2_baseline":
+        g2 = G[(G > t[0] * 1.5) & (G < t[-1] / 1.5) & (G > 2e6)]
+        cc, ee = [], []
+        for x in g2:
+            w = np.logspace(np.log10(x / 1.41), np.log10(x * 1.41), 12)
+            y = np.interp(np.log(w), np.log(t), np.log(Ls))
+            err = [np.mean(np.abs(y - lnm(w / k))) for k in CS if (w / k).max() <= tm_[-1]]
+            if err:
+                i = int(np.argmin(err)); cc.append(CS[i]); ee.append(err[i])
+        if cc:
+            ax4.plot(g2[:len(cc)], cc, color=c, lw=lw, label=lab, zorder=z)
 for ax, yl, title in ((ax1, "train loss (100-step avg)", "Train loss, log-log"),
                       (ax2, "val perplexity", "Validation perplexity"),
-                      (ax3, "d ln(loss) / d ln(tokens)", "Local power-law slope of train loss")):
+                      (ax3, "d ln(loss) / d ln(tokens)", "Local power-law slope of train loss"),
+                      (ax4, "tokens needed / master's tokens, same loss",
+                       "Token stretch vs master (best c with L(t) = L_master(t / c), factor-2 window)")):
     ax.set_xscale("log")
-    if ax is not ax3: ax.set_yscale("log")
+    if ax in (ax1, ax2, ax4): ax.set_yscale("log")
     ax.set_facecolor(SURFACE); ax.grid(True, which="both", color=GRID, lw=0.6)
     ax.set_xlabel("tokens", color=INK2); ax.set_ylabel(yl, color=INK2)
     ax.set_title(title, color=INK, fontsize=12, loc="left")
@@ -70,6 +89,8 @@ for ax, yl, title in ((ax1, "train loss (100-step avg)", "Train loss, log-log"),
 ax1.set_xlim(3e4, 7e8); ax1.set_ylim(2.5, 11)
 ax2.set_xlim(5e6, 7e8); ax2.set_ylim(12, 250)
 ax3.set_xlim(1e6, 7e8); ax3.set_ylim(-0.5, 0.05); ax3.axhline(0, color=INK2, lw=1)
+ax4.set_xlim(1e6, 7e8); ax4.set_ylim(0.5, 4.0); ax4.axhline(1, color=INK2, lw=1)
+ax4.set_yticks([0.5, 0.75, 1, 1.5, 2, 3, 4]); ax4.set_yticklabels(["0.5", "0.75", "1", "1.5", "2", "3", "4"])
 fig.tight_layout()
 os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
 fig.savefig(a.out, dpi=130, facecolor=SURFACE)
