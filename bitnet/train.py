@@ -286,6 +286,9 @@ def main():
                     help="flip signal = rank-r momentum of each layer's gradient (M ~ U V^T, "
                          "r*(N+K) floats per layer) instead of the current gradient")
     ap.add_argument("--lr_beta", type=float, default=0.97, help="decay of the low-rank momentum")
+    ap.add_argument("--track_reversals", action="store_true",
+                    help="log flips that undo a weight's previous change, and net displacement "
+                         "from the (resumed) start")
     ap.add_argument("--lr_diag", action="store_true",
                     help="log per step how the low-rank momentum relates to the gradient "
                          "(|g|, |M|, sign agreement, subspace share, cos(g, g') across batches)")
@@ -678,6 +681,11 @@ def main():
     signal.signal(signal.SIGTERM, _graceful)
     signal.signal(signal.SIGINT, _graceful)
 
+    # after any resume, so 'net' counts from the weights this run starts at
+    if args.track_reversals:
+        for m in model.modules():
+            if isinstance(m, KernelTernaryLinear):
+                m.enable_reversal_tracking()
     t0 = time.time()
     last_save = time.time()
     end_step = tc.max_steps if args.stop_after is None else min(tc.max_steps, args.stop_after)
@@ -789,6 +797,8 @@ def main():
             if lf is not None:
                 rec["locked_frac"] = lf
         if fs:
+            if "rev_flips" in fs:
+                rec.update(rev_flips=fs["rev_flips"], net_frac=fs["net_frac"])
             rec.update(flip_frac=fs["flip_frac_total"], never_frac=fs["never_frac_total"],
                        flip_frac_layers=fs["flip_frac"], never_frac_layers=fs["never_frac"],
                        gmean_layers=fs["gmean_layers"],

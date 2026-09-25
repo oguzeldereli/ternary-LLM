@@ -545,6 +545,25 @@ class KernelTernaryLinear(nn.Module):
         d = trit_diff(before, after)
         self.touched |= d
         self.flips += popcount(d)
+        if getattr(self, "rev_track", False):
+            from .kernel import unpack_rows
+            ta = unpack_rows(after, self.K).to(torch.int8)
+            dt = ta - unpack_rows(before, self.K).to(torch.int8)
+            ch = dt != 0
+            # a reversal undoes this weight's previous change (back toward where it came from)
+            self.revs += (ch & (dt == -self.last_dir)).sum()
+            self.last_dir = torch.where(ch, dt, self.last_dir)
+            self.net = (ta != self.t_start).sum()
+
+    def enable_reversal_tracking(self):
+        """Count flips that undo the weight's previous change, and the net displacement
+        (trits that differ from the start of tracking). Two int8 [N, K] buffers."""
+        from .kernel import unpack_rows
+        self.rev_track = True
+        self.t_start = unpack_rows(self.wpacked, self.K).to(torch.int8).clone()
+        self.last_dir = torch.zeros_like(self.t_start)
+        self.revs = torch.zeros((), dtype=torch.int64, device=self.wpacked.device)
+        self.net = torch.zeros((), dtype=torch.int64, device=self.wpacked.device)
 
     @torch.no_grad()
     def flip_stats(self):
@@ -773,7 +792,14 @@ def collect_flip_stats(model, reset: bool = True):
             if isinstance(m, KernelTernaryLinear) and m.track:
                 m.flips.zero_()
     tot = sum(numels)
-    return {
+    rv = [m for m in model.modules() if isinstance(m, KernelTernaryLinear) and getattr(m, "rev_track", False)]
+    extra = {}
+    if rv:
+        r = torch.stack([m.revs for m in rv]).sum().item()
+        extra = {"rev_flips": r, "net_frac": torch.stack([m.net for m in rv]).sum().item() / tot}
+        for m in rv:
+            m.revs.zero_()
+    return {**extra,
         "layers": names,
         "flip_frac": [fi / n for fi, n in zip(f, numels)],
         "never_frac": [ni / n for ni, n in zip(nv, numels)],
