@@ -1170,3 +1170,17 @@ gradient gbar (16-batch mean) at the start/end of the window. Share of moved tri
   move the gradient points back at it (overshoot/recoil).
 - Late (205-300M), 22% of trits moved but the net move follows neither M nor the true gradient at
   either end (0.49-0.52): a near random walk, which is where the slope falls behind master.
+
+### Later-checkpoint branches (4090): 300 steps from ckpt_6243 (205M), identical batches
+
+| branch | flips | reversals | val |
+|---|---|---|---|
+| A: M proposes, look-ahead x2 (run's rate) | 5.65M | 2.7% | **3.2005** |
+| B: g proposes, same rate | 12.96M | 6.2% | 3.3417 |
+| C1: g proposes, 0.5 x rate | 7.45M | 3.6% | 3.2882 |
+| C2: g proposes, 0.35 x rate (flip count of A) | 5.41M | 2.7% | 3.2624 |
+
+Late, M is more than a step-size brake: at a matched flip count and the same reversal rate, M's
+proposals beat the gradient's by 0.062 over 300 steps (at 11M the matched control closed ~75% of
+the gap). Per step the gradient's proposals are more precise (0.554 vs 0.525), so M's value is in
+how its flips add up over steps (it keeps pushing the same weights the same way).
