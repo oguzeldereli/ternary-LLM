@@ -149,7 +149,7 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
     for i, (l, g) in enumerate(zip(layers, grads)):
         sig = g if signals is None else signals[i]
         fused_flip(l.wpacked, sig, l.rate, l.g_ref, seed0 + i,
-                   gmean=sig.abs().mean().clamp_min(1e-8).item())
+                   gmean=sig.abs().mean().clamp_min(1e-8))
     n_prop = n_keep = None
     gg = []
     for it in range(iters):
@@ -172,8 +172,8 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
             lookahead_filter(saved[i], l.wpacked, grads[i], l.gw, cnt)
             l.gw = None
         if n_prop is None:
-            n_prop = int(cnt[0])
-        n_keep = int(cnt[1])
+            n_prop = cnt[0].clone()
+        n_keep = cnt[1]
     for p, g in zip(tail, tail_g): p.grad = g
     for l, w in zip(layers, saved):
         l.capture = False
@@ -247,7 +247,7 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             Ms.append(M); continue
         before = l.wpacked.clone() if l.track else None
         fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003,
-                   gmean=M.abs().mean().clamp_min(1e-12).item())
+                   gmean=M.abs().mean().clamp_min(1e-12))
         if before is not None:
             l._record_flips(before, l.wpacked)
     info = {"lr_cos": sum(cs) / len(cs), "lr_cos_layers": cs} if cs else {}
@@ -791,6 +791,8 @@ def main():
                "tokens": (step + 1) * tc.grad_accum * tc.batch_size * tc.seq_len}
         fs = collect_flip_stats(model) if args.track_flips else {}
         if rs_info is not None:
+            # device counters (look-ahead) become numbers here: one read per step, at logging
+            rs_info = {k: (v.item() if torch.is_tensor(v) else v) for k, v in rs_info.items()}
             rec.update(rs_info)
         if args.flip_lockout > 0 and step % tc.log_interval == 0:
             lf = lockout_stats(model)

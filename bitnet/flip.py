@@ -272,8 +272,7 @@ class _KernelTernFn(torch.autograd.Function):
             # int8 path: activations are already 8-bit, so x @ W^T is exact in int32
             # on the s8 tensor cores, and the saved activation is 1 byte/element.
             xq, xs = act_quant_i8(x.reshape(-1, layer.K), layer.act_bits)
-            y = tern_gemm_i8(xq, xs, wpacked, layer.K,
-                             float(beta) if beta is not None else 1.0)
+            y = tern_gemm_i8(xq, xs, wpacked, layer.K, beta if beta is not None else 1.0)
             y = y.view(*x.shape[:-1], layer.N)
             ctx.save_for_backward(xq, xs, wpacked)
         else:

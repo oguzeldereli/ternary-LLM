@@ -215,11 +215,12 @@ def tern_gemm_dx(gy: torch.Tensor, wpacked: torch.Tensor, K: int) -> torch.Tenso
 
 
 @triton.jit
-def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gmean, rate, g_ref, seed,
+def _flip_kernel(w_ptr, g_ptr, N, K, K5, sgn, sgk, gm_ptr, rate, g_ref, seed,
                  hump_g0, hump_alpha,
                  inv: tl.constexpr, hump: tl.constexpr, BLOCK: tl.constexpr):
     # in-place stochastic flip on packed bytes: decode 5 trits, flip each toward
     # -sign(grad) with prob ~ |grad|, re-encode, write. No dense weight round-trip.
+    gmean = tl.load(gm_ptr).to(tl.float32)      # threshold scale, read on device (no host sync)
     pid = tl.program_id(0)
     idx = pid * BLOCK + tl.arange(0, BLOCK)
     mask = idx < N * K5
@@ -304,25 +305,26 @@ def lookahead_filter(p0: torch.Tensor, pc: torch.Tensor, g: torch.Tensor, g2: to
 
 
 def fused_flip(wpacked: torch.Tensor, grad_w: torch.Tensor, rate: float,
-               g_ref: float, seed: int, gmean: float = None, inv: int = 0,
+               g_ref: float, seed: int, gmean=None, inv: int = 0,
                hump: int = 0, hump_g0: float = 37.0, hump_alpha: float = 1.8):
     """Apply stochastic ternary flips directly on the packed buffer, in place.
 
     gmean: denominator of the flip threshold. Default (None) is this step's own
     mean|g| -- a RELATIVE scale, which cannot converge: if every gradient in the
     tensor shrinks, the ratio is unchanged and the same fraction keeps flipping.
-    Pass a frozen per-layer scale to make the threshold absolute.
+    Pass a frozen per-layer scale to make the threshold absolute. A float or a 0-dim device
+    tensor (the kernel reads it on device, so a tensor costs no host sync).
     """
     N, K5 = wpacked.shape
     K = grad_w.shape[1]
     if gmean is None:
-        gmean = grad_w.abs().mean().clamp_min(1e-8).item()
+        gmean = grad_w.abs().mean().clamp_min(1e-8)
     total = N * K5
     BLOCK = 1024
     grid = (triton.cdiv(total, BLOCK),)
     _flip_kernel[grid](wpacked, grad_w, N, K, K5,
                        grad_w.stride(0), grad_w.stride(1),
-                       gmean, rate, g_ref, seed, hump_g0, hump_alpha,
+                       _dev_scalar(gmean, wpacked.device), rate, g_ref, seed, hump_g0, hump_alpha,
                        inv=inv, hump=hump, BLOCK=BLOCK)
 
 
@@ -425,7 +427,7 @@ def act_quant_i8(x: torch.Tensor, bits: int = 8):
 @triton.autotune(configs=_i8_configs(), key=["N", "K"])
 @triton.jit
 def _tern_gemm_i8_kernel(x_ptr, w_ptr, y_ptr, xs_ptr, M, N, K, K5,
-                         sxm, sxk, swn, swk, sym, syn, beta,
+                         sxm, sxk, swn, swk, sym, syn, beta_ptr,
                          BM: tl.constexpr, BN: tl.constexpr, BK5: tl.constexpr):
     pid_m = tl.program_id(0)
     pid_n = tl.program_id(1)
@@ -445,14 +447,23 @@ def _tern_gemm_i8_kernel(x_ptr, w_ptr, y_ptr, xs_ptr, M, N, K, K5,
                          other=0).to(tl.int8)                     # [BM, BK5]
             acc += tl.dot(xj, tl.trans(trit), out_dtype=tl.int32)
     xs = tl.load(xs_ptr + offm, mask=offm < M, other=0.0).to(tl.float32)
+    beta = tl.load(beta_ptr).to(tl.float32)
     y = acc.to(tl.float32) * (xs[:, None] * beta)
     tl.store(y_ptr + offm[:, None] * sym + offn[None, :] * syn, y.to(tl.bfloat16),
              mask=(offm[:, None] < M) & (offn[None, :] < N))
 
 
+def _dev_scalar(v, device):
+    """A 0-dim fp32 device tensor: tensors pass through (no host sync), floats are filled on device."""
+    if torch.is_tensor(v):
+        return v.reshape(()).to(device=device, dtype=torch.float32)
+    return torch.full((), float(v), dtype=torch.float32, device=device)
+
+
 def tern_gemm_i8(xq: torch.Tensor, xs: torch.Tensor, wpacked: torch.Tensor, K: int,
-                 beta: float = 1.0) -> torch.Tensor:
-    """int8 x [M,K] (codes) @ decode(wpacked)^T * xs[:,None] * beta -> bf16 [M,N]."""
+                 beta=1.0) -> torch.Tensor:
+    """int8 x [M,K] (codes) @ decode(wpacked)^T * xs[:,None] * beta -> bf16 [M,N].
+    beta: float or a 0-dim device tensor (read in the kernel, so no host sync)."""
     M, Kx = xq.shape
     assert Kx == K, (Kx, K)
     N, K5 = wpacked.shape
@@ -461,7 +472,8 @@ def tern_gemm_i8(xq: torch.Tensor, xs: torch.Tensor, wpacked: torch.Tensor, K: i
     grid = lambda meta: (triton.cdiv(M, meta["BM"]), triton.cdiv(N, meta["BN"]))
     _tern_gemm_i8_kernel[grid](xq, wpacked, y, xs.contiguous().float(), M, N, K, K5,
                                xq.stride(0), xq.stride(1), wpacked.stride(0),
-                               wpacked.stride(1), y.stride(0), y.stride(1), beta)
+                               wpacked.stride(1), y.stride(0), y.stride(1),
+                               _dev_scalar(beta, xq.device))
     return y
 
 
