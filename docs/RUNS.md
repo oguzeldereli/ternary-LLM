@@ -1111,3 +1111,41 @@ on train loss ~1 at 10-20M, ~1.8 by 100M and flat to 170M (the last point the fi
 loss 1.17 @ 41M, 1.73 @ 98M, 2.05 @ 156M, 2.17 @ 205M, 2.63 @ 300M (master reached 3.127 at 114M;
 that master point is mid-schedule while ours is fully annealed). So the exponent is still somewhat
 worse than master's; the growth slows but has not stopped.
+
+### Late in the 300M run (where the slope falls behind master): what M and the filter do
+
+Per-step diagnostics, 216-300M tokens (`--lr_diag --track_reversals` from the resume at step 6617;
+reversals are counted from there), against 3-11M from the diagnostic reproduction:
+
+| tokens | cos(g,M) | cos(g,g') | abs(M)/abs(g) | top-1% sign agree | g in M subspace | la kept | reversals |
+|---|---|---|---|---|---|---|---|
+| 3-7M | -0.006 | -0.29 | 4.4 | 0.49 | 0.86 | 17% | - |
+| 8-11M | -0.019 | -0.25 | 3.8 | 0.48 | 0.79 | 20% | - |
+| 217M | +0.011 | -0.06 | 4.2 | 0.51 | 0.67 | 28% | 0.7% |
+| 246M | -0.032 | 0.00 | 3.5 | 0.47 | 0.67 | 38% | 11.9% |
+| 279M | -0.008 | +0.02 | 3.8 | 0.49 | 0.68 | 40% | 15.8% |
+
+Proposal precision against the 16-batch true gradient, 11M vs 205M (`precision_340.txt`,
+`precision_6243.txt`; proposals at rate 0.0199 in both, 4x the run's own rate at 205M):
+
+| | M proposals | M kept | g proposals | g kept |
+|---|---|---|---|---|
+| 11M | 0.495 | 0.569 | 0.679 | 0.650 |
+| 205M | 0.525 | 0.530 | 0.554 | 0.552 |
+
+- M is accumulated noise throughout (abs(M)/abs(g) at the pure-noise level ~4.1 for beta 0.97,
+  cos(g, M) ~ 0), a little better than chance late (0.525).
+- The single-batch gradient loses precision (0.68 -> 0.55): per batch the noise energy is ~11x the
+  signal at 210M (cos(g, gbar) = 0.44 over 8 batches).
+- Late, the look-ahead filter no longer separates good from bad flips (kept precision = proposal
+  precision); it only limits how many flips go through. 12-17% of late flips undo an earlier change.
+- Reading: every flip decision uses a fixed, small sample (one batch for g; M ~ noise; two batches
+  for the filter) while the per-batch signal shrinks, so decisions drift toward coin flips and the
+  run random-walks more. Master's latent weight averages the gradient over many steps before a trit
+  moves, so its decisions stay informed. The averaging has to grow as the signal fraction falls.
+
+Profile of one step (laptop, momentum + look-ahead x2, `--profile 5`): GPU-bound on the laptop.
+~60% of GPU time is memory-bound elementwise work in eager PyTorch (copy_ 19%, mul 17%, div, round,
+clamp 6% each, abs, add 3% each: activation quantization, dtype copies, gradient capture), GEMMs
+~34% (mm 13%, int8 dx 11.5%, int8 forward 9%), attention 7%. ~22,600 kernel launches per step,
+which is what limits the 4090 (the sync removal alone gave 1%).

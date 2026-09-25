@@ -286,6 +286,8 @@ def main():
                     help="flip signal = rank-r momentum of each layer's gradient (M ~ U V^T, "
                          "r*(N+K) floats per layer) instead of the current gradient")
     ap.add_argument("--lr_beta", type=float, default=0.97, help="decay of the low-rank momentum")
+    ap.add_argument("--profile", type=int, default=0,
+                    help="profile this many steps (after 20 warm-up steps), print the tables, exit")
     ap.add_argument("--track_reversals", action="store_true",
                     help="log flips that undo a weight's previous change, and net displacement "
                          "from the (resumed) start")
@@ -691,7 +693,23 @@ def main():
     end_step = tc.max_steps if args.stop_after is None else min(tc.max_steps, args.stop_after)
     probe_steps = parse_schedule(args.probe)
     ramp_t = time.time()
+    prof = None
     for step in range(start_step, end_step):
+        if args.profile and step == start_step + 20:         # after autotune / warm-up
+            from torch.profiler import profile, ProfilerActivity
+            prof = profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA])
+            prof.__enter__(); t_prof = time.time()
+        if prof is not None and step == start_step + 20 + args.profile:
+            torch.cuda.synchronize(); prof.__exit__(None, None, None)
+            wall = (time.time() - t_prof) / args.profile
+            ka = prof.key_averages()
+            gpu = sum(e.self_device_time_total for e in ka) / 1e6 / args.profile
+            print(f"PROFILE {args.profile} steps: wall {wall:.3f} s/step, GPU kernel time {gpu:.3f} s/step "
+                  f"({gpu / wall * 100:.0f}% busy)", flush=True)
+            print(ka.table(sort_by="self_device_time_total", row_limit=30), flush=True)
+            print(ka.table(sort_by="self_cpu_time_total", row_limit=30), flush=True)
+            prof.export_chrome_trace(os.path.join(tc.out_dir, "profile_trace.json"))
+            raise SystemExit(0)
         k = step - start_step
         if k < args.soft_start:
             # soft start: idle for a shrinking fraction of the previous step's time
