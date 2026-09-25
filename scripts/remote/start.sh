@@ -13,5 +13,5 @@ if [ ! -L "$REPO/checkpoints" ]; then
 fi
 T=$S/env/bin/tmux
 $T new-session -d -s t "bash -lc 'source $S/env.sh; cd $REPO; bash scripts/remote/queue.sh 2>&1 | tee -a checkpoints/remote_queue.log'"
-$T new-window -t t "bash $REPO/scripts/remote/sync_out.sh"
+$T new-window -t t: "bash $REPO/scripts/remote/sync_out.sh"
 echo "queue + sync started in tmux session t"
