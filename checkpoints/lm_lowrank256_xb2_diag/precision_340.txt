@@ -1,0 +1,8 @@
+checkpoint step 340, K=16
+held-out loss at the checkpoint 4.8471
+  A proposals (from M)               flips    339.1k  precision 0.495  gain/flip -2.116e-08  M-agree 1.000  held-out dL +0.4995
+  B proposals (from g)               flips    345.6k  precision 0.679  gain/flip 4.006e-07  M-agree 0.488  held-out dL +1.0463
+  A kept (M proposes, look-ahead)    flips     51.0k  precision 0.569  gain/flip 8.563e-08  M-agree 1.000  held-out dL +0.0001
+  B kept (g proposes, look-ahead)    flips    143.0k  precision 0.650  gain/flip 2.344e-07  M-agree 0.476  held-out dL +0.0054
+  B kept, random 0.36 subset         flips     50.8k  precision 0.650  gain/flip 2.355e-07  M-agree 0.473  held-out dL -0.0064
+  kept by both A and B               flips     16.4k  precision 0.633  gain/flip 1.627e-07  M-agree 1.000  held-out dL -0.0023
