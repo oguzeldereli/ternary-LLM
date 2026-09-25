@@ -1106,5 +1106,8 @@ the rest (0.008) is within noise, with somewhat fewer reversals for A.
 Rank-256 momentum proposes, cross-batch look-ahead x2 keeps, full 9155-step schedule (paused and
 resumed three times, exact resumes). Val ppl 44.6 @ 33M, 30.9 @ 98M, 25.1 @ 197M, **22.8 @ 300M**;
 master 41.4 / 24.3 / 18.2 / 15.8. The best stateless-flip run before this: ppl 92.7 at 600M (plain
-flips), 50.8 at 131M (look-ahead only). Token stretch vs master (tokens needed for the same loss)
-rose from ~1 at 10-20M to ~1.8 by 100M and stayed flat to the end (`docs/figures/live.png`).
+flips), 50.8 at 131M (look-ahead only). Token stretch vs master (tokens needed for the same loss):
+on train loss ~1 at 10-20M, ~1.8 by 100M and flat to 170M (the last point the fit reaches); on val
+loss 1.17 @ 41M, 1.73 @ 98M, 2.05 @ 156M, 2.17 @ 205M, 2.63 @ 300M (master reached 3.127 at 114M;
+that master point is mid-schedule while ours is fully annealed). So the exponent is still somewhat
+worse than master's; the growth slows but has not stopped.
