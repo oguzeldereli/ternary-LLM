@@ -1,0 +1,24 @@
+checkpoints/lm_lowrank256_xb2_diag/ckpt_340.pt (step 340) -> checkpoints/branch340_A/ckpt.pt (step 399), 59 steps, K=16
+moved trits: 3.85M of 84.9M (4.5%)
+  reference R        moves along -sign(R)   cos(D, -R)   (per-layer mean; chance 0.5 / 0)
+  gbar at start                     0.566       0.0319
+  gbar at end                       0.487      -0.0071
+  M at start                        0.678       0.0830
+  M at end                          0.694       0.0873
+
+checkpoints/lm_lowrank256_xb2_diag/ckpt_340.pt (step 340) -> checkpoints/branch340_B/ckpt.pt (step 399), 59 steps, K=16
+moved trits: 7.01M of 84.9M (8.3%)
+  reference R        moves along -sign(R)   cos(D, -R)   (per-layer mean; chance 0.5 / 0)
+  gbar at start                     0.514       0.0095
+  gbar at end                       0.491      -0.0068
+  M at start                        0.499      -0.0017
+  M at end                          0.499      -0.0017
+
+checkpoints/lm_lowrank256_xb2_100M/ckpt_6243.pt (step 6243) -> checkpoints/lm_lowrank256_xb2_100M/ckpt.pt (step 9154), 2911 steps, K=16
+moved trits: 18.94M of 84.9M (22.3%)
+  reference R        moves along -sign(R)   cos(D, -R)   (per-layer mean; chance 0.5 / 0)
+  gbar at start                     0.511       0.0115
+  gbar at end                       0.491      -0.0105
+  M at start                        0.516       0.0154
+  M at end                          0.486      -0.0180
+

@@ -1149,3 +1149,24 @@ Profile of one step (laptop, momentum + look-ahead x2, `--profile 5`): GPU-bound
 clamp 6% each, abs, add 3% each: activation quantization, dtype copies, gradient capture), GEMMs
 ~34% (mm 13%, int8 dx 11.5%, int8 forward 9%), attention 7%. ~22,600 kernel launches per step,
 which is what limits the 4090 (the sync removal alone gave 1%).
+
+### Where do the trits actually move? (`scripts/analysis/move_alignment.py`, `checkpoints/move_alignment.txt`)
+
+Net displacement D = T_end - T_start between checkpoints, against the momentum M and the true
+gradient gbar (16-batch mean) at the start/end of the window. Share of moved trits that went the way
+-sign(R) says (chance 0.5), and cos(D, -R) (chance ~0.001 in ~1M dims):
+
+| window | moved | vs gbar start | vs gbar end | vs M start | vs M end |
+|---|---|---|---|---|---|
+| 11M, 60 steps, momentum (branch A) | 4.5% | 0.566 / 0.032 | 0.487 / -0.007 | 0.678 / 0.083 | 0.694 / 0.087 |
+| 11M, 60 steps, g proposals (branch B) | 8.3% | 0.514 / 0.010 | 0.491 / -0.007 | 0.499 / -0.002 | - |
+| 205-300M, 2911 steps, momentum run | 22.3% | 0.511 / 0.012 | 0.491 / -0.011 | 0.516 / 0.015 | 0.486 / -0.018 |
+
+- Early, the momentum run's moves follow M (68-69%) and, less, the true gradient at the start (57%);
+  gradient-proposal moves follow the true gradient only 51% over the same 60 steps, although each
+  step's kept set is 65% precise at the start point: per-step flips chase each batch and cancel out
+  in the net move, while M's persistence makes the net move carry an averaged direction.
+- Against the gradient at the END of a window every run is slightly below chance (0.49): after a
+  move the gradient points back at it (overshoot/recoil).
+- Late (205-300M), 22% of trits moved but the net move follows neither M nor the true gradient at
+  either end (0.49-0.52): a near random walk, which is where the slope falls behind master.
