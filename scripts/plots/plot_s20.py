@@ -50,7 +50,7 @@ for d, lab, c, lw, ls in RUNS:
     fin = [x for st, x in v if st >= 610]
     lab2 = lab + (f"  (val {fin[-1]:.4f})" if fin else "")
     a1.plot((s + 1) * 32768, L, color=c, lw=lw, ls=ls, label=lab2)
-    if v: a2.plot([(st + 1) * 32768 for st, _ in v], [x for _, x in v], "o" + ls, color=c, lw=lw, ms=5, label=lab)
+    if v: a2.plot([(st + 1) * 32768 for st, _ in v], [np.exp(x) for _, x in v], "o" + ls, color=c, lw=lw, ms=5, label=lab)
     m = min(len(s), n)
     a3.plot((s[:m] + 1) * 32768, L[:m] - bmean[:m], color=c, lw=lw, ls=ls, label=lab)
 if len(base) > 1:
@@ -58,8 +58,10 @@ if len(base) > 1:
     a3.fill_between((bsteps + 1) * 32768, lo, hi, color="#999999", alpha=0.25, lw=0, label="baseline seed range")
 a3.axhline(0, color=INK2, lw=1)
 a1.set_xscale("log"); a1.set_yscale("log"); a1.set_xlim(1e6, 2.1e7); a1.set_ylim(4.2, 9)
+a2.set_xscale("log"); a2.set_yscale("log"); a2.set_xlim(5e6, 2.2e7)
 a3.set_xscale("log"); a3.set_xlim(2e6, 2.1e7); a3.set_ylim(-0.25, 0.25)
-titles = ("Train loss (30-step mean)", "Validation loss", "Train loss minus the baseline-seed mean (< 0 = better)")
+titles = ("Train loss (30-step mean), log-log", "Validation perplexity, log-log",
+          "Train loss minus the baseline-seed mean (< 0 = better)")
 for ax, tt in zip((a1, a2, a3), titles):
     ax.set_title(tt, loc="left", color=INK, fontsize=12)
     ax.set_facecolor(SURFACE); ax.grid(True, which="both", color=GRID, lw=0.6)
