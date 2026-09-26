@@ -10,8 +10,9 @@ import matplotlib.pyplot as plt
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 RUNS = [  # dir, label, color, width, highlight
+    ("fp32_baseline", "FULL PRECISION fp32 + AdamW (not ternary; running)", "#00acc1", 2.4, False),
     ("p2_baseline",   "master weights (ceiling)",           "#eb6834", 2.4, False),
-    ("lm_lowrank256_xb2_100M", "RANK-256 MOMENTUM + CROSS-BATCH LOOK-AHEAD x2 (running)", "#e53935", 3.0, True),
+    ("lm_lowrank256_xb2_100M", "rank-256 momentum + cross-batch look-ahead x2", "#e53935", 3.0, True),
     ("overnight_full", "cross-batch look-ahead x2, stopped at 131M", "#111111", 2.4, False),
     ("armA_cos_la1",  "look-ahead (same batch), stopped at 202M", "#c2185b", 1.8, False),
     ("armA_cosine",   "flips, cosine rate (reference)",     "#1baf7a", 1.8, False),

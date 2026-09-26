@@ -15,14 +15,15 @@ SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 
 # (group label, color, best run shown as line, [member runs])
 GROUPS = [
+    ("full precision fp32 + AdamW (not ternary)", "#00acc1", "fp32_baseline", ["fp32_baseline"]),
     ("master weights + AdamW (ceiling)", "#eb6834", "p2_baseline", ["p2_baseline"]),
     ("stateless look-ahead filter", "#c2185b", "armA_cos_la1",
      ["armA_cos_la1", "la1", "la2", "la_rwarm", "la_r0ramp"]),
     ("cross-batch look-ahead (2 passes) + fast ramp + fp32 tail", "#111111",
      "overnight_full", ["overnight_full", "la_xb1", "la_xb2", "la_xb2_rc", "la_fastramp_lr15",
                         "la_fast_fp32tail"]),
-    ("rank-256 momentum + cross-batch look-ahead x2", "#e53935", "lm_lowrank256_xb2",
-     ["lm_lowrank256_xb2", "lm_lowrank256_adapt_xb2"]),
+    ("rank-256 momentum + cross-batch look-ahead x2", "#e53935", "lm_lowrank256_xb2_100M",
+     ["lm_lowrank256_xb2_100M", "lm_lowrank256_xb2", "lm_lowrank256_adapt_xb2"]),
     ("rank-256 momentum, no look-ahead", "#9575cd", "lm_lowrank256",
      ["lm_lowrank256", "lm_lowrank256_r04", "lm_lowrank256_r1", "lm_lowrank256_adapt"]),
     ("frozen random ternary (no flips)", "#b8b6b0", "lm_frozen", ["lm_frozen"]),
