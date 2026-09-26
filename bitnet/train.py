@@ -353,32 +353,73 @@ class Recorder:
         self.buf = {"step": [], "g": [], "t": [], "m": []}
 
 
+class NestedWindow:
+    """--window_curve: one window opened at a chosen step and measured (MoveWindow metrics) after
+    each of several lengths from that same start, e.g. 1, 2, 5, ..., 100 steps: agreement of the net
+    move with the summed gradient as a function of the window length. Metrics c<W>_...; the start
+    step is logged as c_start."""
+
+    def __init__(self, sizes, opt=None):
+        self.sizes = sorted(set(sizes)); self.opt = opt
+        self.w = None; self.start = None
+
+    def open(self, model, lr_state, step):
+        self.w = MoveWindow(max(self.sizes), self.opt)
+        self.w.open(model, lr_state)
+        self.start = step
+
+    def add(self, i, g):
+        if self.w is not None:
+            self.w.add(i, g)
+
+    def tick(self, model, lr_state):
+        if self.w is None or self.w.k not in self.sizes:
+            return {}
+        self.w.S_prev = None
+        r = self.w.close(model, lr_state)
+        out = {("c%d_" % self.w.k) + k[2:]: v for k, v in r.items() if k != "w_steps"}
+        out["c_start"] = self.start
+        if self.w.k >= self.sizes[-1]:
+            self.w = None                      # free the window's buffers until the next start
+        return out
+
+
 class MultiWindow:
     """Several MoveWindows of different lengths over the same run (and/or a Recorder). One size keeps
     the plain w_ metric names; several prefix them w<N>_."""
 
-    def __init__(self, sizes, opt=None, recorder=None):
+    def __init__(self, sizes, opt=None, recorder=None, curve=None, curve_at=None):
         self.ws = [MoveWindow(n, opt) for n in sizes]
         self.prefix = len(sizes) > 1
         self.rec = recorder
+        self.curve = NestedWindow(curve, opt) if curve else None
+        self.curve_at = curve_at               # steps after which a curve window opens; None = at start
 
     def layers(self, model):
-        return self.ws[0].layers(model) if self.ws else self.rec.Ls
+        return MoveWindow(1).layers(model)
 
-    def open(self, model, lr_state):
+    def open(self, model, lr_state, step=None):
         for w in self.ws:
             w.open(model, lr_state)
+        if self.curve is not None and self.curve_at is None:
+            self.curve.open(model, lr_state, step)
 
     def add(self, i, g):
         for w in self.ws:
             w.add(i, g)
         if self.rec is not None:
             self.rec.add(i, g)
+        if self.curve is not None:
+            self.curve.add(i, g)
 
     def tick(self, model, lr_state, step=None):
         if self.rec is not None:
             self.rec.end_step(step, model, lr_state)
         rec = {}
+        if self.curve is not None:
+            rec.update(self.curve.tick(model, lr_state))
+            if self.curve_at is not None and step in self.curve_at:
+                self.curve.open(model, lr_state, step)
         for w in self.ws:
             if w.due(None):
                 r = w.close(model, lr_state)
@@ -501,6 +542,11 @@ def main():
                          "summed gradient of the window and to the momentum at its start "
                          "(needs --lookahead; see MoveWindow). Several sizes: '1,2,10' "
                          "(metrics then prefixed w1_, w2_, ...)")
+    ap.add_argument("--window_curve", default="",
+                    help="window lengths, e.g. '1,2,5,10,20,50,100': one nested window measured "
+                         "after each length from the same start (see NestedWindow)")
+    ap.add_argument("--window_curve_at", default="",
+                    help="steps after which a --window_curve window opens (default: at the start)")
     ap.add_argument("--record_sample", type=float, default=0.0,
                     help="record per step the gradient, trit and momentum of this share of the "
                          "ternary weights (fixed random sample), for any-window offline analysis")
@@ -913,12 +959,14 @@ def main():
     ramp_t = time.time()
     prof = None
     mwin = None
-    if args.move_window or args.record_sample:
+    if args.move_window or args.record_sample or args.window_curve:
         recorder = (Recorder(model, args.record_sample, tc.out_dir,
                              tail_opt if args.mode == "master" else None) if args.record_sample else None)
         mwin = MultiWindow([int(v) for v in str(args.move_window).split(",") if v],
-                           tail_opt if args.mode == "master" else None, recorder)
-        mwin.open(model, lr_state)
+                           tail_opt if args.mode == "master" else None, recorder,
+                           [int(v) for v in args.window_curve.split(",") if v],
+                           {int(v) for v in args.window_curve_at.split(",") if v} or None)
+        mwin.open(model, lr_state, start_step - 1)
     ttrack = TritTracker(model) if (args.mode == "master" and args.track_flips) else None
     for step in range(start_step, end_step):
         if args.profile and step == start_step + 20:         # after autotune / warm-up
