@@ -201,7 +201,7 @@ def _diag_agg(name, vals, per_block=7):
 
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
-                 diag=False, gate=False, refresh=0, refresh_every=10):
+                 diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -270,6 +270,16 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 E[key] = torch.cat([E[key][keep], E[key][keep].mean().expand(k)])
                 state[key] = (U, V)
         M = U @ V.T
+        if vnorm:
+            # --lr_vnorm: factored second moment of the gradient (Adafactor-style row and column EMAs of
+            # g^2, N+K numbers per layer); propose from M / sqrt(v), v_ij ~ R_i C_j / mean(R)
+            Vs = state.setdefault("_v", {})
+            g2 = g.pow(2)
+            R, C = g2.mean(1), g2.mean(0)
+            if key in Vs:
+                R = vnorm * Vs[key][0] + (1 - vnorm) * R; C = vnorm * Vs[key][1] + (1 - vnorm) * C
+            Vs[key] = (R, C)
+            M = M / (R[:, None] * C[None, :] / R.mean().clamp_min(1e-30)).sqrt().clamp_min(1e-30)
         if propose_only:
             gm = M.abs().mean().clamp_min(1e-12)
             state.setdefault("_gm", {})[key] = gm
@@ -633,6 +643,9 @@ def main():
                     help="replace this many of the weakest momentum directions every "
                          "--lr_refresh_every steps with top directions of the gradient outside the subspace")
     ap.add_argument("--lr_refresh_every", type=int, default=10)
+    ap.add_argument("--lr_vnorm", type=float, default=0.0,
+                    help="propose from M / sqrt(v) with v a factored (row x column) EMA of g^2, this decay "
+                         "(0 = off)")
     ap.add_argument("--lr_spend", type=float, default=0.0,
                     help="kept flips consume c * mean|M| of the momentum at their entries (0 = off)")
     ap.add_argument("--lr_diag", action="store_true",
@@ -1143,7 +1156,8 @@ def main():
                 rs_info, Ms = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                            args.flip_seed, args.lr_adapt, propose_only=True,
                                            diag=args.lr_diag, gate=args.lr_gate,
-                                           refresh=args.lr_refresh, refresh_every=args.lr_refresh_every)
+                                           refresh=args.lr_refresh, refresh_every=args.lr_refresh_every,
+                                           vnorm=args.lr_vnorm)
                 la = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                     args.flip_seed, la_extra, signals=Ms,
                                     diag=args.lr_diag, gacc=mwin, sig_gmeans=lr_state["_gms"],
