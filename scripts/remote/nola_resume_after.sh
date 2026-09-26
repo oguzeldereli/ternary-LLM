@@ -6,6 +6,14 @@ S=/scratch0/$USER; REPO=$HOME/ternary-LLM
 source $S/env.sh
 cd $REPO
 until grep -q "DONE s20_magmul4" checkpoints/remote_queue.log 2>/dev/null; do sleep 60; done
+# a new booking starts with an empty scratch: restore the checkpoint (inbox) and the run's log/metrics
+# (home copy) so the resumed run appends to its history
+N=lowrank256_nola_full
+mkdir -p checkpoints/$N
+[ -f checkpoints/$N/ckpt.pt ] || { cp $HOME/ternary-sync/inbox/nola_ckpt.pt checkpoints/$N/ckpt.pt && rm -f $HOME/ternary-sync/inbox/nola_ckpt.pt; }
+for f in metrics.jsonl train.log; do
+  [ -f checkpoints/$N/$f ] || cp $HOME/ternary-sync/runs/$N/$f checkpoints/$N/$f
+done
 python -m bitnet.train --preset small --mode kernel --data data/wiki32k_train.bin --val data/wiki32k_val.bin \
   --seq_len 2048 --batch_size 16 --grad_accum 1 --steps 9155 --warmup 305 --rate_schedule cosine \
   --rate 0.0 --rate_peak 0.02 --rate_warmup 30 --g_ref 3.0 --int8 --dw_mode dense --track_flips --tail_fp32 \
