@@ -289,16 +289,81 @@ class TritTracker:
         return {"flip_frac": fl / self.n, "rev_flips": rv, "never_frac": nv / self.n}
 
 
-class MultiWindow:
-    """Several MoveWindows of different lengths over the same run. One size keeps the plain w_
-    metric names; several prefix them w<N>_."""
+class Recorder:
+    """--record_sample: every step, for a fixed random sample of the ternary weights (a share FRAC of
+    every layer), record the gradient the run saw (bf16), the trit after the step (int8) and the
+    momentum after the step (ours: M = U V^T; master: Adam's first moment; bf16). Any window size
+    can then be computed offline (scripts/analysis/windows_offline.py). Written in chunks to
+    OUT/record/chunk_*.npz; OUT/record/index.npz holds the sample."""
 
-    def __init__(self, sizes, opt=None):
+    def __init__(self, model, frac, out_dir, opt=None, seed=12345, chunk=50):
+        from .master import MasterTernaryLinear
+        self.Ls = [l for l in model.modules() if isinstance(l, (KernelTernaryLinear, MasterTernaryLinear))]
+        self.opt, self.chunk = opt, chunk
+        self.dir = os.path.join(out_dir, "record"); os.makedirs(self.dir, exist_ok=True)
+        gen = torch.Generator().manual_seed(seed)
+        self.rows, self.cols, sizes = [], [], []
+        for l in self.Ls:
+            n = max(1, int(round(frac * l.N * l.K)))
+            idx = torch.randperm(l.N * l.K, generator=gen)[:n].sort().values
+            dev = next(model.parameters()).device
+            self.rows.append((idx // l.K).to(dev)); self.cols.append((idx % l.K).to(dev)); sizes.append(n)
+        np.savez(os.path.join(self.dir, "index.npz"), sizes=np.array(sizes),
+                 shapes=np.array([[l.N, l.K] for l in self.Ls]),
+                 rows=torch.cat(self.rows).cpu().numpy(), cols=torch.cat(self.cols).cpu().numpy())
+        self.g = [None] * len(self.Ls)
+        self.buf = {"step": [], "g": [], "t": [], "m": []}
+
+    def add(self, i, g):
+        self.g[i] = g[self.rows[i], self.cols[i]].float()
+
+    @torch.no_grad()
+    def end_step(self, step, model, lr_state):
+        from .kernel import unpack_rows
+        t, mm = [], []
+        for i, l in enumerate(self.Ls):
+            r, c = self.rows[i], self.cols[i]
+            if self.opt is not None:
+                t.append(l.ternary_weight()[0][r, c])
+                st = self.opt.state.get(l.weight, {})
+                mm.append(st["exp_avg"][r, c].float() if "exp_avg" in st else torch.zeros_like(r, dtype=torch.float32))
+            else:
+                t.append(unpack_rows(l.wpacked, l.K).to(torch.int8)[r, c])
+                if id(l) in lr_state:
+                    U, V = lr_state[id(l)]
+                    mm.append((U[r].float() * V[c].float()).sum(1))
+                else:
+                    mm.append(torch.zeros_like(r, dtype=torch.float32))
+        g = torch.cat([x if x is not None else torch.zeros_like(self.rows[i], dtype=torch.float32)
+                       for i, x in enumerate(self.g)])
+        self.buf["step"].append(step)
+        self.buf["g"].append(g.to(torch.bfloat16).view(torch.int16).cpu().numpy())
+        self.buf["t"].append(torch.cat(t).to(torch.int8).cpu().numpy())
+        self.buf["m"].append(torch.cat(mm).to(torch.bfloat16).view(torch.int16).cpu().numpy())
+        self.g = [None] * len(self.Ls)
+        if len(self.buf["step"]) >= self.chunk:
+            self.flush()
+
+    def flush(self):
+        if not self.buf["step"]:
+            return
+        np.savez(os.path.join(self.dir, f"chunk_{self.buf['step'][0]:07d}.npz"),
+                 step=np.array(self.buf["step"]), g=np.stack(self.buf["g"]),
+                 t=np.stack(self.buf["t"]), m=np.stack(self.buf["m"]))
+        self.buf = {"step": [], "g": [], "t": [], "m": []}
+
+
+class MultiWindow:
+    """Several MoveWindows of different lengths over the same run (and/or a Recorder). One size keeps
+    the plain w_ metric names; several prefix them w<N>_."""
+
+    def __init__(self, sizes, opt=None, recorder=None):
         self.ws = [MoveWindow(n, opt) for n in sizes]
         self.prefix = len(sizes) > 1
+        self.rec = recorder
 
     def layers(self, model):
-        return self.ws[0].layers(model)
+        return self.ws[0].layers(model) if self.ws else self.rec.Ls
 
     def open(self, model, lr_state):
         for w in self.ws:
@@ -307,8 +372,12 @@ class MultiWindow:
     def add(self, i, g):
         for w in self.ws:
             w.add(i, g)
+        if self.rec is not None:
+            self.rec.add(i, g)
 
-    def tick(self, model, lr_state):
+    def tick(self, model, lr_state, step=None):
+        if self.rec is not None:
+            self.rec.end_step(step, model, lr_state)
         rec = {}
         for w in self.ws:
             if w.due(None):
@@ -432,6 +501,9 @@ def main():
                          "summed gradient of the window and to the momentum at its start "
                          "(needs --lookahead; see MoveWindow). Several sizes: '1,2,10' "
                          "(metrics then prefixed w1_, w2_, ...)")
+    ap.add_argument("--record_sample", type=float, default=0.0,
+                    help="record per step the gradient, trit and momentum of this share of the "
+                         "ternary weights (fixed random sample), for any-window offline analysis")
     ap.add_argument("--profile", type=int, default=0,
                     help="profile this many steps (after 20 warm-up steps), print the tables, exit")
     ap.add_argument("--track_reversals", action="store_true",
@@ -841,9 +913,11 @@ def main():
     ramp_t = time.time()
     prof = None
     mwin = None
-    if args.move_window:
-        mwin = MultiWindow([int(v) for v in str(args.move_window).split(",")],
-                           tail_opt if args.mode == "master" else None)
+    if args.move_window or args.record_sample:
+        recorder = (Recorder(model, args.record_sample, tc.out_dir,
+                             tail_opt if args.mode == "master" else None) if args.record_sample else None)
+        mwin = MultiWindow([int(v) for v in str(args.move_window).split(",") if v],
+                           tail_opt if args.mode == "master" else None, recorder)
         mwin.open(model, lr_state)
     ttrack = TritTracker(model) if (args.mode == "master" and args.track_flips) else None
     for step in range(start_step, end_step):
@@ -981,7 +1055,7 @@ def main():
                        gmean_layers=fs["gmean_layers"],
                        frozen_scale_layers=fs["frozen_scale_layers"])
         if mwin is not None:
-            rec.update(mwin.tick(model, lr_state))
+            rec.update(mwin.tick(model, lr_state, step))
         log_metrics(rec)
 
         if step % tc.log_interval == 0:
@@ -1009,9 +1083,13 @@ def main():
             last_save = time.time()
             print(f"  ---- checkpoint saved at step {step}", flush=True)
         if _last["stop"]:
+            if mwin is not None and mwin.rec is not None:
+                mwin.rec.flush()
             save_ckpt(step); print(f"saved at step {step}. exiting.", flush=True)
             raise SystemExit(0)
 
+    if mwin is not None and mwin.rec is not None:
+        mwin.rec.flush()
     save_ckpt(end_step - 1)
     vl = evaluate(model, val_data, tc, device)
     log_metrics({"step": end_step, "val_loss": vl, "val_ppl": math.exp(vl),
