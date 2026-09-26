@@ -261,28 +261,72 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     return (info, Ms) if propose_only else (info or None)
 
 
+class TritTracker:
+    """Master mode: per step, trits changed (absmean ternarization of the latent weights), flips that
+    undo the weight's previous change, and trits never changed since tracking began."""
+
+    def __init__(self, model):
+        from .master import MasterTernaryLinear
+        self.Ls = [l for l in model.modules() if isinstance(l, MasterTernaryLinear)]
+        self.T = [l.ternary_weight()[0].clone() for l in self.Ls]
+        self.last = [torch.zeros_like(t) for t in self.T]
+        self.touched = [torch.zeros_like(t, dtype=torch.bool) for t in self.T]
+        self.n = sum(t.numel() for t in self.T)
+
+    @torch.no_grad()
+    def step(self):
+        fl = rv = nv = 0
+        for i, l in enumerate(self.Ls):
+            t = l.ternary_weight()[0]
+            d = t - self.T[i]
+            ch = d != 0
+            fl = fl + ch.sum(); rv = rv + (ch & (d == -self.last[i])).sum()
+            self.last[i] = torch.where(ch, d, self.last[i])
+            self.touched[i] |= ch
+            nv = nv + (~self.touched[i]).sum()
+            self.T[i] = t
+        fl, rv, nv = torch.stack([fl, rv, nv]).cpu().tolist()
+        return {"flip_frac": fl / self.n, "rev_flips": rv, "never_frac": nv / self.n}
+
+
 class MoveWindow:
     """Per window of N steps, per ternary layer: D = net trit move, S = sum of the first-pass
     gradients the run saw, M0 = momentum at the window start. Logs (mean over layers, and per layer
     type) the moved share; sign agreement of the moved trits with -S and -M0 and cos(D, -S),
     cos(D, -M0); cos(S, M0); coherence |S|^2 / sum |g_t|^2 (1 = pure noise, N = one consistent
-    direction); cos(S, S of the previous window)."""
+    direction); cos(S, S of the previous window).
+    Master mode (opt = its AdamW): trits are the absmean ternarization of the latent weights, M0 is
+    Adam's first moment, and cos(latent move, -S) is logged too."""
 
-    def __init__(self, n):
-        self.n = n; self.S_prev = None
+    def __init__(self, n, opt=None):
+        self.n = n; self.S_prev = None; self.opt = opt
 
     def layers(self, model):
-        return [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+        from .master import MasterTernaryLinear
+        return [l for l in model.modules() if isinstance(l, (KernelTernaryLinear, MasterTernaryLinear))]
+
+    def trits(self, l):
+        from .kernel import unpack_rows
+        if self.opt is not None:
+            return l.ternary_weight()[0]
+        return unpack_rows(l.wpacked, l.K).to(torch.int8)
+
+    def mom(self, l, lr_state):
+        if self.opt is not None:
+            st = self.opt.state.get(l.weight, {})
+            return st["exp_avg"].to(torch.bfloat16).clone() if "exp_avg" in st else None
+        return ((lr_state[id(l)][0] @ lr_state[id(l)][1].T).to(torch.bfloat16)
+                if id(l) in lr_state else None)
 
     @torch.no_grad()
     def open(self, model, lr_state):
-        from .kernel import unpack_rows
         Ls = self.layers(model)
-        self.T0 = [unpack_rows(l.wpacked, l.K).to(torch.int8).clone() for l in Ls]
-        self.M0 = [((lr_state[id(l)][0] @ lr_state[id(l)][1].T).to(torch.bfloat16)
-                    if id(l) in lr_state else None) for l in Ls]
-        self.S = [torch.zeros(l.N, l.K, device=l.wpacked.device) for l in Ls]
-        self.sq = [torch.zeros((), device=l.wpacked.device) for l in Ls]
+        dev = next(model.parameters()).device
+        self.T0 = [self.trits(l).clone() for l in Ls]
+        self.M0 = [self.mom(l, lr_state) for l in Ls]
+        self.W0 = [l.weight.detach().float().clone() for l in Ls] if self.opt is not None else None
+        self.S = [torch.zeros(l.N, l.K, device=dev) for l in Ls]
+        self.sq = [torch.zeros((), device=dev) for l in Ls]
         self.k = 0
 
     def add(self, i, g):
@@ -296,12 +340,13 @@ class MoveWindow:
 
     @torch.no_grad()
     def close(self, model, lr_state):
-        from .kernel import unpack_rows
         cos = lambda a, b: F.cosine_similarity(a.flatten().float(), b.flatten().float(), 0)
         out = {k: [] for k in ("w_moved", "w_agree_S", "w_cos_S", "w_agree_M", "w_cos_M",
-                               "w_cos_SM", "w_coh", "w_cos_Sprev")}
+                               "w_cos_SM", "w_coh", "w_cos_Sprev", "w_cos_lat_S")}
         for i, l in enumerate(self.layers(model)):
-            D = (unpack_rows(l.wpacked, l.K).to(torch.int8) - self.T0[i]).float()
+            D = (self.trits(l) - self.T0[i]).float()
+            if self.W0 is not None:
+                out["w_cos_lat_S"].append(cos(l.weight.detach().float() - self.W0[i], -self.S[i]))
             nz = D != 0
             S = self.S[i]
             out["w_moved"].append(nz.float().mean())
@@ -765,8 +810,9 @@ def main():
     prof = None
     mwin = None
     if args.move_window:
-        mwin = MoveWindow(args.move_window)
+        mwin = MoveWindow(args.move_window, tail_opt if args.mode == "master" else None)
         mwin.open(model, lr_state)
+    ttrack = TritTracker(model) if (args.mode == "master" and args.track_flips) else None
     for step in range(start_step, end_step):
         if args.profile and step == start_step + 20:         # after autotune / warm-up
             from torch.profiler import profile, ProfilerActivity
@@ -872,6 +918,9 @@ def main():
                                        rs_gen, device, step)
         else:
             rs_info = None
+        if mwin is not None and args.mode == "master":   # the gradients master's latent weights see
+            for i, l in enumerate(mwin.layers(model)):
+                mwin.add(i, l.weight.grad)
         torch.nn.utils.clip_grad_norm_(tail, tc.grad_clip)
         tail_opt.step()
         n_flips = apply_flips(model) if args.mode == "flip" else 0
@@ -881,6 +930,8 @@ def main():
                "touched_origin": _touched_origin["v"],
                "tokens": (step + 1) * tc.grad_accum * tc.batch_size * tc.seq_len}
         fs = collect_flip_stats(model) if args.track_flips else {}
+        if ttrack is not None:
+            rec.update(ttrack.step())
         if rs_info is not None:
             # device counters (look-ahead) become numbers here: one read per step, at logging
             rs_info = {k: (v.item() if torch.is_tensor(v) else v) for k, v in rs_info.items()}
