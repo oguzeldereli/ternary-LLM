@@ -127,7 +127,7 @@ def rate_search_step(model, rate_now, rs_state, args, tc, data, gen, device, ste
 
 
 def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_batch=None,
-                   signals=None, diag=False, gacc=None):
+                   signals=None, diag=False, gacc=None, sig_gmeans=None, want_delta=False):
     """Propose flips with the normal rule, then keep only the ones that are still
     downhill given all the others.
 
@@ -152,8 +152,8 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
     seed0 = 9_000_000 + step * 131 + flip_seed * 1_000_003
     for i, (l, g) in enumerate(zip(layers, grads)):
         sig = g if signals is None else signals[i]
-        fused_flip(l.wpacked, sig, l.rate, l.g_ref, seed0 + i,
-                   gmean=sig.abs().mean().clamp_min(1e-8))
+        gm = sig_gmeans[i] if sig_gmeans is not None else sig.abs().mean().clamp_min(1e-8)
+        fused_flip(l.wpacked, sig, l.rate, l.g_ref, seed0 + i, gmean=gm)
     n_prop = n_keep = None
     gg = []
     for it in range(iters):
@@ -183,6 +183,10 @@ def lookahead_step(model, x, y, tail, device, step, iters=1, flip_seed=0, extra_
         l.capture = False
         if l.track: l._record_flips(w, l.wpacked)
     out = {"la_proposed": n_prop, "la_kept": n_keep}
+    if want_delta:                            # kept trit changes per layer (int8), for --lr_spend
+        from .kernel import unpack_rows
+        out["_D"] = [(unpack_rows(l.wpacked, l.K).to(torch.int8) - unpack_rows(w, l.K).to(torch.int8))
+                     for l, w in zip(layers, saved)]
     if gg:
         out.update(_diag_agg("d_gg", gg))
     return out
@@ -197,7 +201,7 @@ def _diag_agg(name, vals, per_block=7):
 
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
-                 diag=False):
+                 diag=False, gate=False, refresh=0, refresh_every=10):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -216,6 +220,7 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     of |g| inside M's rank-r row x column subspace."""
     layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
     cs, Ms = [], []
+    state["_gms"] = []
     D = {k: [] for k in ("d_gabs", "d_mabs", "d_agree", "d_agree_top", "d_insub")}
     for i, l in enumerate(layers):
         g = l.gw.float()
@@ -246,9 +251,31 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             Vn = torch.linalg.qr(b * V @ (U.T @ U) + g.T @ U)[0]
             state[key] = (b * U @ (V.T @ Vn) + g @ Vn, Vn)
         U, V = state[key]
+        if refresh:
+            # --lr_refresh: per direction, a moving average of the share of the gradient it catches;
+            # every refresh_every steps the `refresh` weakest directions are replaced by the top
+            # directions of the gradient outside the subspace (randomized range finder, one power step)
+            E = state.setdefault("_energy", {})
+            share = (g @ V).pow(2).sum(0) / g.pow(2).sum().clamp_min(1e-30)
+            E[key] = share if key not in E else 0.9 * E[key] + 0.1 * share
+            if step % refresh_every == 0:
+                k = min(refresh, V.shape[1] - 1)
+                keep = E[key].argsort(descending=True)[:V.shape[1] - k]
+                Vk, Uk = V[:, keep], U[:, keep]
+                R = g - (g @ Vk) @ Vk.T
+                Om = torch.randn(R.shape[1], k + 4, device=g.device)
+                Q = torch.linalg.qr(R.T @ (R @ Om))[0][:, :k]
+                Q = torch.linalg.qr(Q - Vk @ (Vk.T @ Q))[0]
+                V = torch.cat([Vk, Q], 1); U = torch.cat([Uk, g @ Q], 1)
+                E[key] = torch.cat([E[key][keep], E[key][keep].mean().expand(k)])
+                state[key] = (U, V)
         M = U @ V.T
         if propose_only:
-            Ms.append(M); continue
+            gm = M.abs().mean().clamp_min(1e-12)
+            state.setdefault("_gm", {})[key] = gm
+            if gate:        # --lr_gate: propose only where the current batch gradient agrees in sign
+                M = M * (M.sign() == g.sign())
+            Ms.append(M); state.setdefault("_gms", []).append(gm); continue
         before = l.wpacked.clone() if l.track else None
         fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003,
                    gmean=M.abs().mean().clamp_min(1e-12))
@@ -600,6 +627,14 @@ def main():
     ap.add_argument("--track_reversals", action="store_true",
                     help="log flips that undo a weight's previous change, and net displacement "
                          "from the (resumed) start")
+    ap.add_argument("--lr_gate", action="store_true",
+                    help="propose from M only where the current batch gradient has the same sign")
+    ap.add_argument("--lr_refresh", type=int, default=0,
+                    help="replace this many of the weakest momentum directions every "
+                         "--lr_refresh_every steps with top directions of the gradient outside the subspace")
+    ap.add_argument("--lr_refresh_every", type=int, default=10)
+    ap.add_argument("--lr_spend", type=float, default=0.0,
+                    help="kept flips consume c * mean|M| of the momentum at their entries (0 = off)")
     ap.add_argument("--lr_diag", action="store_true",
                     help="log per step how the low-rank momentum relates to the gradient "
                          "(|g|, |M|, sign agreement, subspace share, cos(g, g') across batches)")
@@ -1107,10 +1142,20 @@ def main():
             if args.lookahead:          # propose from M, keep by the look-ahead test
                 rs_info, Ms = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                            args.flip_seed, args.lr_adapt, propose_only=True,
-                                           diag=args.lr_diag)
-                rs_info.update(lookahead_step(model, x, y, tail, device, step, args.lookahead,
-                                              args.flip_seed, la_extra, signals=Ms,
-                                              diag=args.lr_diag, gacc=mwin))
+                                           diag=args.lr_diag, gate=args.lr_gate,
+                                           refresh=args.lr_refresh, refresh_every=args.lr_refresh_every)
+                la = lookahead_step(model, x, y, tail, device, step, args.lookahead,
+                                    args.flip_seed, la_extra, signals=Ms,
+                                    diag=args.lr_diag, gacc=mwin, sig_gmeans=lr_state["_gms"],
+                                    want_delta=bool(args.lr_spend))
+                if args.lr_spend:
+                    # --lr_spend: a kept flip consumes the push that caused it (D = -sign(M) there, so
+                    # adding c * mean|M| * D shrinks those entries), kept low-rank: U += c*gm*(D V)
+                    lays = [m for m in model.modules() if isinstance(m, KernelTernaryLinear)]
+                    for m, d in zip(lays, la.pop("_D")):
+                        U, V = lr_state[id(m)]
+                        lr_state[id(m)] = (U + args.lr_spend * lr_state["_gm"][id(m)] * (d.float() @ V), V)
+                rs_info.update(la)
                 del Ms
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
