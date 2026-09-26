@@ -1184,3 +1184,31 @@ Late, M is more than a step-size brake: at a matched flip count and the same rev
 proposals beat the gradient's by 0.062 over 300 steps (at 11M the matched control closed ~75% of
 the gap). Per step the gradient's proposals are more precise (0.554 vs 0.525), so M's value is in
 how its flips add up over steps (it keeps pushing the same weights the same way).
+
+### Ours vs master along the run: window measurements (`docs/figures/windows.png`)
+
+Replay of the momentum + look-ahead run from 11M to 205M (`r4090_replay_11M_205M`, reproduces the
+original: 3.2146 vs 3.209 at 205M) and master re-run with tracking (`master_tracked`, 2.751 vs 2.759),
+same batches; 100-step windows (3.3M tokens):
+
+| tokens | net moves along -sum(g): ours / master | cos(D, -sum g) | moves along -momentum | net moved per window | trits changed per step | reversals |
+|---|---|---|---|---|---|---|
+| 11-23M | 0.72 / 0.96 | 0.15 / 0.38 | 0.61 / 0.58 | 8.0% / 15.3% | 0.09% / 0.49% | 10% / 81% |
+| 23-49M | 0.70 / 0.96 | 0.14 / 0.36 | 0.60 / 0.57 | 8.9% / 13.6% | 0.10% / 0.43% | 38% / 90% |
+| 49-98M | 0.70 / 0.96 | 0.13 / 0.34 | 0.59 / 0.57 | 8.4% / 11.3% | 0.10% / 0.34% | 61% / 95% |
+| 98-147M | 0.69 / 0.96 | 0.11 / 0.30 | 0.59 / 0.57 | 6.6% / 8.7% | 0.07% / 0.26% | 70% / 97% |
+| 147-205M | 0.68 / 0.96 | 0.07 / 0.25 | 0.60 / 0.57 | 3.6% / 6.1% | 0.04% / 0.18% | 73% / 98% |
+
+(our reversals are counted from 11M, so the early rows are low by construction.) Master's latent
+(float) move has cos 0.82-0.85 with -sum(g); master's gradient is anti-correlated from window to
+window (cos -0.10 to -0.13; coherence 0.5-0.64 < 1), ours is not (~0; coherence ~0.8).
+
+- 96% of master's net trit changes in a window go the way the window's summed gradient says, from
+  11M to 300M; ours 72% falling to 68%, and the cosine is 2.5x lower at 11M and 3.6x lower at 200M.
+- Master's momentum (Adam m) predicts its net moves no better than our M does (57% vs 60%): the
+  difference is not a better momentum. Master's trit changes are threshold crossings of the latent
+  weight, which integrates every update since the last crossing; a crossing that sticks over a
+  window is by construction one the accumulated gradient supports. Our flips are per-step decisions
+  (M proposal + two-batch filter), and ~30% of the net moves oppose the window's gradient.
+- Master changes 4-5x more trits per step, 81-98% of them reversals (latent weights sitting on a
+  threshold flip back and forth), and still moves more trits net per window (1.5-1.9x).
