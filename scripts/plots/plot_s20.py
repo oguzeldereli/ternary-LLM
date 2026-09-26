@@ -11,6 +11,9 @@ import matplotlib.pyplot as plt
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 RUNS = [  # dir, label, color, width, style
+    ("fp32_baseline", "full precision fp32 + AdamW (reference)", "#00838f", 2.0, ":"),
+    ("master_tracked", "master weights + AdamW (reference)", "#eb6834", 2.0, ":"),
+    ("lm_lowrank256_xb2_100M", "momentum + look-ahead x2, original 300M run (laptop)", "#6d4c41", 2.0, ":"),
     ("s20_base", "baseline (seed 0)", "#111111", 2.4, "-"),
     ("s20_base_seed1", "baseline (seed 1)", "#555555", 1.6, "-"),
     ("s20_base_seed2", "baseline (seed 2)", "#999999", 1.6, "-"),
@@ -20,7 +23,7 @@ RUNS = [  # dir, label, color, width, style
     ("s20_vnorm99", "vnorm (factored 2nd moment)", "#7b3fb8", 1.8, "-"),
     ("s20_maskstuck", "stuck mask", "#eb6834", 1.8, "-"),
     ("s20_magadd4", "low-rank magnitude, additive r4", "#00acc1", 1.8, "--"),
-    ("s20_magmul4", "low-rank magnitude, multiplicative r4", "#8d6e63", 1.8, "--"),
+    ("s20_magmul4", "low-rank magnitude, multiplicative r4", "#a1887f", 1.8, "--"),
     ("s20_gate_maskstuck", "gate + stuck mask", "#e91e63", 2.2, "--"),
     ("s20_gate_vnorm99", "gate + vnorm", "#ff9800", 2.2, "--"),
 ]
@@ -28,11 +31,11 @@ RUNS = [  # dir, label, color, width, style
 
 def load(d):
     rows = [json.loads(l) for l in open(f"checkpoints/{d}/metrics.jsonl")]
-    tr = {r["step"]: r["loss"] for r in rows if "loss" in r and "tokens" in r}
+    tr = {r["step"]: r["loss"] for r in rows if "loss" in r and "tokens" in r and r["step"] <= 611}
     s = np.array(sorted(tr)); L = np.array([tr[i] for i in s])
     k = 30; c = np.cumsum(np.insert(L, 0, 0.0))
     Ls = np.array([(c[i + 1] - c[max(0, i + 1 - min(k, i // 3 + 1))]) / min(k, i // 3 + 1) for i in range(len(L))])
-    v = sorted({r["step"]: r["val_loss"] for r in rows if "val_loss" in r}.items())
+    v = sorted({r["step"]: r["val_loss"] for r in rows if "val_loss" in r and r["step"] <= 611}.items())
     return s, Ls, v
 
 
