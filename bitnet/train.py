@@ -649,6 +649,9 @@ def main():
                     help="replace this many of the weakest momentum directions every "
                          "--lr_refresh_every steps with top directions of the gradient outside the subspace")
     ap.add_argument("--lr_refresh_every", type=int, default=10)
+    ap.add_argument("--lowrank_mag", default="",
+                    help="low-rank float magnitude beyond the trits: 'add:R' (W = bT + AB^T) or 'mul:R' "
+                         "(W = bT o (1 + AB^T))")
     ap.add_argument("--lr_mask_stuck", action="store_true",
                     help="zero the gradient at weights already at +-1 in its push direction before it enters M")
     ap.add_argument("--lr_vnorm", type=float, default=0.0,
@@ -1054,6 +1057,17 @@ def main():
     signal.signal(signal.SIGINT, _graceful)
 
     # after any resume, so 'net' counts from the weights this run starts at
+    if args.lowrank_mag:
+        # after any resume, so the checkpoint loads unchanged; the new parameters join the float tail (the
+        # look-ahead passes and the gradient clip treat them like the tail) as their own AdamW group
+        kind, r = args.lowrank_mag.split(":")
+        newp = []
+        for m in model.modules():
+            if isinstance(m, KernelTernaryLinear):
+                newp += m.enable_lowrank_mag(kind, int(r))
+        tail.extend(newp)
+        tail_opt.add_param_group({"params": newp, "weight_decay": 0.0, "lr": lr_at(start_step, tc)})
+        print(f"low-rank magnitude '{kind}' rank {r}: {sum(p.numel() for p in newp) / 1e6:.2f}M floats", flush=True)
     if args.track_reversals:
         for m in model.modules():
             if isinstance(m, KernelTernaryLinear):

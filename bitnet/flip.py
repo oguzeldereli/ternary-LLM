@@ -264,6 +264,29 @@ from .kernel import (pack_rows, unpack_rows, tern_gemm, tern_gemm_dx, fused_flip
 _FLIP_SEED = [0]
 
 
+class _TernNoFlipFn(torch.autograd.Function):
+    """beta * Q8(u) @ T^T with the layer's packed trits, input gradient only: no weight-gradient capture and no
+    flips. Used by the low-rank multiplicative magnitude term (enable_lowrank_mag)."""
+    @staticmethod
+    def forward(ctx, u, wpacked, layer):
+        beta = trit_beta(wpacked, layer.K) if layer.use_beta else None
+        xq, xs = act_quant_i8(u.reshape(-1, layer.K), layer.act_bits)
+        y = tern_gemm_i8(xq, xs, wpacked, layer.K, beta if beta is not None else 1.0)
+        ctx.save_for_backward(wpacked); ctx.layer = layer; ctx.beta = beta; ctx.ushape = u.shape
+        return y.view(*u.shape[:-1], layer.N).to(u.dtype)
+
+    @staticmethod
+    def backward(ctx, gy):
+        (wpacked,) = ctx.saved_tensors
+        layer = ctx.layer
+        w = unpack_rows(wpacked, layer.K).to(gy.dtype)            # dense [N, K], transient
+        g = gy.reshape(-1, layer.N)
+        if ctx.beta is not None:
+            g = g * ctx.beta.to(g.dtype)
+        gu = (g @ w).view(ctx.ushape)                             # STE through the activation quantization
+        return gu, None, None
+
+
 class _KernelTernFn(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, wpacked, layer):
@@ -576,6 +599,17 @@ class KernelTernaryLinear(nn.Module):
         self.row_scale = nn.Parameter(torch.ones(self.N, device=dev))
         self.col_scale = nn.Parameter(torch.ones(self.K, device=dev))
 
+    def enable_lowrank_mag(self, kind, r):
+        """Low-rank float magnitude beyond the trits (A starts at 0, so the layer is unchanged at first):
+        'add': W = beta*T + A B^T (a float adapter); 'mul': W = beta * T o (1 + A B^T), computed as
+        T x + sum_k a_k o T (b_k o x) with r extra ternary GEMMs. r (N + K) floats."""
+        dev = self.wpacked.device
+        self.mag_kind = kind
+        self.mag_A = nn.Parameter(torch.zeros(self.N, r, device=dev))
+        std = (1.0 / self.K) ** 0.5 if kind == "add" else 1.0
+        self.mag_B = nn.Parameter(torch.randn(self.K, r, device=dev) * std)
+        return [self.mag_A, self.mag_B]
+
     def forward(self, x):
         # column scale before the GEMM (and before the int8 activation quantization),
         # row scale after it: the packed kernels are unchanged, autograd handles r and c,
@@ -583,6 +617,13 @@ class KernelTernaryLinear(nn.Module):
         if self.col_scale is not None:
             x = x * self.col_scale.to(x.dtype)
         y = _KernelTernFn.apply(x, self.wpacked, self)
+        if getattr(self, "mag_A", None) is not None:
+            A, B = self.mag_A.to(y.dtype), self.mag_B.to(x.dtype)
+            if self.mag_kind == "add":
+                y = y + (x @ B) @ A.T
+            else:
+                for k in range(A.shape[1]):
+                    y = y + A[:, k] * _TernNoFlipFn.apply(x * B[:, k], self.wpacked, self)
         if self.row_scale is not None:
             y = y * self.row_scale.to(y.dtype)
         return y
