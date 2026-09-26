@@ -289,6 +289,37 @@ class TritTracker:
         return {"flip_frac": fl / self.n, "rev_flips": rv, "never_frac": nv / self.n}
 
 
+class MultiWindow:
+    """Several MoveWindows of different lengths over the same run. One size keeps the plain w_
+    metric names; several prefix them w<N>_."""
+
+    def __init__(self, sizes, opt=None):
+        self.ws = [MoveWindow(n, opt) for n in sizes]
+        self.prefix = len(sizes) > 1
+
+    def layers(self, model):
+        return self.ws[0].layers(model)
+
+    def open(self, model, lr_state):
+        for w in self.ws:
+            w.open(model, lr_state)
+
+    def add(self, i, g):
+        for w in self.ws:
+            w.add(i, g)
+
+    def tick(self, model, lr_state):
+        rec = {}
+        for w in self.ws:
+            if w.due(None):
+                r = w.close(model, lr_state)
+                if self.prefix:
+                    r = {("w%d_" % w.n) + k[2:]: v for k, v in r.items()}
+                rec.update(r)
+                w.open(model, lr_state)
+        return rec
+
+
 class MoveWindow:
     """Per window of N steps, per ternary layer: D = net trit move, S = sum of the first-pass
     gradients the run saw, M0 = momentum at the window start. Logs (mean over layers, and per layer
@@ -396,10 +427,11 @@ def main():
                     help="flip signal = rank-r momentum of each layer's gradient (M ~ U V^T, "
                          "r*(N+K) floats per layer) instead of the current gradient")
     ap.add_argument("--lr_beta", type=float, default=0.97, help="decay of the low-rank momentum")
-    ap.add_argument("--move_window", type=int, default=0,
+    ap.add_argument("--move_window", default="",
                     help="every N steps log how the net trit move of the window relates to the "
                          "summed gradient of the window and to the momentum at its start "
-                         "(needs --lookahead; see MoveWindow)")
+                         "(needs --lookahead; see MoveWindow). Several sizes: '1,2,10' "
+                         "(metrics then prefixed w1_, w2_, ...)")
     ap.add_argument("--profile", type=int, default=0,
                     help="profile this many steps (after 20 warm-up steps), print the tables, exit")
     ap.add_argument("--track_reversals", action="store_true",
@@ -810,7 +842,8 @@ def main():
     prof = None
     mwin = None
     if args.move_window:
-        mwin = MoveWindow(args.move_window, tail_opt if args.mode == "master" else None)
+        mwin = MultiWindow([int(v) for v in str(args.move_window).split(",")],
+                           tail_opt if args.mode == "master" else None)
         mwin.open(model, lr_state)
     ttrack = TritTracker(model) if (args.mode == "master" and args.track_flips) else None
     for step in range(start_step, end_step):
@@ -947,9 +980,8 @@ def main():
                        flip_frac_layers=fs["flip_frac"], never_frac_layers=fs["never_frac"],
                        gmean_layers=fs["gmean_layers"],
                        frozen_scale_layers=fs["frozen_scale_layers"])
-        if mwin is not None and mwin.due(step):
-            rec.update(mwin.close(model, lr_state))
-            mwin.open(model, lr_state)
+        if mwin is not None:
+            rec.update(mwin.tick(model, lr_state))
         log_metrics(rec)
 
         if step % tc.log_interval == 0:
