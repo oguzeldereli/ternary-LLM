@@ -378,10 +378,14 @@ class NestedWindow:
             return {}
         w = self.w
         if w.k == 1:
-            # keep the first step's moves and gradient: later windows also score the FIRST step's
-            # moves against the summed gradient (with and without step 1's own, selecting, batch)
-            self.D1 = [(w.trits(l) - t0).to(torch.int8) for l, t0 in zip(w.layers(model), w.T0)]
-            self.S1 = [x.clone() for x in w.S]
+            self.Dk, self.Sk = {}, {}
+        if w.k in self.sizes and w.k < self.sizes[-1]:
+            # keep the net move and summed gradient of the first k steps: at the end of the longest
+            # window they are scored against its summed gradient (the best "true gradient" on the path)
+            self.Dk[w.k] = [(w.trits(l) - t0).to(torch.int8) for l, t0 in zip(w.layers(model), w.T0)]
+            self.Sk[w.k] = [x.to(torch.bfloat16) for x in w.S]
+        if w.k == 1:
+            self.D1 = self.Dk[1]; self.S1 = [x.float() for x in self.Sk[1]]
         if w.k not in self.sizes:
             return {}
         w.S_prev = None
@@ -397,6 +401,20 @@ class NestedWindow:
                 extra["cos1"].append(cos(d, -S))
                 extra["agree1_later"].append(((d * later)[nz] < 0).float().mean())
                 extra["cos1_later"].append(cos(d, -later))
+        if w.k == self.sizes[-1]:
+            cos = lambda a, b: F.cosine_similarity(a.flatten().float(), b.flatten().float(), 0)
+            for kk, D in self.Dk.items():
+                ag, cs, agl, csl = [], [], [], []
+                for d, S, Sk in zip(D, w.S, self.Sk[kk]):
+                    d = d.float(); nz = d != 0
+                    if not nz.any():
+                        continue
+                    later = S - Sk.float()
+                    ag.append(((d * S)[nz] < 0).float().mean()); cs.append(cos(d, -S))
+                    agl.append(((d * later)[nz] < 0).float().mean()); csl.append(cos(d, -later))
+                for name, v in (("agree", ag), ("cos", cs), ("agree_later", agl), ("cos_later", csl)):
+                    if v:
+                        extra.setdefault(f"d{kk}_{name}", []).extend(v)
         r = w.close(model, lr_state)
         out = {("c%d_" % w.k) + k[2:]: v for k, v in r.items() if k != "w_steps"}
         for k, v in extra.items():
@@ -406,6 +424,7 @@ class NestedWindow:
         out["c_start"] = self.start
         if self.w.k >= self.sizes[-1]:
             self.w = None                      # free the window's buffers until the next start
+            self.Dk, self.Sk = {}, {}
         return out
 
 
