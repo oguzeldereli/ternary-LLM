@@ -1212,3 +1212,28 @@ window (cos -0.10 to -0.13; coherence 0.5-0.64 < 1), ours is not (~0; coherence 
   (M proposal + two-batch filter), and ~30% of the net moves oppose the window's gradient.
 - Master changes 4-5x more trits per step, 81-98% of them reversals (latent weights sitting on a
   threshold flip back and forth), and still moves more trits net per window (1.5-1.9x).
+
+### Moves of the first k steps vs the 100-step summed gradient, ours vs master (`docs/figures/window_curves.png`)
+
+Windows opened at 11M, 66M, 131M, 197M (ours: 100-step continuations from the momentum run's
+checkpoints; master: `curve_master`, a master run measuring at the same steps, same batches).
+
+| start | run | k=1 | 2 | 5 | 10 | 20 | 50 | net 100 | later-only k=1 | k=50 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 11M | ours | 0.51 | 0.51 | 0.52 | 0.54 | 0.58 | 0.66 | 0.73 | 0.47 | 0.49 |
+| 11M | master | 0.51 | 0.53 | 0.57 | 0.61 | 0.68 | 0.81 | 0.96 | 0.45 | 0.50 |
+| 66M | ours | 0.45 | 0.45 | 0.47 | 0.49 | 0.53 | 0.62 | 0.70 | 0.40 | 0.44 |
+| 66M | master | 0.46 | 0.47 | 0.51 | 0.56 | 0.64 | 0.79 | 0.96 | 0.43 | 0.44 |
+| 197M | ours | 0.42 | 0.44 | 0.45 | 0.47 | 0.51 | 0.59 | 0.67 | 0.38 | 0.43 |
+| 197M | master | 0.46 | 0.47 | 0.51 | 0.56 | 0.64 | 0.78 | 0.96 | 0.43 | 0.44 |
+
+- Single steps: master's moves are no better than ours against the window's gradient (0.46 vs
+  0.42-0.45, both at or below chance). Against the later batches alone both are below 0.5: the
+  gradients that follow a move push it back (overshoot), master (~0.43) somewhat less than ours
+  (~0.38-0.40).
+- The difference builds with k: at 10 steps 0.56 vs 0.47-0.49, at 50 0.78 vs 0.59-0.62, over the
+  window 0.96 vs 0.67-0.73. Master's trit at the end of a window is the rounding of a latent weight
+  that has integrated the window's (Adam-normalized) gradient, so its net moves follow that gradient
+  by construction; unsupported moves are undone (81-98% of its flips are reversals). Our trit state
+  is not a function of the accumulated gradient: a flip, once made, stays unless a later step happens
+  to propose and keep the reverse.
