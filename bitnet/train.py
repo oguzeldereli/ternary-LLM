@@ -372,12 +372,37 @@ class NestedWindow:
         if self.w is not None:
             self.w.add(i, g)
 
+    @torch.no_grad()
     def tick(self, model, lr_state):
-        if self.w is None or self.w.k not in self.sizes:
+        if self.w is None:
             return {}
-        self.w.S_prev = None
-        r = self.w.close(model, lr_state)
-        out = {("c%d_" % self.w.k) + k[2:]: v for k, v in r.items() if k != "w_steps"}
+        w = self.w
+        if w.k == 1:
+            # keep the first step's moves and gradient: later windows also score the FIRST step's
+            # moves against the summed gradient (with and without step 1's own, selecting, batch)
+            self.D1 = [(w.trits(l) - t0).to(torch.int8) for l, t0 in zip(w.layers(model), w.T0)]
+            self.S1 = [x.clone() for x in w.S]
+        if w.k not in self.sizes:
+            return {}
+        w.S_prev = None
+        extra = {k: [] for k in ("agree1", "cos1", "agree1_later", "cos1_later")}
+        if w.k > 1:
+            cos = lambda a, b: F.cosine_similarity(a.flatten().float(), b.flatten().float(), 0)
+            for d, S, S1 in zip(self.D1, w.S, self.S1):
+                d = d.float(); nz = d != 0
+                if not nz.any():
+                    continue
+                later = S - S1
+                extra["agree1"].append(((d * S)[nz] < 0).float().mean())
+                extra["cos1"].append(cos(d, -S))
+                extra["agree1_later"].append(((d * later)[nz] < 0).float().mean())
+                extra["cos1_later"].append(cos(d, -later))
+        r = w.close(model, lr_state)
+        out = {("c%d_" % w.k) + k[2:]: v for k, v in r.items() if k != "w_steps"}
+        for k, v in extra.items():
+            if v:
+                out.update({("c%d_" % w.k) + kk: vv for kk, vv in
+                            _diag_agg(k, torch.stack(v).cpu().tolist()).items()})
         out["c_start"] = self.start
         if self.w.k >= self.sizes[-1]:
             self.w = None                      # free the window's buffers until the next start
