@@ -201,7 +201,7 @@ def _diag_agg(name, vals, per_block=7):
 
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
-                 diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0):
+                 diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -226,6 +226,12 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
         g = l.gw.float()
         if not propose_only:
             l.gw = None; l.capture = False
+        if mask_stuck:
+            # --lr_mask_stuck: drop the gradient at weights it pushes past +-1 (already at the bound in
+            # the direction -sign(g)) before it enters M, so M holds only pressure a flip can act on
+            from .kernel import unpack_rows
+            t = unpack_rows(l.wpacked, l.K).to(torch.int8)
+            g = torch.where(-g.sign() * t == 1, torch.zeros_like(g), g)
         key = id(l)
         if key not in state:
             U0 = torch.linalg.qr(torch.randn(l.N, r, device=g.device))[0]
@@ -643,6 +649,8 @@ def main():
                     help="replace this many of the weakest momentum directions every "
                          "--lr_refresh_every steps with top directions of the gradient outside the subspace")
     ap.add_argument("--lr_refresh_every", type=int, default=10)
+    ap.add_argument("--lr_mask_stuck", action="store_true",
+                    help="zero the gradient at weights already at +-1 in its push direction before it enters M")
     ap.add_argument("--lr_vnorm", type=float, default=0.0,
                     help="propose from M / sqrt(v) with v a factored (row x column) EMA of g^2, this decay "
                          "(0 = off)")
@@ -1157,7 +1165,7 @@ def main():
                                            args.flip_seed, args.lr_adapt, propose_only=True,
                                            diag=args.lr_diag, gate=args.lr_gate,
                                            refresh=args.lr_refresh, refresh_every=args.lr_refresh_every,
-                                           vnorm=args.lr_vnorm)
+                                           vnorm=args.lr_vnorm, mask_stuck=args.lr_mask_stuck)
                 la = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                     args.flip_seed, la_extra, signals=Ms,
                                     diag=args.lr_diag, gacc=mwin, sig_gmeans=lr_state["_gms"],
