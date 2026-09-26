@@ -17,6 +17,7 @@ import argparse
 import subprocess
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -566,7 +567,7 @@ def main():
                     help="latent mode: 0=stateless SGD+SR; ~0.9=Lion-style int8 momentum")
     ap.add_argument("--mode", default="kernel",
                     choices=["kernel", "evidence", "flip", "stateless", "latent",
-                             "master"],
+                             "master", "fp32"],
                     help="kernel=stateless flips, Triton GEMM; evidence=kernel + "
                          "2-bit per-weight counter; flip=predicted flips + int8 "
                          "evidence (torch); stateless=zero-accumulator (torch); "
@@ -770,6 +771,11 @@ def main():
     elif args.mode == "flip":
         model, _ = build_flip_transformer(mc, grad_checkpoint=tc.grad_checkpoint,
                                           theta=args.theta)
+    elif args.mode == "fp32":
+        # full-precision reference (no ternary, no activation quantization): plain nn.Linear,
+        # fp32 weights + AdamW, bf16 autocast in the forward like every other mode
+        model = BitTransformer(mc, grad_checkpoint=tc.grad_checkpoint,
+                               make_linear=lambda i, o: nn.Linear(i, o, bias=False))
     elif args.mode == "master":
         model = build_master_transformer(
             mc, grad_checkpoint=tc.grad_checkpoint,
@@ -790,7 +796,7 @@ def main():
         from .model import enable_compile
         enable_compile()
 
-    if args.mode == "master":
+    if args.mode in ("master", "fp32"):
         # the baseline keeps everything in fp32 with a standard AdamW: no bf16
         # rounding anywhere, so the ceiling is not limited by storage precision.
         master, emb, norms = split_params(model)
