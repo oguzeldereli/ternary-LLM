@@ -43,33 +43,44 @@ D = {d: load(d) for d, *_ in RUNS if os.path.exists(f"checkpoints/{d}/metrics.js
 base = [D[d] for d in ("s20_base", "s20_base_seed1", "s20_base_seed2") if d in D]
 n = min(len(b[0]) for b in base)
 bmean = np.mean([b[1][:n] for b in base], axis=0); bsteps = base[0][0][:n]
-fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(24, 7), facecolor=SURFACE)
+fig, axs = plt.subplots(2, 2, figsize=(20, 13), facecolor=SURFACE)
+(a1, a4), (a3, a2) = axs
+REF = {"fp32_baseline", "master_tracked", "lm_lowrank256_xb2_100M"}
+KEY = {"fp32_baseline", "master_tracked", "s20_base", "s20_gate"}
 for d, lab, c, lw, ls in RUNS:
     if d not in D: continue
     s, L, v = D[d]
     fin = [x for st, x in v if st >= 610]
     lab2 = lab + (f"  (val {fin[-1]:.4f})" if fin else "")
-    a1.plot((s + 1) * 32768, L, color=c, lw=lw, ls=ls, label=lab2)
+    t = (s + 1) * 32768
+    if d in KEY:
+        a1.plot(t, L, color=c, lw=lw + 0.4, ls=ls, label=lab)
+    m = t >= 4e6
+    a4.plot(t[m], L[m], color=c, lw=lw, ls=ls, label=lab2)
     if v: a2.plot([(st + 1) * 32768 for st, _ in v], [np.exp(x) for _, x in v], "o" + ls, color=c, lw=lw, ms=5, label=lab)
-    m = min(len(s), n)
-    a3.plot((s[:m] + 1) * 32768, L[:m] - bmean[:m], color=c, lw=lw, ls=ls, label=lab)
+    if d not in REF:
+        k = min(len(s), n)
+        a3.plot(t[:k], L[:k] - bmean[:k], color=c, lw=lw, ls=ls, label=lab)
 if len(base) > 1:
     lo = np.min([b[1][:n] for b in base], 0) - bmean; hi = np.max([b[1][:n] for b in base], 0) - bmean
-    a3.fill_between((bsteps + 1) * 32768, lo, hi, color="#999999", alpha=0.25, lw=0, label="baseline seed range")
+    a3.fill_between((bsteps + 1) * 32768, lo, hi, color="#999999", alpha=0.3, lw=0, label="baseline seed range")
 a3.axhline(0, color=INK2, lw=1)
 a1.set_xscale("log"); a1.set_yscale("log"); a1.set_xlim(3e4, 2.1e7); a1.set_ylim(4.2, 11)
+a4.set_xscale("log"); a4.set_yscale("log"); a4.set_xlim(4e6, 2.1e7); a4.set_ylim(4.25, 5.8)
 a2.set_xscale("log"); a2.set_yscale("log"); a2.set_xlim(5e6, 2.2e7)
-a3.set_xscale("log"); a3.set_xlim(3e4, 2.1e7); a3.set_ylim(-0.25, 0.25)
-titles = ("Train loss (30-step mean), log-log", "Validation perplexity, log-log",
-          "Train loss minus the baseline-seed mean (< 0 = better)")
-for ax, tt in zip((a1, a2, a3), titles):
+a3.set_xscale("log"); a3.set_xlim(3e4, 2.1e7); a3.set_ylim(-0.12, 0.16)
+titles = {a1: "(a) Train loss from 30k tokens: references, baseline and gate (30-step mean)",
+          a4: "(b) Zoom 4M-20M tokens, all runs",
+          a3: "(c) Train loss minus the baseline-seed mean, fix runs only (< 0 = better)",
+          a2: "(d) Validation perplexity"}
+for ax, tt in titles.items():
     ax.set_title(tt, loc="left", color=INK, fontsize=12)
     ax.set_facecolor(SURFACE); ax.grid(True, which="both", color=GRID, lw=0.6)
     ax.set_xlabel("tokens", color=INK2); ax.tick_params(colors=INK2)
     for sp in ax.spines.values(): sp.set_color(GRID)
-    ax.legend(fontsize=8.5, frameon=False)
+    ax.legend(fontsize=9, frameon=False)
 fig.suptitle("Momentum fixes from scratch to 20M tokens (momentum + cross-batch look-ahead x2, same batches)",
              x=0.01, ha="left", fontsize=13, color=INK)
-fig.tight_layout(rect=(0, 0, 1, 0.95))
+fig.tight_layout(rect=(0, 0, 1, 0.97))
 fig.savefig("docs/figures/s20.png", dpi=105, facecolor=SURFACE)
 print("wrote docs/figures/s20.png", sorted(D))
