@@ -1237,3 +1237,28 @@ checkpoints; master: `curve_master`, a master run measuring at the same steps, s
   by construction; unsupported moves are undone (81-98% of its flips are reversals). Our trit state
   is not a function of the accumulated gradient: a flip, once made, stays unless a later step happens
   to propose and keep the reverse.
+
+### Full-precision reference (`fp32_baseline`, 4090): val 2.683 (ppl 14.6) at 300M
+
+Same 110M architecture, data and schedule, plain nn.Linear (no ternary, no activation quantization), fp32
+weights + AdamW. Master (ternary, latent weights) reaches 2.759 (ppl 15.8): ternary with master weights
+costs ~8% perplexity at this size, and master's curve tracks full precision closely throughout (token
+stretch ~0.95). Ours: 3.127 (ppl 22.8).
+
+### Test bench at step 4000 (`checkpoints/testbench_4000/`, `scripts/analysis/testbench.py`)
+
+True gradient = mean over 256 batches, every parameter (halves agree at cos 0.998; one batch has cos 0.43
+with it). Flip sets at the run's rate there (0.0120), scored against it:
+
+| set | flips | precision | D . gbar | cos(D, -gbar) | held-out dL |
+|---|---|---|---|---|---|
+| M proposals | 208k | 0.48 | +3.6e-3 | -0.001 | +0.19 |
+| M + look-ahead x2 (the run's step) | 48k | 0.59 | -5.0e-3 | +0.003 | -0.0007 |
+| g (one batch) proposals | 215k | 0.63 | -5.1e-2 | +0.015 | +0.28 |
+| g + look-ahead x2 | 98k | 0.61 | -9.6e-3 | +0.004 | -0.0005 |
+| random, same count as the run's step | 48k | 0.48 | +8e-4 | -0.001 | +0.011 |
+| top 48k by abs(gbar), downhill ("oracle") | 48k | 1.00 | -0.63 | +0.40 | +7.48 |
+
+The top-abs(gbar) flips each lower the loss alone (~-5e-5) but together are catastrophic (100 of them:
++0.009; 1000: +0.42): they cluster in shared rows/columns (62 of the top 100 in layers.0.attn.wq, on two
+input columns), so their effects stack. Alignment with the gradient alone is not the objective.
