@@ -67,16 +67,29 @@ trits = lambda: [l.ternary_weight()[0].clone() for l in Ls]
 idx = [next(i for i, p in enumerate(params) if p is l.weight) for l in Ls]
 s = batches(4242)
 gbar = None
+if os.path.exists(f"{OUT}/gbar_latent.pt"):            # reuse a saved truth
+    G = torch.load(f"{OUT}/gbar_latent.pt"); gbar = [G[f"layer{i}"].to(dev) for i in range(len(Ls))]
+    NB = 0
 for i in range(NB):
     g = grad(next(s))
     gl = [g[j] for j in idx]
     gbar = gl if gbar is None else [a + c for a, c in zip(gbar, gl)]
     if (i + 1) % 64 == 0: print(f"  true gradient {i + 1}/{NB}", flush=True)
-gbar = [a / NB for a in gbar]
-torch.save({f"layer{i}": a.cpu() for i, a in enumerate(gbar)}, f"{OUT}/gbar_latent.pt")
+if NB:
+    gbar = [a / NB for a in gbar]
+    torch.save({f"layer{i}": a.cpu() for i, a in enumerate(gbar)}, f"{OUT}/gbar_latent.pt")
 T0 = trits(); L0 = held_out()
-state0 = copy.deepcopy(m.state_dict()); ostate0 = copy.deepcopy(opt.state_dict())
-cos = lambda a, c: F.cosine_similarity(torch.cat([x.flatten() for x in a]), torch.cat([y.flatten() for y in c]), 0).item()
+state0 = {k: v.detach().cpu().clone() for k, v in m.state_dict().items()}
+ostate0 = copy.deepcopy(opt.state_dict())
+for st in ostate0["state"].values():
+    for k, v in st.items():
+        if torch.is_tensor(v): st[k] = v.cpu()
+
+
+def cos(a, c):
+    num = sum(float((x.float() * y).sum()) for x, y in zip(a, c))
+    na = sum(float((x.float() ** 2).sum()) for x in a) ** 0.5; nc = sum(float((y ** 2).sum()) for y in c) ** 0.5
+    return num / max(na * nc, 1e-30)
 
 
 def score(D, name):

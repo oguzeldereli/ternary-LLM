@@ -1262,3 +1262,16 @@ with it). Flip sets at the run's rate there (0.0120), scored against it:
 The top-abs(gbar) flips each lower the loss alone (~-5e-5) but together are catastrophic (100 of them:
 +0.009; 1000: +0.42): they cluster in shared rows/columns (62 of the top 100 in layers.0.attn.wq, on two
 input columns), so their effects stack. Alignment with the gradient alone is not the objective.
+
+Master at the same step (`checkpoints/testbench_4000_master/`, `scripts/analysis/testbench_master.py`):
+true gradient over the same 256 batches at master's own point (w.r.t. the latent weights), then one and
+ten real AdamW steps on the same single batch; D = change of master's trits (held-out dL here includes the
+float tail's update):
+
+| set | trits changed | precision | cos(D, -gbar) | held-out dL |
+|---|---|---|---|---|
+| master, 1 step | 218k | 0.537 | +0.003 | +0.0011 |
+| master, 10 steps | 1.76M | 0.594 | +0.022 | -0.0014 |
+| ours, 1 step (M + look-ahead x2) | 48k | 0.587 | +0.003 | -0.0007 |
+
+Per step master's trit moves are no better aimed than ours (0.54 vs 0.59) and it makes 4.5x as many.
