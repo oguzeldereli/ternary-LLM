@@ -57,9 +57,9 @@ if len(base) > 1:
     lo = np.min([b[1][:n] for b in base], 0) - bmean; hi = np.max([b[1][:n] for b in base], 0) - bmean
     a3.fill_between((bsteps + 1) * 32768, lo, hi, color="#999999", alpha=0.25, lw=0, label="baseline seed range")
 a3.axhline(0, color=INK2, lw=1)
-a1.set_xscale("log"); a1.set_yscale("log"); a1.set_xlim(1e6, 2.1e7); a1.set_ylim(4.2, 9)
+a1.set_xscale("log"); a1.set_yscale("log"); a1.set_xlim(3e4, 2.1e7); a1.set_ylim(4.2, 11)
 a2.set_xscale("log"); a2.set_yscale("log"); a2.set_xlim(5e6, 2.2e7)
-a3.set_xscale("log"); a3.set_xlim(2e6, 2.1e7); a3.set_ylim(-0.25, 0.25)
+a3.set_xscale("log"); a3.set_xlim(3e4, 2.1e7); a3.set_ylim(-0.25, 0.25)
 titles = ("Train loss (30-step mean), log-log", "Validation perplexity, log-log",
           "Train loss minus the baseline-seed mean (< 0 = better)")
 for ax, tt in zip((a1, a2, a3), titles):
