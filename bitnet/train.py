@@ -1029,6 +1029,28 @@ def main():
                                 if isinstance(m, KernelTernaryLinear)] if lr_state else None}, tmp)
         os.replace(tmp, ckpt_path)
 
+    mag_on = [False]
+
+    def enable_mag(step0):
+        # the new parameters join the float tail (the look-ahead passes and the gradient clip treat them like the
+        # tail) as their own AdamW group. Enabled after the resume when branching a checkpoint without them (so it
+        # loads unchanged), before it when the checkpoint already has them (so they and their AdamW state load)
+        kind, r = args.lowrank_mag.split(":")
+        newp = []
+        for m in model.modules():
+            if isinstance(m, KernelTernaryLinear):
+                newp += m.enable_lowrank_mag(kind, int(r))
+        tail.extend(newp)
+        tail_opt.add_param_group({"params": newp, "weight_decay": args.mag_wd, "lr_mult": args.mag_lr_mult,
+                                  "lr": lr_at(step0, tc) * args.mag_lr_mult})
+        if args.mag_cap:
+            for m in model.modules():
+                if isinstance(m, KernelTernaryLinear):
+                    m.mag_cap = args.mag_cap
+        mag_on[0] = True
+        print(f"low-rank magnitude '{kind}' rank {r}: {sum(p.numel() for p in newp) / 1e6:.2f}M floats "
+              f"(wd {args.mag_wd}, lr x{args.mag_lr_mult}, cap {args.mag_cap or 'off'})", flush=True)
+
     start_step = 0
     _touched_origin = {"v": 0}
     if args.resume and os.path.exists(ckpt_path):
@@ -1036,6 +1058,8 @@ def main():
         if blob.get("beta", False) != use_beta:
             raise SystemExit(f"checkpoint beta={blob.get('beta', False)} but run beta="
                              f"{use_beta}: forward differs, refusing to resume")
+        if args.lowrank_mag and any(k.endswith("mag_A") for k in blob["model"]):
+            enable_mag(int(blob.get("step", 0)) + 1)
         model.load_state_dict(blob["model"])
         if "opt" in blob:
             tail_opt.load_state_dict(blob["opt"])
@@ -1084,23 +1108,8 @@ def main():
     signal.signal(signal.SIGINT, _graceful)
 
     # after any resume, so 'net' counts from the weights this run starts at
-    if args.lowrank_mag:
-        # after any resume, so the checkpoint loads unchanged; the new parameters join the float tail (the
-        # look-ahead passes and the gradient clip treat them like the tail) as their own AdamW group
-        kind, r = args.lowrank_mag.split(":")
-        newp = []
-        for m in model.modules():
-            if isinstance(m, KernelTernaryLinear):
-                newp += m.enable_lowrank_mag(kind, int(r))
-        tail.extend(newp)
-        tail_opt.add_param_group({"params": newp, "weight_decay": args.mag_wd, "lr_mult": args.mag_lr_mult,
-                                  "lr": lr_at(start_step, tc) * args.mag_lr_mult})
-        if args.mag_cap:
-            for m in model.modules():
-                if isinstance(m, KernelTernaryLinear):
-                    m.mag_cap = args.mag_cap
-        print(f"low-rank magnitude '{kind}' rank {r}: {sum(p.numel() for p in newp) / 1e6:.2f}M floats "
-              f"(wd {args.mag_wd}, lr x{args.mag_lr_mult}, cap {args.mag_cap or 'off'})", flush=True)
+    if args.lowrank_mag and not mag_on[0]:
+        enable_mag(start_step)
     if args.track_reversals:
         for m in model.modules():
             if isinstance(m, KernelTernaryLinear):
