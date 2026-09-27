@@ -277,6 +277,8 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 E[key] = torch.cat([E[key][keep], E[key][keep].mean().expand(k)])
                 state[key] = (U, V)
         M = U @ V.T
+        # spend's scale: mean |M| in gradient units (U's units), taken before vnorm rescales M
+        state.setdefault("_gm", {})[key] = M.abs().mean().clamp_min(1e-12)
         if vnorm:
             # --lr_vnorm: factored second moment of the gradient (Adafactor-style row and column EMAs of
             # g^2, N+K numbers per layer); propose from M / sqrt(v), v_ij ~ R_i C_j / mean(R)
@@ -289,7 +291,6 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             M = M / (R[:, None] * C[None, :] / R.mean().clamp_min(1e-30)).sqrt().clamp_min(1e-30)
         if propose_only:
             gm = M.abs().mean().clamp_min(1e-12)
-            state.setdefault("_gm", {})[key] = gm
             if gate:        # --lr_gate: propose only where the current batch gradient agrees in sign
                 M = M * (M.sign() == g.sign())
             if qk_protect and qk_map is not None and key in qk_map:
