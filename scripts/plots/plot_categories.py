@@ -38,12 +38,19 @@ CATS = {
         ("qktemp60", "per-head temperature"),
         ("qkprot60", "temperature + head protection (stopped at 28M)"),
         ("magadd16_qk", "temperature + additive r16")]),
+    "early_plateau_10M": ("The no-look-ahead unigram plateau (first 10M tokens)", 1.05e7, [
+        ("plateau_nola", "no look-ahead (stuck at the unigram level 2-5M)"),
+        ("la40_off", "look-ahead for the first 40 steps only (1.3M), then off"),
+        ("plateau_la", "look-ahead throughout (rerun with snapshots)"),
+        ("nola_lab", "no look-ahead, full run")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),
         ("s20_spend2", "spend"), ("s20_refresh16", "refresh"), ("s20_maskstuck", "stuck mask"),
         ("s20_magadd4", "additive r4"), ("s20_magmul4", "multiplicative r4")]),
 }
+
+DLIM = {"early_plateau_10M": (-0.2, 1.4)}   # difference-panel range where the default +-0.45 clips
 
 
 def load(d):
@@ -89,7 +96,7 @@ for key, (title, tmax, runs) in CATS.items():
     vals = [x for d, *_ in lines if (r := load(d)) is not None for x in r[3][r[2] <= tmax * 1.05]]
     if vals: b.set_ylim(min(vals) - 0.05, min(max(vals), min(vals) + 2.0))
     dax.set(xscale="log", xlim=(3e5, tmax * 1.05), xlabel="tokens", ylabel="train loss minus baseline",
-            ylim=(-0.45, 0.45)); dax.axhline(0, color=INK2, lw=0.8)
+            ylim=DLIM.get(key, (-0.45, 0.45))); dax.axhline(0, color=INK2, lw=0.8)
     for ax in (a, dax, b):
         ax.set_facecolor(SURFACE); ax.grid(True, which="both", color=GRID, lw=0.6)
         for sp in ax.spines.values(): sp.set_color(GRID)
