@@ -22,6 +22,7 @@ GROUPS = [
     ("cross-batch look-ahead (2 passes) + fast ramp + fp32 tail", "#111111",
      "overnight_full", ["overnight_full", "la_xb1", "la_xb2", "la_xb2_rc", "la_fastramp_lr15",
                         "la_fast_fp32tail"]),
+    ("momentum + look-ahead + additive low-rank magnitude (r4)", "#1565c0", "magadd_full", ["magadd_full"]),
     ("rank-256 momentum + cross-batch look-ahead x2", "#e53935", "lm_lowrank256_xb2_100M",
      ["lm_lowrank256_xb2_100M", "lm_lowrank256_xb2", "lm_lowrank256_adapt_xb2"]),
     ("rank-256 momentum, no look-ahead", "#9575cd", "lm_lowrank256",
