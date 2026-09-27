@@ -13,12 +13,12 @@ RUNS = [  # dir, label, color, width, highlight
     ("fp32_baseline", "full precision fp32 + AdamW (not ternary)", "#00acc1", 2.4, False),
     ("p2_baseline",   "master weights (ceiling)",           "#eb6834", 2.4, False),
     ("lm_lowrank256_xb2_100M", "rank-256 momentum + cross-batch look-ahead x2", "#e53935", 2.4, False),
-    ("lowrank256_nola_full", "rank-256 momentum, no look-ahead (stopped at 48M)", "#7b1fa2", 2.0, False),
+    ("nola_lab", "MOMENTUM, NO LOOK-AHEAD (lab 3090, to 300M): forms induction at ~98M", "#7b1fa2", 3.2, True),
+    ("nola_add16", "NO LOOK-AHEAD + ADDITIVE r16 (4090, queued)", "#c2185b", 3.2, True),
     ("magadd_full", "momentum + look-ahead + additive magnitude r4", "#1565c0", 2.4, False),
     ("magadd16_qk", "momentum + look-ahead + additive r16 + per-head temperature (stopped at 181M)", "#2e7d32", 2.4, False),
     ("magadd16_wd_qk", "+ ADAPTER WEIGHT DECAY 0.1 (additive r16 + temperature, running to 131M)", "#8e24aa", 3.4, True),
     ("overnight_full", "cross-batch look-ahead x2, stopped at 131M", "#111111", 2.4, False),
-    ("armA_cos_la1",  "look-ahead (same batch), stopped at 202M", "#c2185b", 1.8, False),
     ("armA_cosine",   "flips, cosine rate (reference)",     "#1baf7a", 1.8, False),
     ("armA_cos_600M", "flips, cosine rate, 600M schedule",  "#8e8c85", 1.4, False),
 ]
@@ -51,6 +51,7 @@ tm_, Lm_, *_ = load("p2_baseline"); Lm_ = smooth(Lm_)
 lnm = lambda t: np.interp(np.log(t), np.log(tm_), np.log(Lm_))
 CS = np.linspace(0.5, 4.0, 351)
 for d, lab, c, lw, hi in RUNS:
+    if not os.path.exists(f"checkpoints/{d}/metrics.jsonl"): continue
     t, L, vt, vp = load(d)
     Ls = smooth(L)
     z = 6 if hi else 4
