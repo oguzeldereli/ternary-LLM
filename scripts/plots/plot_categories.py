@@ -44,6 +44,10 @@ CATS = {
         ("la40_off", "look-ahead for the first 40 steps only (1.3M), then off"),
         ("plateau_la", "look-ahead throughout (rerun with snapshots)"),
         ("nola_lab", "no look-ahead, full run")]),
+    "text_read": ("Equal text read: look-ahead reads 3 batches per step (x3 here); batch 48 without look-ahead reads the same", 9.2e8, [
+        ("nola_b48", "momentum, no look-ahead, batch 48 (3 x 16)"),
+        ("nola_lab", "momentum, no look-ahead, batch 16"),
+        ("la40_off30", "look-ahead for the first 40 steps, then off (x3 for those steps only: negligible)")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),
@@ -76,9 +80,13 @@ def smooth(L, k=100):
 
 
 os.makedirs("docs/figures/categories", exist_ok=True)
+XMULT = {"text_read": {"lm_lowrank256_xb2_100M": 3.0}}   # per figure: tokens read per logged token
+
+
 for key, (title, tmax, runs) in CATS.items():
     fig, (a, dax, b) = plt.subplots(1, 3, figsize=(24, 6.8), facecolor=SURFACE)
     tb, Lb, *_ = load("lm_lowrank256_xb2_100M"); Lb = smooth(Lb)
+    tb = tb * XMULT.get(key, {}).get("lm_lowrank256_xb2_100M", 1.0)
     base = lambda t: np.interp(np.log(t), np.log(tb), Lb)
     lines = [(d, lab, c, 2.2, "--") for d, lab, c in REFS] + \
             [(d, lab, PAL[i % len(PAL)], 2.4, "-") for i, (d, lab) in enumerate(runs)]
@@ -86,17 +94,20 @@ for key, (title, tmax, runs) in CATS.items():
         r = load(d)
         if r is None: continue
         t, L, vt, V = r
+        xm = XMULT.get(key, {}).get(d, 1.0); t, vt = t * xm, vt * xm
         m = t <= tmax * 1.05
         a.plot(t[m], smooth(L)[m], ls, color=c, lw=lw, label=lab)
         md = m & (t >= 3e5) & (t <= tb.max())
         dax.plot(t[md], smooth(L)[md] - base(t[md]), ls, color=c, lw=lw, label=lab)
         mv = vt <= tmax * 1.05
         if mv.any(): b.plot(vt[mv], V[mv], "o" + ls, color=c, lw=lw, ms=3.5, label=lab)
-    a.set(xscale="log", yscale="log", xlim=(3e4, tmax * 1.05), xlabel="tokens", ylabel="train loss (smoothed)")
-    b.set(xscale="log", xlim=(3e6 if tmax > 1e8 else 1e6, tmax * 1.05), xlabel="tokens", ylabel="validation loss")
-    vals = [x for d, *_ in lines if (r := load(d)) is not None for x in r[3][r[2] <= tmax * 1.05]]
+    xl = "text read (tokens incl. look-ahead batches)" if key in XMULT else "tokens"
+    a.set(xscale="log", yscale="log", xlim=(3e4, tmax * 1.05), xlabel=xl, ylabel="train loss (smoothed)")
+    b.set(xscale="log", xlim=(3e6 if tmax > 1e8 else 1e6, tmax * 1.05), xlabel=xl, ylabel="validation loss")
+    vals = [x for d, *_ in lines if (r := load(d)) is not None
+            for x in r[3][r[2] * XMULT.get(key, {}).get(d, 1.0) <= tmax * 1.05]]
     if vals: b.set_ylim(min(vals) - 0.05, min(max(vals), min(vals) + 2.0))
-    dax.set(xscale="log", xlim=(3e5, tmax * 1.05), xlabel="tokens", ylabel="train loss minus baseline",
+    dax.set(xscale="log", xlim=(3e5, tmax * 1.05), xlabel=xl, ylabel="train loss minus baseline",
             ylim=DLIM.get(key, (-0.45, 0.45))); dax.axhline(0, color=INK2, lw=0.8)
     for ax in (a, dax, b):
         ax.set_facecolor(SURFACE); ax.grid(True, which="both", color=GRID, lw=0.6)
