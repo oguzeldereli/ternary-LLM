@@ -20,7 +20,7 @@ STY = {  # run: (label, color, width)
 d = json.load(open("checkpoints/induction_track.json"))
 fig, (v, a, b) = plt.subplots(1, 3, figsize=(20, 5.6))
 for run, (lab, c, lw) in STY.items():
-    f = f"checkpoints/{run}/metrics.jsonl"
+    f = f"checkpoints/{'p2_baseline' if run == 'curve_master' else run}/metrics.jsonl"   # master's val: the 300M run
     if os.path.exists(f):
         rows = [json.loads(l) for l in open(f)]
         V = sorted({r["step"]: r["val_loss"] for r in rows if "val_loss" in r}.items())
@@ -32,7 +32,7 @@ for run, (lab, c, lw) in STY.items():
     t = [x["tokens"] / 1e6 for x in R]
     a.plot(t, [x["induction"] for x in R], "o-", color=c, lw=lw, ms=4, label=lab)
     b.plot(t, [x["shuffled"] for x in R], "o-", color=c, lw=lw, ms=4, label=lab)
-v.set(xlabel="tokens (M)", ylabel="val loss", title="Validation loss", ylim=(2.8, 4.2), xlim=(30, 310))
+v.set(xlabel="tokens (M)", ylabel="val loss", title="Validation loss", ylim=(2.65, 4.2), xlim=(30, 310))
 a.set(xlabel="tokens (M)", ylabel="nats", title="Ordered copying (induction): exact - shuffled repeat gain")
 b.set(xlabel="tokens (M)", ylabel="nats", title="Seen-token boost: gain on a shuffled repeat")
 for ax in (v, a, b): ax.grid(alpha=0.3)
