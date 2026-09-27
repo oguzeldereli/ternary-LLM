@@ -15,6 +15,7 @@ RUNS = [  # dir, label, color, width, highlight
     ("lm_lowrank256_xb2_100M", "rank-256 momentum + cross-batch look-ahead x2", "#e53935", 2.4, False),
     ("nola_lab", "MOMENTUM, NO LOOK-AHEAD (lab 3090, to 300M): forms induction at ~98M", "#7b1fa2", 3.2, True),
     ("nola_add16", "NO LOOK-AHEAD + ADDITIVE r16 (4090, queued)", "#c2185b", 3.2, True),
+    ("nola_then_la", "NO LOOK-AHEAD, THEN LOOK-AHEAD FROM 131M (laptop)", "#00897b", 3.2, True),
     ("magadd_full", "momentum + look-ahead + additive magnitude r4", "#1565c0", 2.4, False),
     ("magadd16_qk", "momentum + look-ahead + additive r16 + per-head temperature (stopped at 181M)", "#2e7d32", 2.4, False),
     ("magadd16_wd_qk", "+ ADAPTER WEIGHT DECAY 0.1 (additive r16 + temperature, running to 131M)", "#8e24aa", 3.4, True),
