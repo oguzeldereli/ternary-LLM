@@ -620,7 +620,13 @@ class KernelTernaryLinear(nn.Module):
         if getattr(self, "mag_A", None) is not None:
             A, B = self.mag_A.to(y.dtype), self.mag_B.to(x.dtype)
             if self.mag_kind == "add":
-                y = y + (x @ B) @ A.T
+                a = (x @ B) @ A.T
+                cap = getattr(self, "mag_cap", 0.0)
+                if cap:     # --mag_cap: the adapter stays a correction, rms(a) <= cap * rms(trit path)
+                    s = (cap * y.detach().float().pow(2).mean().sqrt()
+                         / a.detach().float().pow(2).mean().sqrt().clamp_min(1e-12)).clamp(max=1.0)
+                    a = a * s.to(a.dtype)
+                y = y + a
             else:
                 for k in range(A.shape[1]):
                     y = y + A[:, k] * _TernNoFlipFn.apply(x * B[:, k], self.wpacked, self)

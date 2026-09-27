@@ -665,6 +665,11 @@ def main():
     ap.add_argument("--lowrank_mag", default="",
                     help="low-rank float magnitude beyond the trits: 'add:R' (W = bT + AB^T) or 'mul:R' "
                          "(W = bT o (1 + AB^T))")
+    ap.add_argument("--mag_wd", type=float, default=0.0, help="weight decay of the --lowrank_mag parameters")
+    ap.add_argument("--mag_lr_mult", type=float, default=1.0, help="LR multiplier of the --lowrank_mag parameters")
+    ap.add_argument("--mag_cap", type=float, default=0.0,
+                    help="additive magnitude: scale the adapter output down to at most this x the rms of the "
+                         "trit path's output, per layer and forward (0 = off)")
     ap.add_argument("--lr_mask_stuck", action="store_true",
                     help="zero the gradient at weights already at +-1 in its push direction before it enters M")
     ap.add_argument("--lr_vnorm", type=float, default=0.0,
@@ -1085,8 +1090,14 @@ def main():
             if isinstance(m, KernelTernaryLinear):
                 newp += m.enable_lowrank_mag(kind, int(r))
         tail.extend(newp)
-        tail_opt.add_param_group({"params": newp, "weight_decay": 0.0, "lr": lr_at(start_step, tc)})
-        print(f"low-rank magnitude '{kind}' rank {r}: {sum(p.numel() for p in newp) / 1e6:.2f}M floats", flush=True)
+        tail_opt.add_param_group({"params": newp, "weight_decay": args.mag_wd, "lr_mult": args.mag_lr_mult,
+                                  "lr": lr_at(start_step, tc) * args.mag_lr_mult})
+        if args.mag_cap:
+            for m in model.modules():
+                if isinstance(m, KernelTernaryLinear):
+                    m.mag_cap = args.mag_cap
+        print(f"low-rank magnitude '{kind}' rank {r}: {sum(p.numel() for p in newp) / 1e6:.2f}M floats "
+              f"(wd {args.mag_wd}, lr x{args.mag_lr_mult}, cap {args.mag_cap or 'off'})", flush=True)
     if args.track_reversals:
         for m in model.modules():
             if isinstance(m, KernelTernaryLinear):
@@ -1175,7 +1186,7 @@ def main():
             set_flip_rate(model, rate_now)
         STATE.lr = lr
         for g in tail_opt.param_groups:
-            g["lr"] = g["rc_lr"] if g.get("rc_lr") else lr
+            g["lr"] = (g["rc_lr"] if g.get("rc_lr") else lr) * g.get("lr_mult", 1.0)
 
         # gradient accumulation: BitLinear hooks apply lr*g/accum each micro-step
         # (SGD is linear, so summing micro-steps approximates one averaged step).
