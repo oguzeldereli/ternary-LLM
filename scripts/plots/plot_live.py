@@ -10,20 +10,15 @@ import matplotlib.pyplot as plt
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 RUNS = [  # dir, label, color, width, highlight
-    ("fp32_baseline", "full precision fp32 + AdamW (not ternary)", "#00acc1", 2.4, False),
-    ("p2_baseline",   "master weights (ceiling)",           "#eb6834", 2.4, False),
-    ("lm_lowrank256_xb2_100M", "rank-256 momentum + cross-batch look-ahead x2", "#e53935", 2.4, False),
-    ("nola_lab", "MOMENTUM, NO LOOK-AHEAD (lab 3090, to 300M): forms induction at ~98M", "#7b1fa2", 3.2, True),
-    ("nola_add16", "NO LOOK-AHEAD + ADDITIVE r16 (4090, queued)", "#c2185b", 3.2, True),
-    ("nola_then_la", "NO LOOK-AHEAD, THEN LOOK-AHEAD FROM 131M (laptop)", "#00897b", 3.2, True),
-    ("la_sched", "LOOK-AHEAD 0-30M, OFF 30-131M, ON AFTER (4090)", "#fbc02d", 3.4, True),
-    ("la_sched98", "LOOK-AHEAD 0-30M, OFF 30-98M, ON AFTER (lab 3090)", "#6d4c41", 3.4, True),
-    ("magadd_full", "momentum + look-ahead + additive magnitude r4", "#1565c0", 2.4, False),
-    ("magadd16_qk", "momentum + look-ahead + additive r16 + per-head temperature (stopped at 181M)", "#2e7d32", 2.4, False),
-    ("magadd16_wd_qk", "+ ADAPTER WEIGHT DECAY 0.1 (additive r16 + temperature, running to 131M)", "#8e24aa", 3.4, True),
-    ("overnight_full", "cross-batch look-ahead x2, stopped at 131M", "#111111", 2.4, False),
-    ("armA_cosine",   "flips, cosine rate (reference)",     "#1baf7a", 1.8, False),
-    ("armA_cos_600M", "flips, cosine rate, 600M schedule",  "#8e8c85", 1.4, False),
+    ("fp32_baseline", "full precision fp32 + AdamW (not ternary)", "#00acc1", 2.2, False),
+    ("p2_baseline",   "master weights", "#eb6834", 2.2, False),
+    ("lm_lowrank256_xb2_100M", "momentum + look-ahead (baseline)", "#e53935", 2.0, False),
+    ("magadd_full", "momentum + look-ahead + additive r4", "#1565c0", 2.0, False),
+    ("nola_lab", "MOMENTUM, NO LOOK-AHEAD (induction from ~98M)", "#7b1fa2", 3.0, True),
+    ("nola_then_la", "NO LOOK-AHEAD, THEN LOOK-AHEAD FROM 131M", "#00897b", 3.0, True),
+    ("la_sched", "LOOK-AHEAD 0-30M, OFF 30-131M, ON AFTER", "#fbc02d", 3.0, True),
+    ("la_sched98", "LOOK-AHEAD 0-30M, OFF 30-98M, ON AFTER", "#6d4c41", 3.0, True),
+    ("nola_add16", "no look-ahead + additive r16 (stopped: adapter takes over q/k)", "#c2185b", 1.6, False),
 ]
 
 
