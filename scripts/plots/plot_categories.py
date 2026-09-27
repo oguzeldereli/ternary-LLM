@@ -62,15 +62,16 @@ def load(d):
     if os.path.exists(f"checkpoints/{d}_lab/metrics.jsonl"): d = f"{d}_lab"
     f = f"checkpoints/{d}/metrics.jsonl"
     if not os.path.exists(f): return None
-    tr, va = {}, {}
+    tr, va, tps = {}, {}, 32768.0
     for l in open(f):
         r = json.loads(l)
-        if "loss" in r and "tokens" in r: tr[r["step"]] = r["loss"]
+        if "loss" in r and "tokens" in r:
+            tr[r["step"]] = r["loss"]; tps = r["tokens"] / (r["step"] + 1)   # tokens per step (batch size varies)
         if "val_loss" in r: va[r["step"]] = r["val_loss"]
     if len(tr) < 10: return None
-    s = np.array(sorted(tr)); L = np.array([tr[i] for i in s]); t = (s + 1) * 32768.0
+    s = np.array(sorted(tr)); L = np.array([tr[i] for i in s]); t = (s + 1) * tps
     vs = np.array(sorted(va)); V = np.array([va[i] for i in vs])
-    return t, L, (vs + 1) * 32768.0, V
+    return t, L, (vs + 1) * tps, V
 
 
 def smooth(L, k=100):
