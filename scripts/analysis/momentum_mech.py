@@ -10,6 +10,9 @@ full-size here because test 1 showed rank 256 loses nothing).
                 F <- F + S delta, S = total weight of the remembered gradients; flip from F   (1 extra backward)
   V3 both       D as in V1 but fed with V2's transported average gradient, and h re-measured every step from
                 the same-batch difference, so a change of geometry changes the target
+  V4 measured   D <- beta (D - delta / h) + (1 - beta)(-g / h): the target estimate is corrected by the MEASURED
+                gradient change of our move (delta, same batch), which includes how each flip shifted the other
+                weights' targets, instead of assuming the move is covered exactly (V1's D - move)
 
 At 10 / 33 / 66 steps: cosine and top-1% sign precision of the flip signal against the true gradient at that moment
 (64 batches), held-out loss, trits changed.
@@ -27,7 +30,7 @@ OUT = os.environ.get("BENCH_DIR", "checkpoints/testbench_4000")
 ARMS = (sys.argv[1] if len(sys.argv) > 1 else "V0,V1,V2,V3").split(",")
 STEPS = int(sys.argv[2]) if len(sys.argv) > 2 else 66
 EVAL_AT = [k for k in (10, 33, 66) if k <= STEPS] or [STEPS]
-NTRUTH = 64 if STEPS >= 33 else 4
+NTRUTH = int(os.environ.get("EVAL_TRUTH", 64 if STEPS >= 33 else 4))
 BETA = 0.97
 CKPT = os.environ.get("BENCH_CKPT", "checkpoints/r4090_replay_11M_205M/ckpt_4000.pt")
 RATE = float(os.environ.get("BENCH_RATE", 0.01202))
@@ -111,10 +114,11 @@ for arm in ARMS:
     for k in range(1, STEPS + 1):
         batch = next(s)
         g = tern_grad(batch)
-        if arm in ("V2", "V3") and prev_batch is not None:
+        if arm in ("V2", "V3", "V4") and prev_batch is not None:
             g_same = tern_grad(prev_batch)                      # the previous batch at the new point
             delta = [a - b for a, b in zip(g_same, prev_g)]     # the change our last move caused
-            F = [f + S * d for f, d in zip(F, delta)]           # transport every remembered gradient
+            if arm != "V4":
+                F = [f + S * d for f, d in zip(F, delta)]       # transport every remembered gradient
             if arm == "V3":
                 hn = secant_h(delta, prev_move)
                 h = [hn_i if hn_i is not None else h_i for hn_i, h_i in zip(hn, h)]
@@ -122,13 +126,16 @@ for arm in ARMS:
         S = BETA * S + 1.0
         if k == 1:
             move = flip(F, k)                                   # every arm takes the same first step
-            if arm in ("V1", "V3"):
+            if arm in ("V1", "V3", "V4"):
                 g_same = tern_grad(batch)
                 h = secant_h([a - b for a, b in zip(g_same, g)], move)
                 h = [x if x is not None else 1e-6 for x in h]
                 D = [-f / S / hh for f, hh in zip(F, h)]
         elif arm in ("V0", "V2"):
             move = flip(F, k)
+        elif arm == "V4":                                       # target corrected by the measured change
+            D = [BETA * (d - dl / hh) + (1 - BETA) * (-x / hh) for d, dl, x, hh in zip(D, delta, g, h)]
+            move = flip([-d for d in D], k)
         else:                                                   # V1 / V3: target point
             gbar_now = [f / S for f in F] if arm == "V3" else g
             D = [BETA * (d - m) + (1 - BETA) * (-x / hh) for d, m, x, hh in zip(D, prev_move, gbar_now, h)]
