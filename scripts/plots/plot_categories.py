@@ -20,6 +20,7 @@ PAL = ["#1565c0", "#7b1fa2", "#00897b", "#fbc02d", "#c2185b", "#2e7d32", "#6d4c4
 CATS = {
     "look_ahead": ("Look-ahead on or off (momentum both ways)", 3e8, [
         ("nola_lab", "momentum, no look-ahead"),
+        ("la40_off", "look-ahead for the first 40 steps only, then off (to 10M so far)"),
         ("overnight_full", "look-ahead only, no momentum (stopped at 131M)")]),
     "look_ahead_schedules": ("Look-ahead schedules", 3e8, [
         ("nola_lab", "no look-ahead throughout"),
