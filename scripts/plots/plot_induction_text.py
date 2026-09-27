@@ -13,6 +13,9 @@ STY = {  # run: (label, color, width)
     "nola_then_la": ("NO LOOK-AHEAD, THEN LOOK-AHEAD FROM 131M", "#00897b", 3.0),
     "nola_add16": ("no look-ahead + additive r16", "#c2185b", 2.0),
     "la_sched": ("LOOK-AHEAD 0-30M, OFF 30-131M, ON AFTER", "#fbc02d", 3.0),
+    "la_sched98": ("LOOK-AHEAD 0-30M, OFF 30-98M, ON AFTER", "#6d4c41", 3.0),
+    "magadd16_qk_lab": ("additive r16 + temperature (cont.)", "#2e7d32", 1.6),
+    "magadd16_wd_qk_lab": ("look-ahead + additive r16 + wd + temperature (cont.)", "#8e8c85", 1.6),
 }
 d = json.load(open("checkpoints/induction_track.json"))
 fig, (v, a, b) = plt.subplots(1, 3, figsize=(20, 5.6))
