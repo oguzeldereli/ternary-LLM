@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# After the no-look-ahead resume: momentum + look-ahead x2 WITH additive low-rank magnitude (rank 4), from scratch, full 300M schedule
+# After the s20 set: momentum + look-ahead x2 WITH additive low-rank magnitude (rank 4), from scratch, full 300M schedule
 # (long-horizon test; compare lm_lowrank256_xb2_100M, val 3.127).
 set -u
 S=/scratch0/$USER; REPO=$HOME/ternary-LLM
 source $S/env.sh
 cd $REPO
-until grep -q "DONE lowrank256_nola_full" checkpoints/remote_queue.log 2>/dev/null; do sleep 60; done
+until grep -q "DONE s20_magmul4" checkpoints/remote_queue.log 2>/dev/null; do sleep 60; done
 N=magadd_full
 rm -rf checkpoints/$N; mkdir -p checkpoints/$N
 python -m bitnet.train --preset small --mode kernel --data data/wiki32k_train.bin --val data/wiki32k_val.bin \
