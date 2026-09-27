@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Resume rank-256 momentum without look-ahead (lowrank256_nola_full) from its 30M checkpoint (step 904) on the
+# Resume rank-256 momentum without look-ahead (lowrank256_nola_full, copied to lowrank256_nola_laptop so the 4090 sync
+# cannot overwrite it) from its 30M checkpoint (step 904) on the
 # laptop, full 300M schedule, snapshots every 500 steps for the induction check (exact vs shuffled repeat).
 set -u
 cd "$(dirname "$0")/../.."
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True PYTHONPATH=.
-N=lowrank256_nola_full
+N=lowrank256_nola_laptop
 python -m bitnet.train --preset small --mode kernel --data data/wiki32k_train.bin --val data/wiki32k_val.bin \
   --seq_len 2048 --batch_size 16 --grad_accum 1 --steps 9155 --warmup 305 --rate_schedule cosine \
   --rate 0.0 --rate_peak 0.02 --rate_warmup 30 --g_ref 3.0 --int8 --dw_mode dense --track_flips --tail_fp32 \
