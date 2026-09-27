@@ -29,7 +29,7 @@ def load(d):
     return st, fl, rv, net, L, (v[-1] if v else None)
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/branch340.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/branch340.png")
 a = ap.parse_args()
 fig, axs = plt.subplots(2, 2, figsize=(18, 12), facecolor=SURFACE)
 (a1, a2), (a3, a4) = axs

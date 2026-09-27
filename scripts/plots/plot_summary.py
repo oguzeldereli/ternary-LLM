@@ -36,7 +36,7 @@ A = [  # dir, label, color, width
     ("lm_lowrank256_xb2_100M", "+ rank-256 momentum proposes the flips\n  0.2 + ~2 B/weight here; state is r(N+K), shrinks with width",
      "#d62728", 3.2),
 ]
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/summary.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/summary.png")
 a = ap.parse_args()
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(17, 7.2), facecolor=SURFACE,
                                gridspec_kw={"width_ratios": [1.25, 1]})

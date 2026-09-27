@@ -31,7 +31,7 @@ def load(d):
     return (s + 1) * 32768.0, Ls, np.array([(a + 1) * 32768.0 for a, _ in v]), np.array([b for _, b in v])
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/momentum_off.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/momentum_off.png")
 a = ap.parse_args()
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 7.5), facecolor=SURFACE)
 for d, lab, c, lw, ls in RUNS:

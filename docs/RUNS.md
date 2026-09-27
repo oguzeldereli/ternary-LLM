@@ -1,6 +1,6 @@
 # Runs
 
-![every run, grouped](figures/all_runs.png)
+![every run, grouped](figures/archive/all_runs.png)
 
 *(regenerate with `python -m scripts.plots.plot_all`; run directories are listed in [RUN_INDEX.md](RUN_INDEX.md))*
 
@@ -242,7 +242,7 @@ input dtype from `RMSNorm`, and chunking the output head dropped peak VRAM at
 
 ## Spatial error feedback (negative result)
 
-(curve: see [figures/all_runs.png](figures/all_runs.png))
+(curve: see [figures/archive/all_runs.png](figures/archive/all_runs.png))
 
 Idea: a stochastic flip moves a weight by a full level (or not at all) where the
 rule's expectation is `p` of a level. Instead of storing that residual per weight,
@@ -281,7 +281,7 @@ post-flip weights.
 
 ## Per-weight flip lockout (negative result)
 
-(curve: see [figures/all_runs.png](figures/all_runs.png))
+(curve: see [figures/archive/all_runs.png](figures/archive/all_runs.png))
 
 Idea: nearly all flip work is undone, so let each weight flip **once**, then lock it
 until the epoch ends (`--flip_lockout N --lockout_mode once`), or allow further flips
@@ -330,7 +330,7 @@ only.
 
 ## Scaling shape (log-log)
 
-(curve: see [figures/all_runs.png](figures/all_runs.png))
+(curve: see [figures/archive/all_runs.png](figures/archive/all_runs.png))
 
 Local power-law slopes of training loss vs tokens, fitted over the last three
 quarters of each run:
@@ -470,7 +470,7 @@ one-step optimum at step 1000) instead of 0.02, 300M tokens:
 | 262M | 101.7 | 100.6 |
 | **300M** | **100.95** | **98.56** |
 
-(curve: see [figures/all_runs.png](figures/all_runs.png))
+(curve: see [figures/archive/all_runs.png](figures/archive/all_runs.png))
 
 Ahead by up to 17 ppl through ~70% of training, then overtaken; the endpoint is 2.4
 ppl worse, which is inside the single-run noise band for this study. So the one-step
@@ -1074,7 +1074,7 @@ Same config and batches (fast rate ramp, fp32 tail, master's tail LR; `screen_10
 
 ### How does the momentum help? (diagnostics at 11M and 210M tokens, branches from step 340)
 
-Per-step diagnostics (`--lr_diag`, `docs/figures/m_diag.png`): |M|/|g| reaches 33 (fully
+Per-step diagnostics (`--lr_diag`, `docs/figures/archive/m_diag.png`): |M|/|g| reaches 33 (fully
 consistent) at ~0.6M tokens and falls to ~4 (the pure-noise level for beta 0.97) by ~4M; the top 1%
 |M| agree in sign with the batch gradient 85% early, ~48% from 1M on; the gradient after the
 proposed flips points back (cos(g, g') ~ -0.3 from 3M on: the proposal overshoots); the share of g
@@ -1088,7 +1088,7 @@ M proposals are downhill on the true gradient 49.5% of the time (g proposals 67.
 look-ahead x2 filter, M-kept 56.9% vs g-kept 65.0%, true gain per flip 0.86e-7 vs 2.3e-7. The
 filter keeps 15% of M proposals vs 41% of g proposals.
 
-60-step branches from step 340, same batches (`docs/figures/branch340.png`):
+60-step branches from step 340, same batches (`docs/figures/archive/branch340.png`):
 
 | branch | flips | reversals | val |
 |---|---|---|---|
@@ -1185,7 +1185,7 @@ proposals beat the gradient's by 0.062 over 300 steps (at 11M the matched contro
 the gap). Per step the gradient's proposals are more precise (0.554 vs 0.525), so M's value is in
 how its flips add up over steps (it keeps pushing the same weights the same way).
 
-### Ours vs master along the run: window measurements (`docs/figures/windows.png`)
+### Ours vs master along the run: window measurements (`docs/figures/archive/windows.png`)
 
 Replay of the momentum + look-ahead run from 11M to 205M (`r4090_replay_11M_205M`, reproduces the
 original: 3.2146 vs 3.209 at 205M) and master re-run with tracking (`master_tracked`, 2.751 vs 2.759),
@@ -1213,7 +1213,7 @@ window (cos -0.10 to -0.13; coherence 0.5-0.64 < 1), ours is not (~0; coherence 
 - Master changes 4-5x more trits per step, 81-98% of them reversals (latent weights sitting on a
   threshold flip back and forth), and still moves more trits net per window (1.5-1.9x).
 
-### Moves of the first k steps vs the 100-step summed gradient, ours vs master (`docs/figures/window_curves.png`)
+### Moves of the first k steps vs the 100-step summed gradient, ours vs master (`docs/figures/archive/window_curves.png`)
 
 Windows opened at 11M, 66M, 131M, 197M (ours: 100-step continuations from the momentum run's
 checkpoints; master: `curve_master`, a master run measuring at the same steps, same batches).

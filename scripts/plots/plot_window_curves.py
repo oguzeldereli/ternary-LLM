@@ -52,5 +52,5 @@ for ax in (a1, a2):
     ax.legend(fontsize=8.5, frameon=False, ncol=2)
 a1.set_ylim(0.35, 1.0); a2.set_ylim(0.35, 0.6)
 fig.tight_layout()
-fig.savefig("docs/figures/window_curves.png", dpi=110, facecolor=SURFACE)
-print("wrote docs/figures/window_curves.png")
+fig.savefig("docs/figures/archive/window_curves.png", dpi=110, facecolor=SURFACE)
+print("wrote docs/figures/archive/window_curves.png")

@@ -15,7 +15,7 @@ Two things live here:
 
 ## Headline numbers
 
-![every run, grouped](docs/figures/all_runs.png)
+Current figures, one per category of what was tried (master and the baseline in each): [docs/figures/README.md](docs/figures/README.md)
 
 27B training on one 12 GB GPU (seq 512):
 
@@ -94,7 +94,7 @@ python -m bitnet.train --preset small --mode master --master_dtype fp32 \
 python -m bitnet.train <same flags> --out_dir checkpoints/<run> --resume
 
 # figures
-python -m scripts.plots.plot_all          # every run, grouped -> docs/figures/all_runs.png
+python -m scripts.plots.plot_categories   # one figure per category -> docs/figures/categories/
 ```
 
 ## Training modes (`--mode`)

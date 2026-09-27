@@ -35,7 +35,7 @@ def smooth(y, k):
     return out
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/windows.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/windows.png")
 a = ap.parse_args()
 to, Wo = windows("r4090_replay_11M_205M")
 tm, Wm = windows("master_tracked")

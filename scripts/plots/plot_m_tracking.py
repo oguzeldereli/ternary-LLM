@@ -24,7 +24,7 @@ def smooth(y, k):
     return out
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/m_tracking.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/m_tracking.png")
 a = ap.parse_args()
 rows = [json.loads(l) for l in open(f"checkpoints/{RUN}/metrics.jsonl")]
 R = {r["step"]: r for r in rows if "lr_cos_layers" in r}

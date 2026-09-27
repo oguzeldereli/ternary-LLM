@@ -52,5 +52,5 @@ for ax in (a1, a2):
     for sp in ax.spines.values(): sp.set_color(GRID)
     ax.legend(fontsize=9.5, frameon=False)
 fig.tight_layout()
-fig.savefig("docs/figures/overnight_branches.png", dpi=110, facecolor=SURFACE)
-print("wrote docs/figures/overnight_branches.png")
+fig.savefig("docs/figures/archive/overnight_branches.png", dpi=110, facecolor=SURFACE)
+print("wrote docs/figures/archive/overnight_branches.png")

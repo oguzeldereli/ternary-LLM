@@ -49,7 +49,7 @@ def seg_plot(ax, t, y, **kw):
         ax.plot(t[a:b], smooth(y[a:b]), label=lab if j == 0 else None, **kw)
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/m_diag.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/m_diag.png")
 a = ap.parse_args()
 st, tok, R = load()
 g = lambda k: np.array([R[s][k] for s in st])
