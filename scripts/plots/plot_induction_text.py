@@ -12,6 +12,7 @@ STY = {  # run: (label, color, width)
     "nola_lab": ("MOMENTUM, NO LOOK-AHEAD", "#7b1fa2", 3.0),
     "nola_then_la": ("NO LOOK-AHEAD, THEN LOOK-AHEAD FROM 131M", "#00897b", 3.0),
     "nola_add16": ("no look-ahead + additive r16", "#c2185b", 2.0),
+    "la_sched": ("LOOK-AHEAD 0-30M, OFF 30-131M, ON AFTER", "#fbc02d", 3.0),
 }
 d = json.load(open("checkpoints/induction_track.json"))
 fig, (v, a, b) = plt.subplots(1, 3, figsize=(20, 5.6))

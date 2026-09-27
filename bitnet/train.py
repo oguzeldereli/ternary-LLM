@@ -683,6 +683,9 @@ def main():
     ap.add_argument("--lr_adapt", action="store_true",
                     help="low-rank momentum decay = lr_beta * cos(g, M): reset at 90 deg, "
                          "reflected at 180 deg")
+    ap.add_argument("--lookahead_off", default="",
+                    help="steps without look-ahead, 'A:B' = off for A <= step < B (flips from the proposals "
+                         "directly); e.g. 915:4000 = on to 30M, off to 131M, on again")
     ap.add_argument("--lookahead_xbatch", action="store_true",
                     help="take the look-ahead pass(es) on fresh batches instead of the "
                          "training batch (each pass a new batch)")
@@ -1029,6 +1032,8 @@ def main():
                                 if isinstance(m, KernelTernaryLinear)] if lr_state else None}, tmp)
         os.replace(tmp, ckpt_path)
 
+    la_off = tuple(int(x) for x in args.lookahead_off.split(":")) if args.lookahead_off else (0, 0)
+    la_on = lambda st: bool(args.lookahead) and not (la_off[0] <= st < la_off[1])
     mag_on = [False]
 
     def enable_mag(step0):
@@ -1069,7 +1074,7 @@ def main():
         for _ in range(start_step * tc.grad_accum):
             torch.randint(len(train_data) - tc.seq_len - 1, (tc.batch_size,), generator=sampler)
         if args.lookahead_xbatch:
-            for _ in range(start_step * args.lookahead):
+            for _ in range(sum(la_on(i) for i in range(start_step)) * args.lookahead):
                 torch.randint(len(train_data) - tc.seq_len - 1, (tc.batch_size,), generator=la_gen)
         if blob.get("lowrank"):
             lays = [m for m in model.modules() if isinstance(m, KernelTernaryLinear)]
@@ -1220,7 +1225,7 @@ def main():
         if args.mode in ("kernel", "evidence") and tc.grad_accum > 1:
             flip_accumulated(model)
         if args.lowrank:
-            if args.lookahead:          # propose from M, keep by the look-ahead test
+            if la_on(step):             # propose from M, keep by the look-ahead test
                 rs_info, Ms = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                            args.flip_seed, args.lr_adapt, propose_only=True,
                                            diag=args.lr_diag, gate=args.lr_gate,
@@ -1243,7 +1248,7 @@ def main():
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                        args.flip_seed, args.lr_adapt)
-        elif args.lookahead:
+        elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
         elif search:
