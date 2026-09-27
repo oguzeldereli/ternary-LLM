@@ -764,6 +764,8 @@ def main():
                          "mode (default bf16 + 8-bit Adam freezes the norm gains at 1.0)")
     ap.add_argument("--probe", default="",
                     help="probe schedule, e.g. '0-40:5,40-160:20' (bitnet/probe.py)")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="run seed (init, data order, look-ahead batches); default TrainConfig.seed = 1337")
     ap.add_argument("--flip_seed", type=int, default=0,
                     help="offset for the flip RNG only (data order unchanged): replicates")
     ap.add_argument("--rate_min", type=float, default=0.0,
@@ -812,6 +814,7 @@ def main():
 
     mc: ModelConfig = PRESETS[args.preset]
     tc = TrainConfig()
+    if args.seed is not None: tc.seed = args.seed
     if args.data: tc.data_path = args.data
     if args.val: tc.val_path = args.val
     if args.steps: tc.max_steps = args.steps
