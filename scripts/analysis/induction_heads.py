@@ -51,6 +51,7 @@ def load(path, kind):
         for l in m.modules():
             if isinstance(l, KernelTernaryLinear):
                 l.enable_lowrank_mag(os.environ.get("MAG_KIND", "add"), r)
+                l.mag_cap = float(os.environ.get("MAG_CAP", 0))       # runs with --mag_cap
     if any(k.endswith("qk_logscale") for k in b["model"]):       # runs with --qk_temp
         for a in m.modules():
             if isinstance(a, BM.Attention):

@@ -5,7 +5,10 @@ import matplotlib.pyplot as plt
 
 ARMS = [("master", "master (latent weights)", "k"), ("mom_la", "momentum + look-ahead", "C0"),
         ("mom_add_la", "momentum + additive + look-ahead", "C1"), ("mom_r005", "momentum, rate 0.005", "C2"),
-        ("mom", "momentum, rate 0.02", "C3"), ("mom_add", "momentum + additive, rate 0.02", "C4")]
+        ("mom", "momentum, rate 0.02", "C3"), ("mom_add", "momentum + additive, rate 0.02", "C4"),
+        ("add_la_wd01", "mom + additive (wd 0.1) + look-ahead", "C5"),
+        ("add_la_lr01", "mom + additive (lr x0.1) + look-ahead", "C6"),
+        ("add_la_cap05", "mom + additive (cap 0.5) + look-ahead", "C9")]
 fig, (a, b) = plt.subplots(1, 2, figsize=(13, 4.8))
 for n, lab, c in ARMS:
     S, I = [], []
