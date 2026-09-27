@@ -94,6 +94,9 @@ class Attention(nn.Module):
         q = self.wq(x).view(B, T, self.n_heads, self.head_dim)
         k = self.wk(x).view(B, T, self.n_kv, self.head_dim)
         v = self.wv(x).view(B, T, self.n_kv, self.head_dim)
+        if getattr(self, "qk_logscale", None) is not None:
+            # learnable per-head temperature (--qk_temp): logits scale by exp(s_h)
+            q = q * self.qk_logscale.exp().view(1, 1, -1, 1).to(q.dtype)
         q, k = apply_rope(q, k, freqs_cis)
         if self.rep > 1:
             k = k.repeat_interleave(self.rep, dim=2)

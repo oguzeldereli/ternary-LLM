@@ -649,6 +649,8 @@ def main():
                     help="replace this many of the weakest momentum directions every "
                          "--lr_refresh_every steps with top directions of the gradient outside the subspace")
     ap.add_argument("--lr_refresh_every", type=int, default=10)
+    ap.add_argument("--qk_temp", action="store_true",
+                    help="learnable per-head attention temperature (log-scale per head, no weight decay)")
     ap.add_argument("--lowrank_mag", default="",
                     help="low-rank float magnitude beyond the trits: 'add:R' (W = bT + AB^T) or 'mul:R' "
                          "(W = bT o (1 + AB^T))")
@@ -848,6 +850,12 @@ def main():
     model.train()
     if args.ckpt_skip:
         model.ckpt_skip = args.ckpt_skip
+    if args.qk_temp:
+        from .model import Attention
+        for a in model.modules():
+            if isinstance(a, Attention):
+                a.qk_logscale = nn.Parameter(torch.zeros(a.n_heads, device=device))
+        print("per-head attention temperature on (log-scale, init 0)", flush=True)
     if args.rc_scale:
         from .flip import enable_rc_scales
         print(f"row/column scales: {enable_rc_scales(model) / 1e3:.1f}k floats", flush=True)
@@ -879,7 +887,7 @@ def main():
         rc = [p for n, p in model.named_parameters() if n.endswith(("row_scale", "col_scale"))]
         rcid = {id(p) for p in rc}
         norms = [p for n, p in model.named_parameters() if id(p) in tids and id(p) not in rcid
-                 and n.endswith("norm.weight")]
+                 and (n.endswith("norm.weight") or n.endswith("qk_logscale"))]
         nids = {id(p) for p in norms} | rcid
         emb = [p for p in tail if id(p) not in nids]
         tail_groups = [{"params": emb, "weight_decay": tc.weight_decay},
