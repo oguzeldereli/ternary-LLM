@@ -36,6 +36,9 @@ BM.Attention.forward = fwd
 def load(path, kind):
     b = torch.load(path, map_location="cpu", weights_only=False)
     if kind == "master": m = build_master_transformer(b["cfg"], grad_checkpoint=False)
+    elif kind == "fp32":
+        m = BM.BitTransformer(b["cfg"], grad_checkpoint=False,
+                              make_linear=lambda i, o: torch.nn.Linear(i, o, bias=False))
     else:
         m = build_kernel_transformer(b["cfg"], grad_checkpoint=False, beta=b.get("beta", True), int8=b.get("int8", True),
                                      dw_mode=b.get("dw_mode", "dense"), g_ref=3.0)

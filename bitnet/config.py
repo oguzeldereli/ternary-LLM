@@ -92,6 +92,9 @@ PRESETS = {
     # ~51M, GPT-2 BPE vocab (50257). For the master vs master-free study on Wiki.
     "s50": ModelConfig(vocab_size=50257, dim=512, n_layers=8, n_heads=8,
                        n_kv_heads=8, hidden_dim=1408, max_seq_len=512),
+    # 2-layer toy for the induction-head test on synthetic repeated-segment data (scripts/toy/).
+    "toy2": ModelConfig(vocab_size=2048, dim=256, n_layers=2, n_heads=4, n_kv_heads=4,
+                        hidden_dim=768, max_seq_len=256),
     # ~730M params. Pushes a 12GiB card: use batch_size=1, grad_checkpoint, 8bit-adam.
     "d1536_l24": ModelConfig(dim=1536, n_layers=24, n_heads=16, n_kv_heads=8,
                              hidden_dim=4096),
