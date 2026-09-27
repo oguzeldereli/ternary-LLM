@@ -8,7 +8,7 @@ import os, glob, re, json, torch, torch.nn.functional as F
 
 RUNS = {  # run dir: (loader kind, adapter kind for the loader or "")
     "curve_master": ("master", ""), "magadd16_qk": ("kernel", "add"), "magadd16_wd_qk": ("kernel", "add"),
-    "magadd_full": ("kernel", "add"), "nola_lab": ("kernel", ""),
+    "magadd_full": ("kernel", "add"), "nola_lab": ("kernel", ""), "nola_add16": ("kernel", "add"),
 }
 CACHE = "checkpoints/induction_track.json"
 

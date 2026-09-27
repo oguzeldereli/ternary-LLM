@@ -5,7 +5,7 @@ import json, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 STY = {"curve_master": ("master weights", "#eb6834"), "magadd_full": ("additive r4", "#1565c0"),
-       "magadd16_qk": ("additive r16 + temperature", "#2e7d32"), "nola_lab": ("momentum, no look-ahead", "#7b1fa2"),
+       "magadd16_qk": ("additive r16 + temperature", "#2e7d32"), "nola_lab": ("momentum, no look-ahead", "#7b1fa2"), "nola_add16": ("no look-ahead + additive r16", "#c2185b"),
        "magadd16_wd_qk": ("additive r16 + WEIGHT DECAY 0.1 + temperature (running)", "#8e24aa")}
 d = json.load(open("checkpoints/induction_track.json"))
 fig, (a, b) = plt.subplots(1, 2, figsize=(13, 4.8))
