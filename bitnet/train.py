@@ -201,7 +201,8 @@ def _diag_agg(name, vals, per_block=7):
 
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
-                 diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False):
+                 diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
+                 qk_protect=0.0, qk_map=None):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -291,6 +292,13 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             state.setdefault("_gm", {})[key] = gm
             if gate:        # --lr_gate: propose only where the current batch gradient agrees in sign
                 M = M * (M.sign() == g.sign())
+            if qk_protect and qk_map is not None and key in qk_map:
+                # --qk_protect: the rows of head h in wq / wk get their proposals scaled by T_h^-alpha (T_h =
+                # learned temperature), so heads the model has sharpened are rewritten less; gm (the threshold
+                # scale) stays that of the unscaled M
+                attn = qk_map[key]
+                T = attn.qk_logscale.detach().exp().float()
+                M = M * T.repeat_interleave(attn.head_dim).pow(-qk_protect)[:, None]
             Ms.append(M); state.setdefault("_gms", []).append(gm); continue
         before = l.wpacked.clone() if l.track else None
         fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003,
@@ -649,6 +657,8 @@ def main():
                     help="replace this many of the weakest momentum directions every "
                          "--lr_refresh_every steps with top directions of the gradient outside the subspace")
     ap.add_argument("--lr_refresh_every", type=int, default=10)
+    ap.add_argument("--qk_protect", type=float, default=0.0,
+                    help="with --qk_temp: scale wq/wk flip proposals of head h by T_h^-alpha (alpha = this)")
     ap.add_argument("--qk_temp", action="store_true",
                     help="learnable per-head attention temperature (log-scale per head, no weight decay)")
     ap.add_argument("--lowrank_mag", default="",
@@ -1086,6 +1096,10 @@ def main():
     probe_steps = parse_schedule(args.probe)
     ramp_t = time.time()
     prof = None
+    qk_map = None
+    if args.qk_protect:
+        from .model import Attention
+        qk_map = {id(p): a for a in model.modules() if isinstance(a, Attention) for p in (a.wq, a.wk)}
     mwin = None
     if args.move_window or args.record_sample or args.window_curve:
         recorder = (Recorder(model, args.record_sample, tc.out_dir,
@@ -1187,7 +1201,8 @@ def main():
                                            args.flip_seed, args.lr_adapt, propose_only=True,
                                            diag=args.lr_diag, gate=args.lr_gate,
                                            refresh=args.lr_refresh, refresh_every=args.lr_refresh_every,
-                                           vnorm=args.lr_vnorm, mask_stuck=args.lr_mask_stuck)
+                                           vnorm=args.lr_vnorm, mask_stuck=args.lr_mask_stuck,
+                                           qk_protect=args.qk_protect, qk_map=qk_map)
                 la = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                     args.flip_seed, la_extra, signals=Ms,
                                     diag=args.lr_diag, gacc=mwin, sig_gmeans=lr_state["_gms"],
