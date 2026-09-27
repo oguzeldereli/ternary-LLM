@@ -83,6 +83,28 @@ tr.ref td{background:var(--neutral-soft)}
 .open{color:var(--bad)} .lead{color:var(--warn)} .closed{color:var(--good)}
 .gapcard p{font-size:14px}
 
+
+/* html diagrams */
+.pipe{display:flex; align-items:stretch; gap:8px; min-width:900px}
+.stage{flex:1; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:4px; font-size:13px; line-height:1.45}
+.stage b{font-size:14px}
+.stage span{color:var(--ink2)}
+.stage .k{font:500 11px/1 "IBM Plex Mono",monospace; color:var(--accent)}
+.stage.main{border-color:var(--accent); background:var(--accent-soft)}
+.arr{align-self:center; color:var(--ink2); font-size:20px}
+.flag{margin-top:auto; background:var(--warn-soft); color:var(--warn); border-radius:6px; padding:5px 7px; font-size:12px}
+.adds{margin-top:14px; display:flex; flex-direction:column; gap:8px}
+.addrow{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; min-width:900px}
+.threads{display:grid; grid-template-columns:repeat(4,minmax(230px,1fr)); gap:14px; min-width:980px}
+.thread{display:flex; flex-direction:column; gap:10px}
+.thread h3{font-size:15px}
+.chain{display:flex; flex-direction:column; align-items:stretch}
+.node{background:var(--bg); border:1px solid var(--line); border-left-width:4px; border-radius:6px; padding:8px 10px; font-size:13px; line-height:1.45}
+.node.good{border-color:var(--good); background:var(--good-soft)}
+.node.bad{border-color:var(--bad); background:var(--bad-soft)}
+.node.lead{border-color:var(--warn); background:var(--warn-soft)}
+.down{text-align:center; color:var(--ink2); line-height:1.3}
+.foot{font-size:12px; color:var(--ink2)}
 figure{margin:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; display:flex; flex-direction:column; gap:8px}
 figure img{border-radius:4px; background:#fff}
 figcaption{color:var(--ink2); font-size:13px}
@@ -95,7 +117,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 27 Sep 2026, 16:40</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 27 Sep 2026, 16:50</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span>, with no full-precision copy of them (optimizer state at most sublinear in parameter count). This page lays out what we tried, why, where it ran, and what is still unexplained.</p>
 </header>
@@ -114,75 +136,113 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <section>
   <span class="eyebrow">Right now</span>
   <div class="status">
-    <div class="card"><span class="pill run">running · laptop</span><h3>No look-ahead, resumed</h3><p class="meta">Rank-256 momentum without look-ahead, resumed from its 30M checkpoint to 300M, snapshots every 500 steps. At 30M it boosts already-seen tokens (0.18) but has no ordered copying (0.00). ETA ~21:10.</p></div>
-    <div class="card"><span class="pill wait">ready · 4090</span><h3>Additive r16 + weight decay + temperature</h3><p class="meta">The toy's induction fix on text: adapter weight decay 0.1, per-head temperature, to 32M, snapshots every 250 steps. Starts when you stop the old 4090 run and run <code>start.sh magadd16_wd_qk32.sh</code>. ~45 min.</p></div>
-    <div class="card"><span class="pill stop">to stop · 4090</span><h3>Additive r16 + temperature</h3><p class="meta">Best text loss so far (ppl 24.1 at ~165M, ahead of r4) but induction 0.03 at 131M. Superseded by the weight-decay run.</p></div>
+    <div class="card"><span class="pill run">running · 4090</span><h3>Additive r16 + weight decay + temperature</h3><p class="meta">The toy's induction fix on text: adapter weight decay 0.1, per-head temperature, from scratch to 32M, snapshots every 250 steps. Step 520 of 977 at 16:46; done ~17:10.</p></div>
+    <div class="card"><span class="pill run">running · laptop</span><h3>Toy replicates</h3><p class="meta">Seeds 2 and 3 of adapter + weight decay, unfixed adapter, and no adapter (all with look-ahead), plus adapter + weight decay at flip rate 0.005. Seven runs in parallel; done ~19:10.</p></div>
+    <div class="card"><span class="pill stop">stopped</span><h3>No look-ahead; additive r16 + temperature</h3><p class="meta">No look-ahead: stopped at 43M (no ordered copying at 30M). Additive r16 + temperature: stopped at step 5515 (~181M), best text loss so far but induction 0.03 at 131M.</p></div>
   </div>
 </section>
 
 <section>
   <span class="eyebrow">How one training step works</span>
   <h2>The method stack</h2>
-  <p>The core loop is the same in every recent run; the fixes are optional flags that change one stage. Orange boxes are flags we tested.</p>
-  <div class="diagram"><pre class="mermaid">
-flowchart LR
-  B["batch"] --> G["gradient g<br/>w.r.t. trits"]
-  G --> M["rank-256 momentum<br/>M = U·Vᵀ, β = 0.97<br/>state r·(N+K) per layer"]
-  M --> P["propose flips<br/>p = r·min(|M̂|/3, 1)<br/>rate: cosine, peak 0.02"]
-  P --> LA["cross-batch look-ahead ×2<br/>keep flip if Δ·(g + g′) &lt; 0<br/>on two fresh batches"]
-  LA --> T["trits {−1,0,+1}<br/>× fixed scale β"]
-  T --> F["forward"]
-  AD["additive adapter<br/>W = βT + A·Bᵀ<br/>rank 4 / 16, AdamW"] --> F
-  QT["per-head temperature<br/>q × exp(s_h)"] --> F
-  TAIL["float tail: embeddings,<br/>norms (fp32 AdamW)"] --> F
-  X1["sign gate · vnorm · spend<br/>refresh · stuck mask"]:::flag -.-> M
-  X2["head protection<br/>(scale by T_h^−α)"]:::flag -.-> P
-  X3["adapter fixes:<br/>weight decay · cap · LR×0.1"]:::flag -.-> AD
-  classDef flag fill:#f6eedb,stroke:#a4720f,color:#1a1c20
-  </pre></div>
+  <p>The core loop is the same in every recent run; the fixes are optional flags that change one stage. Amber tags are flags we tested at that stage.</p>
+  <div class="diagram">
+    <div class="pipe">
+      <div class="stage"><span class="k">1</span><b>Gradient</b><span>g for every trit, from one batch</span></div>
+      <div class="arr" aria-hidden="true">&rarr;</div>
+      <div class="stage"><span class="k">2</span><b>Rank-256 momentum</b><span>M = U&middot;V<sup>T</sup>, &beta; = 0.97<br>state r&middot;(N+K) per layer</span>
+        <div class="flag">flags: sign gate &middot; vnorm &middot; spend &middot; refresh &middot; stuck mask</div></div>
+      <div class="arr" aria-hidden="true">&rarr;</div>
+      <div class="stage"><span class="k">3</span><b>Propose flips</b><span>p = r&middot;min(|M&#770;|/3, 1)<br>rate: cosine, peak 0.02</span>
+        <div class="flag">flag: head protection</div></div>
+      <div class="arr" aria-hidden="true">&rarr;</div>
+      <div class="stage"><span class="k">4</span><b>Look-ahead &times;2</b><span>keep a flip if &Delta;&middot;(g + g&prime;) &lt; 0 on two fresh batches</span></div>
+      <div class="arr" aria-hidden="true">&rarr;</div>
+      <div class="stage main"><span class="k">5</span><b>Trits {&minus;1, 0, +1}</b><span>&times; fixed scale &beta; per matrix</span></div>
+    </div>
+    <div class="adds">
+      <span class="eyebrow">added to the forward pass</span>
+      <div class="addrow">
+        <div class="stage"><b>Additive adapter</b><span>W = &beta;T + A&middot;B<sup>T</sup>, rank 4 or 16, AdamW</span><div class="flag">flags: weight decay &middot; cap &middot; LR &times;0.1</div></div>
+        <div class="stage"><b>Per-head temperature</b><span>queries &times; exp(s<sub>h</sub>), learned</span></div>
+        <div class="stage"><b>Float tail</b><span>embeddings and norm gains, fp32 AdamW</span></div>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section>
   <span class="eyebrow">What we asked, in order, and what each answer led to</span>
   <h2>The question map</h2>
-  <p>Four threads. Each box is a finding; arrows show which finding prompted the next experiment. Green: settled. Red: ruled out or failed. Amber: open lead.</p>
-  <div class="diagram"><pre class="mermaid">
-flowchart TD
-  subgraph A["A · Why do we lag master?"]
-    A1["Single-step flip precision vs true gradient:<br/>M 0.48 · one-batch g 0.63 · master 0.54"] --> A2["Master's 100-step net moves agree 96%<br/>with summed gradient; ours 68–72%<br/>(latent weights undo unsupported moves)"]
-    A2 --> A3["M is noise-dominated: |M|/|g| ≈ 4.1<br/>37% of M pushes stuck ±1 weights,<br/>63% sits at chance"]
-    A3 --> A4["20M screens of fixes"]
-    A4 --> A5["additive magnitude −0.052<br/>sign gate −0.026"]:::good
-    A4 --> A6["vnorm, multiplicative: noise<br/>spend, refresh: 0 · stuck mask: worse"]:::bad
-    A5 --> A7["additive r4 at 300M: 3.082 vs 3.127"]:::good
-  end
-  subgraph B["B · Why no bend at ~12M?"]
-    B1["fp32/master slope −0.30 at 12–20M, ours −0.21"] --> B2["fp32's long-context gain jumps at 13–20M<br/>master grows induction heads"]
-    B2 --> B3["ours: no induction at any size"]:::bad
-    B3 --> B4["attention can't sharpen:<br/>q/k rms 1.1–1.4 vs 2–2.4 · entropy 2.5–3.8 vs 0.85<br/>(trits × fixed β, master's scale can grow)"]
-    B4 --> B5["per-head temperature: prev-token head forms<br/>at 25M, then flickers (its rows churn 25–31%)"]
-    B5 --> B6["head protection: a patch, stopped at 28M"]:::bad
-    B4 --> B7["additive r16 + temperature: best loss,<br/>still no induction (0.03 at 131M)"]:::bad
-  end
-  subgraph C["C · Is look-ahead blocking induction?"]
-    C1["no look-ahead at 30M: copy gain 0.18"] --> C2["exact vs shuffled repeat: 0.179 vs 0.176<br/>= boosts seen tokens, no ordered copying"]
-    C2 --> C3["can't tell from text at 30M → build a toy"]
-  end
-  subgraph D["D · 2-layer toy: can our optimizer build induction?"]
-    D1["master 3.53 nats · mom + look-ahead 2.94"] --> D2["no look-ahead: 1.07, only after the flip rate decays<br/>rate ÷4: 2.48, formed much earlier"]:::good
-    D1 --> D3["additive adapter hurts: 2.27, never forms without look-ahead"]:::bad
-    D3 --> D4["adapter A grows as lr·√t (Adam on noise)<br/>and overtakes the trit path"]
-    D4 --> D5["adapter weight decay 0.1: 7.16 nats, val 3.80 < master<br/>output cap 0.5: 4.25 · LR ×0.1: 2.81"]:::good
-    D5 --> D6["lead: decay on both factors = nuclear-norm penalty;<br/>adapter eff. rank 2.5 vs 3.0 · one seed each"]:::lead
-  end
-  A7 --> B7
-  B3 --> C1
-  C3 --> D1
-  D5 --> E1["next: same fix on text (4090, 32M)"]:::lead
-  classDef good fill:#e3f1e8,stroke:#2c7a4b,color:#1a1c20
-  classDef bad fill:#f7e5e3,stroke:#b0413a,color:#1a1c20
-  classDef lead fill:#f6eedb,stroke:#a4720f,color:#1a1c20
-  </pre></div>
+  <p>Four threads, read top to bottom; each box is a finding and the next box is the experiment it prompted. Green: worked. Red: failed or ruled out. Amber: open lead. Scroll sideways on a narrow screen.</p>
+  <div class="diagram">
+  <div class="threads">
+    <div class="thread"><h3>A &middot; Why do we lag master?</h3>
+      <div class="chain">
+        <div class="node ">Single-step flip precision vs the true gradient: <b>M 0.48</b>, one batch's g 0.63, master 0.54</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node ">Master's 100-step net moves agree <b>96%</b> with the summed gradient; ours 68&ndash;72%. Its latent weights undo moves the gradient stops supporting.</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node ">M is noise-dominated: |M|/|g| &asymp; 4.1. 37% of M pushes weights already at &plusmn;1; the other 63% is at chance.</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node ">20M from-scratch screens of fixes</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node good">Helped: additive adapter &minus;0.052, sign gate &minus;0.026</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node bad">No effect or worse: vnorm, multiplicative, spend, refresh, stuck mask</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node good">Additive r4 at 300M: val 3.082 vs 3.127</div>
+      </div>
+      <p class="foot">Leads to B: the best loss still has no induction.</p>
+    </div>
+    <div class="thread"><h3>B &middot; Why no bend at ~12M?</h3>
+      <div class="chain">
+        <div class="node ">Master and fp32 steepen to slope &minus;0.30 at 12&ndash;20M; ours stays at &minus;0.21</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node ">At the same time fp32's long-context gain jumps and master grows induction heads</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node bad">Ours: no induction at any size</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node ">Our attention can't sharpen: q/k rms 1.1&ndash;1.4 vs 2&ndash;2.4, entropy 2.5&ndash;3.8 vs 0.85. Trits &times; fixed &beta;; master's scale can grow.</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node ">Per-head temperature: a previous-token head forms at 25M, then flickers (its rows churn 25&ndash;31% per 8M)</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node bad">Head protection: a patch, stopped at 28M</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node bad">Additive r16 + temperature: best text loss, still no induction (0.03 at 131M; master 0.44)</div>
+      </div>
+      <p class="foot">Leads to C: is look-ahead the cause?</p>
+    </div>
+    <div class="thread"><h3>C &middot; Is look-ahead blocking induction?</h3>
+      <div class="chain">
+        <div class="node ">No look-ahead, 30M: copy gain 0.18</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node bad">Exact vs shuffled repeat: 0.179 vs 0.176. It boosts tokens it has seen, with no ordered copying.</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node ">Text at 30M can't answer it (master has none there either), so build a toy</div>
+      </div>
+      <p class="foot">Leads to D.</p>
+    </div>
+    <div class="thread"><h3>D &middot; Toy: can our optimizer build induction?</h3>
+      <div class="chain">
+        <div class="node ">2 layers, repeated random segments. Master: <b>3.53</b> nats. Momentum + look-ahead: 2.94.</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node good">Without look-ahead: 1.07, only once the flip rate decays. Rate &divide;4: 2.48, formed much earlier. Too many noisy flips was the problem; look-ahead acts as a selective rate limiter.</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node bad">Additive adapter hurts: 2.27, and never forms without look-ahead</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node ">The adapter's A grows as lr&middot;&radic;t (Adam steps on noise) and overtakes the trit path</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node good">Adapter weight decay 0.1: <b>7.16</b> nats, val 3.80 (below master's 4.01). Cap 0.5: 4.25. LR &times;0.1: 2.81.</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node lead">Lead: decay on both factors acts like a nuclear-norm penalty. Adapter effective rank 2.5 vs 3.0. One seed; replicates running.</div>
+        <div class="down" aria-hidden="true">&darr;</div>
+        <div class="node lead">Next: the same fix on text (4090, 32M)</div>
+      </div>
+      <p class="foot"></p>
+    </div>
+  </div>
+  </div>
 </section>
 
 <section>
@@ -202,9 +262,9 @@ flowchart TD
       <tr class="ref"><td class="mono">master_tracked</td><td>master weights (fp32 latent + STE + AdamW)</td><td>—</td><td class="num">300M</td><td class="num">2.759</td><td class="num good">3.17</td></tr>
       <tr><td class="mono">lm_lowrank256_xb2_100M</td><td>momentum + look-ahead</td><td>laptop</td><td class="num">300M</td><td class="num">3.127</td><td class="num bad">0.00</td></tr>
       <tr><td class="mono">magadd_full</td><td>+ additive r4</td><td>4090</td><td class="num">300M</td><td class="num good">3.082</td><td class="num bad">~0.05</td></tr>
-      <tr><td class="mono">magadd16_qk</td><td>+ additive r16 + per-head temperature</td><td>4090</td><td class="num">~180M, stopping</td><td class="num">3.268 @131M (r4: 3.347)</td><td class="num bad">0.03 @131M</td></tr>
-      <tr><td class="mono">lowrank256_nola_full</td><td>momentum, no look-ahead</td><td>laptop</td><td class="num">30M → 300M, running</td><td class="num">—</td><td class="num meh">0.00 @30M (seen-token boost 0.18)</td></tr>
-      <tr><td class="mono">magadd16_wd_qk</td><td>+ additive r16, adapter weight decay 0.1, temperature</td><td>4090</td><td class="num">32M, ready</td><td class="num">—</td><td class="num">—</td></tr>
+      <tr><td class="mono">magadd16_qk</td><td>+ additive r16 + per-head temperature</td><td>4090</td><td class="num">181M, stopped</td><td class="num">3.268 @131M (r4: 3.347)</td><td class="num bad">0.03 @131M</td></tr>
+      <tr><td class="mono">lowrank256_nola_full</td><td>momentum, no look-ahead</td><td>4090, then laptop</td><td class="num">43M, stopped</td><td class="num">—</td><td class="num meh">0.00 @30M (seen-token boost 0.18)</td></tr>
+      <tr><td class="mono">magadd16_wd_qk</td><td>+ additive r16, adapter weight decay 0.1, temperature</td><td>4090</td><td class="num">32M, running</td><td class="num">—</td><td class="num">—</td></tr>
       <tr><td class="mono">armA_cos_600M</td><td>old plain flips, no momentum</td><td>laptop</td><td class="num">600M</td><td class="num bad">~4.53</td><td class="num bad">0.00</td></tr>
       <tr><td class="mono">all_fixes_full, mul60_heads</td><td>removed from the queue before starting</td><td>4090</td><td class="num">—</td><td class="meh">—</td><td class="meh">—</td></tr>
     </table>
