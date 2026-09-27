@@ -29,7 +29,7 @@ def smooth(y, k=20):
     return np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(y))])
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/lm_momentum_la.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/lm_momentum_la.png")
 a = ap.parse_args()
 B = load(BASE)
 fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6.5), facecolor=SURFACE)

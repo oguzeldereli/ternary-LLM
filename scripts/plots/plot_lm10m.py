@@ -42,7 +42,7 @@ def load(d):
     return t, Ls, (v[-1]["val_loss"] if v and d != "p2_baseline" else None), c
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/lm10m.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/lm10m.png")
 a = ap.parse_args()
 D = {d: load(d) for d, *_ in RUNS if os.path.exists(f"checkpoints/{d}/metrics.jsonl")}
 fig, axs = plt.subplots(2, 2, figsize=(20, 13), facecolor=SURFACE)

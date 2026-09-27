@@ -46,7 +46,7 @@ def smooth(y, k=15):
     return np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(y))])
 
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/lm_curves.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/lm_curves.png")
 a = ap.parse_args()
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 7.5), facecolor=SURFACE)
 n = 0

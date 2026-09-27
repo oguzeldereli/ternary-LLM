@@ -1,0 +1,291 @@
+<title>Ternary Training Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f4f5f2; --panel:#ffffff; --ink:#1a1c20; --ink2:#565b63; --line:#dcded8;
+  --accent:#2a55b8; --accent-soft:#e6ecfa;
+  --good:#2c7a4b; --good-soft:#e3f1e8; --bad:#b0413a; --bad-soft:#f7e5e3; --warn:#a4720f; --warn-soft:#f6eedb;
+  --neutral-soft:#eceee9;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#131519; --panel:#1b1e23; --ink:#e5e7ea; --ink2:#9aa1aa; --line:#2e333a;
+    --accent:#86a6f5; --accent-soft:#1f2940;
+    --good:#6cc08f; --good-soft:#18291f; --bad:#e58a82; --bad-soft:#321b19; --warn:#dcae55; --warn-soft:#2d2514;
+    --neutral-soft:#22262c;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#131519; --panel:#1b1e23; --ink:#e5e7ea; --ink2:#9aa1aa; --line:#2e333a;
+  --accent:#86a6f5; --accent-soft:#1f2940;
+  --good:#6cc08f; --good-soft:#18291f; --bad:#e58a82; --bad-soft:#321b19; --warn:#dcae55; --warn-soft:#2d2514;
+  --neutral-soft:#22262c;
+}
+body{background:var(--bg); color:var(--ink); font:15px/1.6 "IBM Plex Sans",system-ui,sans-serif; padding-inline:20px; padding-block:28px 64px}
+.wrap{max-width:1120px; margin:0 auto; display:flex; flex-direction:column; gap:44px}
+h1,h2,h3{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif; text-wrap:balance; margin:0; line-height:1.2}
+h1{font-size:34px; font-weight:600; letter-spacing:-.01em}
+h2{font-size:24px; font-weight:600}
+h3{font-size:17px; font-weight:600}
+p{margin:0; max-width:72ch}
+.mono,code,td.num{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums}
+code{font-size:.9em; background:var(--neutral-soft); padding:1px 5px; border-radius:4px}
+.eyebrow{font:500 12px/1 "IBM Plex Mono",monospace; text-transform:uppercase; letter-spacing:.09em; color:var(--ink2)}
+section{display:flex; flex-direction:column; gap:16px}
+.lede{color:var(--ink2); font-size:16px}
+.trits{font-family:"IBM Plex Mono",monospace; color:var(--accent)}
+
+/* numbers strip */
+.gap{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px}
+.gap div{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; display:flex; flex-direction:column; gap:4px}
+.gap .v{font:500 26px/1.1 "IBM Plex Mono",monospace}
+.gap .l{color:var(--ink2); font-size:13px}
+.gap .ours .v{color:var(--accent)}
+
+/* status */
+.status{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; display:flex; flex-direction:column; gap:8px}
+.pill{display:inline-block; font:500 11px/1 "IBM Plex Mono",monospace; text-transform:uppercase; letter-spacing:.06em; padding:4px 7px; border-radius:99px; width:max-content}
+.run{background:var(--accent-soft); color:var(--accent)}
+.wait{background:var(--warn-soft); color:var(--warn)}
+.stop{background:var(--neutral-soft); color:var(--ink2)}
+.card .meta{color:var(--ink2); font-size:13px}
+
+/* diagrams */
+.diagram{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; overflow-x:auto}
+pre.mermaid{margin:0; background:transparent; font-size:14px}
+
+/* tables */
+.tbl{overflow-x:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px}
+table{border-collapse:collapse; width:100%; font-size:14px}
+th,td{text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+th{font:500 12px/1.3 "IBM Plex Mono",monospace; text-transform:uppercase; letter-spacing:.05em; color:var(--ink2); background:var(--neutral-soft)}
+tr:last-child td{border-bottom:0}
+td.num{white-space:nowrap}
+.good{color:var(--good); font-weight:500}
+.bad{color:var(--bad); font-weight:500}
+.meh{color:var(--ink2)}
+tr.ref td{background:var(--neutral-soft)}
+
+/* tabs for ledger */
+.tabs{display:flex; flex-wrap:wrap; gap:6px}
+.tabs button{font:500 13px/1 "IBM Plex Sans",sans-serif; color:var(--ink2); background:transparent; border:1px solid var(--line); border-radius:99px; padding:8px 13px; cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink)}
+.tabs button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+/* gaps */
+.gaps{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px}
+.gapcard{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:8px}
+.gapcard .state{font:500 12px/1 "IBM Plex Mono",monospace; text-transform:uppercase; letter-spacing:.06em}
+.open{color:var(--bad)} .lead{color:var(--warn)} .closed{color:var(--good)}
+.gapcard p{font-size:14px}
+
+figure{margin:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; display:flex; flex-direction:column; gap:8px}
+figure img{border-radius:4px; background:#fff}
+figcaption{color:var(--ink2); font-size:13px}
+.figs{display:grid; grid-template-columns:1fr; gap:14px}
+ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4px}
+@media (max-width:600px){ h1{font-size:27px} .gap .v{font-size:22px} }
+@media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+</style>
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:10px">
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 27 Sep 2026, 16:40</span>
+  <h1>Ternary Training Map</h1>
+  <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span>, with no full-precision copy of them (optimizer state at most sublinear in parameter count). This page lays out what we tried, why, where it ran, and what is still unexplained.</p>
+</header>
+
+<section>
+  <span class="eyebrow">The gap at 300M tokens (validation loss, lower is better)</span>
+  <div class="gap">
+    <div><span class="v">2.683</span><span class="l">full precision fp32 + AdamW (ppl 14.6)</span></div>
+    <div><span class="v">2.759</span><span class="l">master weights: ternary forward, fp32 latent copy (ppl 15.8)</span></div>
+    <div class="ours"><span class="v">3.082</span><span class="l">ours, best: momentum + look-ahead + additive r4 (ppl 21.8)</span></div>
+    <div><span class="v">3.127</span><span class="l">ours: momentum + look-ahead (ppl 22.8)</span></div>
+  </div>
+  <p>Two symptoms remain. Our loss curve does not steepen at ~12M tokens the way master and fp32 do (slope −0.21 vs −0.30), and our runs never grow induction heads (master: 0.44 nats at 131M, 3.17 at 300M; ours: ~0).</p>
+</section>
+
+<section>
+  <span class="eyebrow">Right now</span>
+  <div class="status">
+    <div class="card"><span class="pill run">running · laptop</span><h3>No look-ahead, resumed</h3><p class="meta">Rank-256 momentum without look-ahead, resumed from its 30M checkpoint to 300M, snapshots every 500 steps. At 30M it boosts already-seen tokens (0.18) but has no ordered copying (0.00). ETA ~21:10.</p></div>
+    <div class="card"><span class="pill wait">ready · 4090</span><h3>Additive r16 + weight decay + temperature</h3><p class="meta">The toy's induction fix on text: adapter weight decay 0.1, per-head temperature, to 32M, snapshots every 250 steps. Starts when you stop the old 4090 run and run <code>start.sh magadd16_wd_qk32.sh</code>. ~45 min.</p></div>
+    <div class="card"><span class="pill stop">to stop · 4090</span><h3>Additive r16 + temperature</h3><p class="meta">Best text loss so far (ppl 24.1 at ~165M, ahead of r4) but induction 0.03 at 131M. Superseded by the weight-decay run.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">How one training step works</span>
+  <h2>The method stack</h2>
+  <p>The core loop is the same in every recent run; the fixes are optional flags that change one stage. Orange boxes are flags we tested.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  B["batch"] --> G["gradient g<br/>w.r.t. trits"]
+  G --> M["rank-256 momentum<br/>M = U·Vᵀ, β = 0.97<br/>state r·(N+K) per layer"]
+  M --> P["propose flips<br/>p = r·min(|M̂|/3, 1)<br/>rate: cosine, peak 0.02"]
+  P --> LA["cross-batch look-ahead ×2<br/>keep flip if Δ·(g + g′) &lt; 0<br/>on two fresh batches"]
+  LA --> T["trits {−1,0,+1}<br/>× fixed scale β"]
+  T --> F["forward"]
+  AD["additive adapter<br/>W = βT + A·Bᵀ<br/>rank 4 / 16, AdamW"] --> F
+  QT["per-head temperature<br/>q × exp(s_h)"] --> F
+  TAIL["float tail: embeddings,<br/>norms (fp32 AdamW)"] --> F
+  X1["sign gate · vnorm · spend<br/>refresh · stuck mask"]:::flag -.-> M
+  X2["head protection<br/>(scale by T_h^−α)"]:::flag -.-> P
+  X3["adapter fixes:<br/>weight decay · cap · LR×0.1"]:::flag -.-> AD
+  classDef flag fill:#f6eedb,stroke:#a4720f,color:#1a1c20
+  </pre></div>
+</section>
+
+<section>
+  <span class="eyebrow">What we asked, in order, and what each answer led to</span>
+  <h2>The question map</h2>
+  <p>Four threads. Each box is a finding; arrows show which finding prompted the next experiment. Green: settled. Red: ruled out or failed. Amber: open lead.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  subgraph A["A · Why do we lag master?"]
+    A1["Single-step flip precision vs true gradient:<br/>M 0.48 · one-batch g 0.63 · master 0.54"] --> A2["Master's 100-step net moves agree 96%<br/>with summed gradient; ours 68–72%<br/>(latent weights undo unsupported moves)"]
+    A2 --> A3["M is noise-dominated: |M|/|g| ≈ 4.1<br/>37% of M pushes stuck ±1 weights,<br/>63% sits at chance"]
+    A3 --> A4["20M screens of fixes"]
+    A4 --> A5["additive magnitude −0.052<br/>sign gate −0.026"]:::good
+    A4 --> A6["vnorm, multiplicative: noise<br/>spend, refresh: 0 · stuck mask: worse"]:::bad
+    A5 --> A7["additive r4 at 300M: 3.082 vs 3.127"]:::good
+  end
+  subgraph B["B · Why no bend at ~12M?"]
+    B1["fp32/master slope −0.30 at 12–20M, ours −0.21"] --> B2["fp32's long-context gain jumps at 13–20M<br/>master grows induction heads"]
+    B2 --> B3["ours: no induction at any size"]:::bad
+    B3 --> B4["attention can't sharpen:<br/>q/k rms 1.1–1.4 vs 2–2.4 · entropy 2.5–3.8 vs 0.85<br/>(trits × fixed β, master's scale can grow)"]
+    B4 --> B5["per-head temperature: prev-token head forms<br/>at 25M, then flickers (its rows churn 25–31%)"]
+    B5 --> B6["head protection: a patch, stopped at 28M"]:::bad
+    B4 --> B7["additive r16 + temperature: best loss,<br/>still no induction (0.03 at 131M)"]:::bad
+  end
+  subgraph C["C · Is look-ahead blocking induction?"]
+    C1["no look-ahead at 30M: copy gain 0.18"] --> C2["exact vs shuffled repeat: 0.179 vs 0.176<br/>= boosts seen tokens, no ordered copying"]
+    C2 --> C3["can't tell from text at 30M → build a toy"]
+  end
+  subgraph D["D · 2-layer toy: can our optimizer build induction?"]
+    D1["master 3.53 nats · mom + look-ahead 2.94"] --> D2["no look-ahead: 1.07, only after the flip rate decays<br/>rate ÷4: 2.48, formed much earlier"]:::good
+    D1 --> D3["additive adapter hurts: 2.27, never forms without look-ahead"]:::bad
+    D3 --> D4["adapter A grows as lr·√t (Adam on noise)<br/>and overtakes the trit path"]
+    D4 --> D5["adapter weight decay 0.1: 7.16 nats, val 3.80 < master<br/>output cap 0.5: 4.25 · LR ×0.1: 2.81"]:::good
+    D5 --> D6["lead: decay on both factors = nuclear-norm penalty;<br/>adapter eff. rank 2.5 vs 3.0 · one seed each"]:::lead
+  end
+  A7 --> B7
+  B3 --> C1
+  C3 --> D1
+  D5 --> E1["next: same fix on text (4090, 32M)"]:::lead
+  classDef good fill:#e3f1e8,stroke:#2c7a4b,color:#1a1c20
+  classDef bad fill:#f7e5e3,stroke:#b0413a,color:#1a1c20
+  classDef lead fill:#f6eedb,stroke:#a4720f,color:#1a1c20
+  </pre></div>
+</section>
+
+<section>
+  <span class="eyebrow">Every run that matters, by thread</span>
+  <h2>Experiment ledger</h2>
+  <div class="tabs" role="tablist" aria-label="Experiment groups">
+    <button role="tab" id="t-long" aria-selected="true" aria-controls="p-long">Long text runs</button>
+    <button role="tab" id="t-s20" aria-selected="false" aria-controls="p-s20">20M fix screens</button>
+    <button role="tab" id="t-heads" aria-selected="false" aria-controls="p-heads">Heads & temperature</button>
+    <button role="tab" id="t-toy" aria-selected="false" aria-controls="p-toy">Induction toy</button>
+  </div>
+
+  <div class="tbl" role="tabpanel" id="p-long" aria-labelledby="t-long">
+    <table>
+      <tr><th>run</th><th>recipe</th><th>where</th><th>tokens</th><th>val loss</th><th>induction</th></tr>
+      <tr class="ref"><td class="mono">fp32_baseline</td><td>full precision, AdamW</td><td>4090</td><td class="num">300M</td><td class="num">2.683</td><td class="meh">—</td></tr>
+      <tr class="ref"><td class="mono">master_tracked</td><td>master weights (fp32 latent + STE + AdamW)</td><td>—</td><td class="num">300M</td><td class="num">2.759</td><td class="num good">3.17</td></tr>
+      <tr><td class="mono">lm_lowrank256_xb2_100M</td><td>momentum + look-ahead</td><td>laptop</td><td class="num">300M</td><td class="num">3.127</td><td class="num bad">0.00</td></tr>
+      <tr><td class="mono">magadd_full</td><td>+ additive r4</td><td>4090</td><td class="num">300M</td><td class="num good">3.082</td><td class="num bad">~0.05</td></tr>
+      <tr><td class="mono">magadd16_qk</td><td>+ additive r16 + per-head temperature</td><td>4090</td><td class="num">~180M, stopping</td><td class="num">3.268 @131M (r4: 3.347)</td><td class="num bad">0.03 @131M</td></tr>
+      <tr><td class="mono">lowrank256_nola_full</td><td>momentum, no look-ahead</td><td>laptop</td><td class="num">30M → 300M, running</td><td class="num">—</td><td class="num meh">0.00 @30M (seen-token boost 0.18)</td></tr>
+      <tr><td class="mono">magadd16_wd_qk</td><td>+ additive r16, adapter weight decay 0.1, temperature</td><td>4090</td><td class="num">32M, ready</td><td class="num">—</td><td class="num">—</td></tr>
+      <tr><td class="mono">armA_cos_600M</td><td>old plain flips, no momentum</td><td>laptop</td><td class="num">600M</td><td class="num bad">~4.53</td><td class="num bad">0.00</td></tr>
+      <tr><td class="mono">all_fixes_full, mul60_heads</td><td>removed from the queue before starting</td><td>4090</td><td class="num">—</td><td class="meh">—</td><td class="meh">—</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl" role="tabpanel" id="p-s20" aria-labelledby="t-s20" hidden>
+    <table>
+      <tr><th>arm (from scratch, same seed)</th><th>what the flag does</th><th>val @20M</th><th>vs baseline</th></tr>
+      <tr class="ref"><td>baseline ×3 seeds</td><td>momentum + look-ahead</td><td class="num">4.293 (spread 0.023)</td><td class="num">—</td></tr>
+      <tr><td>additive r4</td><td>W = βT + A·Bᵀ, float low-rank adapter</td><td class="num">4.241</td><td class="num good">−0.052</td></tr>
+      <tr><td>sign gate</td><td>propose only where M and g agree in sign</td><td class="num">4.267</td><td class="num good">−0.026</td></tr>
+      <tr><td>gate + vnorm</td><td>both</td><td class="num">4.271</td><td class="num meh">−0.022 (no stacking)</td></tr>
+      <tr><td>vnorm</td><td>M divided by a factored √(second moment)</td><td class="num">4.281</td><td class="num meh">−0.011 (noise)</td></tr>
+      <tr><td>multiplicative r4</td><td>W = βT ∘ (1 + A·Bᵀ)</td><td class="num">4.283</td><td class="num meh">−0.010 (noise)</td></tr>
+      <tr><td>spend 2</td><td>kept flips consume the push that caused them</td><td class="num">4.296</td><td class="num bad">+0.003</td></tr>
+      <tr><td>refresh 16/10</td><td>replace weak subspace directions</td><td class="num">4.299</td><td class="num bad">+0.006</td></tr>
+      <tr><td>stuck mask</td><td>drop gradient pushing past ±1</td><td class="num">~4.39</td><td class="num bad">~+0.1, stopped</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl" role="tabpanel" id="p-heads" aria-labelledby="t-heads" hidden>
+    <table>
+      <tr><th>run</th><th>recipe</th><th>tokens</th><th>result</th></tr>
+      <tr><td class="mono">qktemp60</td><td>per-head temperature</td><td class="num">60M</td><td>val 3.553; prev-token head 0.97 at 25M then 0.55 / 0.75 / 0.85 / 0.52 (flicker)</td></tr>
+      <tr><td class="mono">qkprot60</td><td>temperature + head protection α=2</td><td class="num">28M, stopped</td><td>heads a little earlier (0.72 at 16M vs 0.61); stopped as a patch, not a mechanism</td></tr>
+      <tr><td class="mono">s60_magadd4</td><td>additive r4</td><td class="num">60M</td><td>val 3.541 (baseline ~3.56)</td></tr>
+      <tr><td class="mono">magadd_full</td><td>additive r4</td><td class="num">300M</td><td>prev-token head ~1.00 from 131M, seen-token boost 0.16, ordered copying ~0.05</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl" role="tabpanel" id="p-toy" aria-labelledby="t-toy" hidden>
+    <table>
+      <tr><th>arm</th><th>flip rate</th><th>look-ahead</th><th>adapter</th><th>induction @15k</th><th>val</th></tr>
+      <tr class="ref"><td>master</td><td class="meh">—</td><td class="meh">—</td><td class="meh">—</td><td class="num">3.53</td><td class="num">4.01</td></tr>
+      <tr><td>mom + additive (weight decay 0.1) + LA</td><td class="num">0.02</td><td>yes</td><td>wd 0.1</td><td class="num good">7.16</td><td class="num good">3.80</td></tr>
+      <tr><td>mom + additive (cap 0.5) + LA</td><td class="num">0.02</td><td>yes</td><td>cap 0.5</td><td class="num good">4.25</td><td class="num">4.14</td></tr>
+      <tr><td>mom + LA</td><td class="num">0.02</td><td>yes</td><td>none</td><td class="num">2.94</td><td class="num">4.46</td></tr>
+      <tr><td>mom + additive (LR ×0.1) + LA</td><td class="num">0.02</td><td>yes</td><td>LR ×0.1</td><td class="num">2.81</td><td class="num">4.63</td></tr>
+      <tr><td>mom, low rate</td><td class="num">0.005</td><td>no</td><td>none</td><td class="num">2.48</td><td class="num">4.66</td></tr>
+      <tr><td>mom + additive + LA</td><td class="num">0.02</td><td>yes</td><td>unfixed</td><td class="num">2.27</td><td class="num">4.48</td></tr>
+      <tr><td>mom</td><td class="num">0.02</td><td>no</td><td>none</td><td class="num bad">1.07 (late)</td><td class="num">5.01</td></tr>
+      <tr><td>mom + additive</td><td class="num">0.02</td><td>no</td><td>unfixed</td><td class="num bad">0.01</td><td class="num bad">5.51</td></tr>
+    </table>
+  </div>
+  <p class="meh" style="font-size:13px">Toy: 2 layers, dim 256, 4 heads, vocab 256, context 256; data is random segments of 8–64 tokens, each immediately repeated; 15000 steps × 8192 tokens; momentum rank 64. Induction = loss on a shuffled repeat minus loss on an exact repeat, in nats. One seed per arm.</p>
+</section>
+
+<section>
+  <span class="eyebrow">What the theory still can't explain</span>
+  <h2>Open gaps</h2>
+  <div class="gaps">
+    <div class="gapcard"><span class="state open">open</span><h3>No integrator</h3><p>Master's latent weights sum every small push and undo moves the gradient stops supporting (96% of its 100-step moves agree with the summed gradient). Ours can only flip or not; evidence below the flip threshold is lost. No fix so far replaces this.</p></div>
+    <div class="gapcard"><span class="state open">open</span><h3>Proposal quality</h3><p>M's flip proposals score 0.48 precision against the true gradient, below one batch's gradient (0.63). Look-ahead filters them, but its precision does not improve with more batches, because it judges all flips jointly.</p></div>
+    <div class="gapcard"><span class="state lead">lead</span><h3>Scale that can grow</h3><p>Master's per-matrix scale grows; ours is fixed at β = 1/√(K·ρ), so attention can't sharpen. The additive adapter supplies scale but, unconstrained, turns into noise. Weight decay on it fixed the toy. Untested on text.</p></div>
+    <div class="gapcard"><span class="state lead">lead</span><h3>Flip rate vs structure</h3><p>Peak rate 0.02 was tuned for loss. In the toy, the same optimizer builds induction only once flips are rare enough (rate decay or ÷4). Text runs may churn fine circuits too fast.</p></div>
+    <div class="gapcard"><span class="state lead">lead</span><h3>Why weight decay works</h3><p>Weight decay on both A and B equals a nuclear-norm penalty on A·Bᵀ: directions without steady gradient die. Measured: adapter effective rank 2.5 with decay vs 3.0 without; A only 30% smaller. One seed; needs repeats.</p></div>
+    <div class="gapcard"><span class="state open">open</span><h3>The 12M bend</h3><p>After ~12M tokens master and fp32 steepen to slope −0.30; ours stays at −0.21. Candidate cause: the long-context circuits we never build. Not shown directly.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">The figures worth looking at</span>
+  <h2>Figures</h2>
+  <div class="figs">
+    <figure><img src="toy_induction.png" alt="Induction score and val loss over steps for every toy arm"><figcaption><b>toy_induction.png</b>: the toy. Left: ordered-copy gain over training; the brown (weight decay) and cyan (cap) arms pass master (black). Right: val loss.</figcaption></figure>
+    <figure><img src="live.png" alt="Train loss, val perplexity, local slope and token stretch of long runs"><figcaption><b>live.png</b>: long text runs vs master and fp32. Thick green is additive r16 + temperature. Bottom right: tokens we need for master's loss (1.5× at ~100M for the best run).</figcaption></figure>
+    <figure><img src="s20.png" alt="20M screens of each fix against three baseline seeds"><figcaption><b>s20.png</b>: 20M from-scratch screens of each fix against three baseline seeds.</figcaption></figure>
+  </div>
+  <p>Everything else is indexed in <code>docs/figures/README.md</code>, grouped by question. Superseded figures from the stateless-flip phase moved to <code>docs/figures/archive/</code>.</p>
+</section>
+
+</div>
+
+<script>
+(function(){
+  const tabs=[...document.querySelectorAll('[role="tab"]')];
+  function show(t){
+    tabs.forEach(b=>{const on=b===t; b.setAttribute('aria-selected',on); document.getElementById(b.getAttribute('aria-controls')).hidden=!on;});
+    try{localStorage.setItem('ledger-tab',t.id)}catch(e){}
+  }
+  tabs.forEach(b=>b.addEventListener('click',()=>show(b)));
+  try{const s=localStorage.getItem('ledger-tab'); const t=s&&document.getElementById(s); if(t) show(t);}catch(e){}
+})();
+</script>

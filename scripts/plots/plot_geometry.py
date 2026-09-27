@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 MASTER, FLIP = "#eb6834", "#1baf7a"
 
-ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/geometry.png")
+ap = argparse.ArgumentParser(); ap.add_argument("--out", default="docs/figures/archive/geometry.png")
 a = ap.parse_args()
 R = json.load(open("checkpoints/mlp/geometry_full.json"))
 fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6.5), facecolor=SURFACE)
