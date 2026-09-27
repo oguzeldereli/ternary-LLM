@@ -1275,3 +1275,26 @@ float tail's update):
 | ours, 1 step (M + look-ahead x2) | 48k | 0.587 | +0.003 | -0.0007 |
 
 Per step master's trit moves are no better aimed than ours (0.54 vs 0.59) and it makes 4.5x as many.
+
+### Why ours never forms induction heads (random-token copy test, attention patterns)
+
+Copy gain on random token sequences repeated twice (loss on the first copy minus loss on the repeat): master
+0.15 at val 3.35, 0.19 at 3.19, 0.83 at 3.06, 2.79 at 2.97, 4.03 at 2.75 (300M); full precision 2.77 at 300M;
+ours 0.000 at every checkpoint to 300M (val 3.13). Natural-text copy is ~1.9 for all.
+Attention patterns (`scripts/analysis/induction_heads.py`): master has sharp previous-token heads early (L1 0.96,
+L2 0.87 at 66M; four layers >= 0.8 by 164M) and induction heads from ~98M (L5, L7-L9, up to 0.44). Ours has one
+moderate previous-token head (L2 ~0.69, decaying to 0.32 by 300M) and no induction heads. Our q, k stay at rms
+~1.1-1.4 (master ~2-2.4 at 66M): logits ~2-4 vs up to 10, attention entropy 2.5-3.8 vs 0.85 (L1). Master's
+effective weight trits * gamma can grow; ours, trits * beta with beta = 1/sqrt(K rho), cannot, and the shared
+attention RMSNorm gain (which also scales v) did not grow either.
+
+Fixes (`scripts/analysis/heads_over_time.py`):
+- `--qk_temp` (learnable per-head temperature), 60M: a previous-token head forms (0.97 at 25M) but is unstable
+  (0.52-0.97), temperatures reach 1.7x; no induction; val 3.553 at 60M (baseline ~3.56).
+- `--lowrank_mag add:4` (float low-rank term on every ternary matrix), 300M run `magadd_full`: previous-token
+  head 0.94 at 66M, ~1.00 from 131M, stable (one layer >= 0.8; master has four); copy gain grows to 0.15-0.23
+  (164M-295M) but no induction head (attention score ~0.02); val **3.082** (ppl 21.8) vs 3.127.
+
+From-scratch 20M screens, final val (baselines: 4.2919 / 4.3045 / 4.2817, mean 4.2927, spread 0.023):
+additive magnitude 4.2407 (-0.052), sign gate 4.2669 (-0.026), gate + vnorm 4.2708, multiplicative 4.2825,
+vnorm 4.2814, spend 4.2960, refresh 4.2985, stuck mask worse (+0.1 by 12M, stopped).

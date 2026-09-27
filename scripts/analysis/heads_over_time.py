@@ -5,7 +5,7 @@ per-head temperatures if the run has them.
 """
 import sys, glob, json, re, torch, numpy as np
 import bitnet.probe as P
-from scripts.analysis.induction_heads import load, CAP
+from scripts.analysis.induction_heads import load, CAP, ON
 P._last_loss.__defaults__ = (16,)
 run, kind = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else "kernel")
 val = np.memmap("data/wiki32k_val.bin", dtype=np.uint16, mode="r")
@@ -14,9 +14,10 @@ g = np.random.default_rng(4321); out = []
 for path in paths:
     s, m, V = load(path, kind)
     rnd = torch.from_numpy(g.integers(1000, V - 1000, size=(16, 64))).cuda(); x = torch.cat([rnd, rnd], 1)
-    CAP.clear()
+    CAP.clear(); ON[0] = True
     with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
         m(x)
+    ON[0] = False
     t = torch.arange(1, 128, device="cuda"); t2 = torch.arange(65, 128, device="cuda")
     prev = [A.mean(0)[:, t, t - 1].mean(-1).max().item() for A in CAP]
     ind = [A.mean(0)[:, t2, t2 - 63].mean(-1).max().item() for A in CAP]
