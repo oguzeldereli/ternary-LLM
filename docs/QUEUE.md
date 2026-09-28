@@ -6,18 +6,19 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 11:20
+Last updated: 2026-09-28 11:45
 
 ## Now (28 Sep, 11:20)
 
 | machine | run | what | status | expected |
 |---|---|---|---|---|
-| goosander | `flip_selector` (priority) | learned flip selectors at nola_lab @164M: A most aligned, B most loss change, vs all / random 50% | decision step 20 of 33 | ~11:30 |
+| goosander | `mech_align2` | alignment BEFORE vs AFTER the flips, V0 / V2 / V1 / your design, at the trained rate and 1/4 | running | ~12:05 |
 | 4090 | `nola_b48` (filler) | no look-ahead, batch 48 | step 7660 / 9155 | ~12:30 |
 | laptop | `mech_along` U1 / U0 / V1 | alignment and noise of your design and V1 along their own runs | 5 of 18 measurements | ~12:00 |
-| shoveler | - | taken by another user (llama-server, 23 GB) since 11:11 | - | - |
+| shoveler | - | left: taken by another user (llama-server, 23 GB) since 11:11 | - | - |
+| barnacle | - | tried as the replacement: PyTorch downloads fail their checksums there (twice); cleaned up, not used | - | - |
 
-Finished this morning: `magadd16_wd_qk_lab` (look-ahead + additive r16 + adapter weight decay + temperature)
+Finished this morning: `flip_selector` (held out: selector A keeps a half with 69% downhill flips, held-out dL -0.010 vs -0.003 for a random half and ~0 for all proposals; selector B weak); `magadd16_wd_qk_lab` (look-ahead + additive r16 + adapter weight decay + temperature)
 **val 2.9925 at 300M**, our best; `mech_along` V0 / V2 / V3 along `nola_lab`; the flip-rate sweep at 164M
 (alignment returns at 1/4 of the rate: cos +0.084, top-1% precision 0.596, held-out dL -0.066 vs -0.009 at the
 trained rate); the overshoot line search (best at half of the 33-step move: -0.070 vs -0.010 for all of it).
