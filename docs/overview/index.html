@@ -113,215 +113,195 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 @media (max-width:600px){ h1{font-size:27px} .gap .v{font-size:22px} }
 @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
 </style>
+<style>
+.score{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px}
+.score div{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; display:flex; flex-direction:column; gap:3px}
+.score .v{font:500 24px/1.1 "IBM Plex Mono",monospace}
+.score .l{color:var(--ink2); font-size:13px}
+.score .best .v{color:var(--good)} .score .ref .v{color:var(--ink2)}
+.two{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px}
+.list{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; display:flex; flex-direction:column; gap:8px}
+.list ul{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:14px}
+.tag{font:500 11px/1 "IBM Plex Mono",monospace; text-transform:uppercase; letter-spacing:.06em; padding:3px 6px; border-radius:99px; margin-right:4px}
+.t-good{background:var(--good-soft); color:var(--good)} .t-bad{background:var(--bad-soft); color:var(--bad)} .t-lead{background:var(--warn-soft); color:var(--warn)} .t-run{background:var(--accent-soft); color:var(--accent)}
+</style>
 
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 27 Sep 2026, 16:50</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 28 Sep 2026, 14:15</span>
   <h1>Ternary Training Map</h1>
-  <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span>, with no full-precision copy of them (optimizer state at most sublinear in parameter count). This page lays out what we tried, why, where it ran, and what is still unexplained.</p>
+  <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
 
 <section>
-  <span class="eyebrow">The gap at 300M tokens (validation loss, lower is better)</span>
-  <div class="gap">
-    <div><span class="v">2.683</span><span class="l">full precision fp32 + AdamW (ppl 14.6)</span></div>
-    <div><span class="v">2.759</span><span class="l">master weights: ternary forward, fp32 latent copy (ppl 15.8)</span></div>
-    <div class="ours"><span class="v">3.082</span><span class="l">ours, best: momentum + look-ahead + additive r4 (ppl 21.8)</span></div>
-    <div><span class="v">3.127</span><span class="l">ours: momentum + look-ahead (ppl 22.8)</span></div>
+  <span class="eyebrow">Validation loss at 300M tokens (lower is better)</span>
+  <div class="score">
+    <div class="ref"><span class="v">2.683</span><span class="l">full precision fp32 + AdamW</span></div>
+    <div class="ref"><span class="v">2.759</span><span class="l">master weights (ternary forward, fp32 latent copy)</span></div>
+    <div class="best"><span class="v">2.9925</span><span class="l">ours, best: look-ahead + additive r16 + adapter weight decay + per-head temperature</span></div>
+    <div><span class="v">3.082</span><span class="l">look-ahead + additive r4</span></div>
+    <div><span class="v">3.111</span><span class="l">look-ahead on to 30M, off to 131M, on after</span></div>
+    <div><span class="v">3.120</span><span class="l">no look-ahead, your momentum design (branch from 131M)</span></div>
+    <div><span class="v">3.127</span><span class="l">baseline: momentum + look-ahead</span></div>
+    <div><span class="v">3.158</span><span class="l">momentum, no look-ahead</span></div>
   </div>
-  <p>Two symptoms remain. Our loss curve does not steepen at ~12M tokens the way master and fp32 do (slope −0.21 vs −0.30), and our runs never grow induction heads (master: 0.44 nats at 131M, 3.17 at 300M; ours: ~0).</p>
+  <p>Batch 48 without look-ahead (900M tokens processed, 3× the others) reached 2.889. Early results of a 4× smaller flip rate: 0.16 better than the trained rate right after switching, then closing slowly (details below).</p>
 </section>
 
 <section>
   <span class="eyebrow">Right now</span>
-  <div class="status">
-    <div class="card"><span class="pill run">running · 4090</span><h3>Additive r16 + weight decay + temperature</h3><p class="meta">The toy's induction fix on text: adapter weight decay 0.1, per-head temperature, from scratch to 32M, snapshots every 250 steps. Step 520 of 977 at 16:46; done ~17:10.</p></div>
-    <div class="card"><span class="pill run">running · laptop</span><h3>Toy replicates</h3><p class="meta">Seeds 2 and 3 of adapter + weight decay, unfixed adapter, and no adapter (all with look-ahead), plus adapter + weight decay at flip rate 0.005. Seven runs in parallel; done ~19:10.</p></div>
-    <div class="card"><span class="pill stop">stopped</span><h3>No look-ahead; additive r16 + temperature</h3><p class="meta">No look-ahead: stopped at 43M (no ordered copying at 30M). Additive r16 + temperature: stopped at step 5515 (~181M), best text loss so far but induction 0.03 at 131M.</p></div>
-  </div>
+  <h2>What is running where</h2>
+  <div class="tbl"><table>
+    <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
+    <tr><td>4090</td><td class="mono">accum33_b131 → accum33_s0</td><td>accumulate 33 steps without flips, then flip a loss-chosen subset of the entries whose accumulated push stands out; branch from 131M, then from scratch</td><td class="num">~15:00, ~17:30</td></tr>
+    <tr><td>goosander</td><td class="mono">small_step_b131</td><td>plain momentum at ¼ of the flip rate, branch from 131M</td><td class="num">~14:30</td></tr>
+    <tr><td>cackling</td><td class="mono">small_step_s0 → mech_user_q_b131</td><td>¼ rate from scratch; then your design at ¼ rate (branch)</td><td class="num">~15:30, ~18:00</td></tr>
+    <tr><td>mallard</td><td class="mono">small_step8_lab</td><td>⅛ of the flip rate, branch from 131M</td><td class="num">~16:00</td></tr>
+    <tr><td>mandarin</td><td class="mono">small_step8_s0</td><td>⅛ of the flip rate, from scratch</td><td class="num">~17:30</td></tr>
+    <tr><td>laptop</td><td class="mono">small_step8_b131</td><td>slower copy of the ⅛ branch (can be stopped)</td><td class="num">~18:00</td></tr>
+  </table></div>
+  <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
 
 <section>
-  <span class="eyebrow">How one training step works</span>
-  <h2>The method stack</h2>
-  <p>The core loop is the same in every recent run; the fixes are optional flags that change one stage. Amber tags are flags we tested at that stage.</p>
-  <div class="diagram">
-    <div class="pipe">
-      <div class="stage"><span class="k">1</span><b>Gradient</b><span>g for every trit, from one batch</span></div>
-      <div class="arr" aria-hidden="true">&rarr;</div>
-      <div class="stage"><span class="k">2</span><b>Rank-256 momentum</b><span>M = U&middot;V<sup>T</sup>, &beta; = 0.97<br>state r&middot;(N+K) per layer</span>
-        <div class="flag">flags: sign gate &middot; vnorm &middot; spend &middot; refresh &middot; stuck mask</div></div>
-      <div class="arr" aria-hidden="true">&rarr;</div>
-      <div class="stage"><span class="k">3</span><b>Propose flips</b><span>p = r&middot;min(|M&#770;|/3, 1)<br>rate: cosine, peak 0.02</span>
-        <div class="flag">flag: head protection</div></div>
-      <div class="arr" aria-hidden="true">&rarr;</div>
-      <div class="stage"><span class="k">4</span><b>Look-ahead &times;2</b><span>keep a flip if &Delta;&middot;(g + g&prime;) &lt; 0 on two fresh batches</span></div>
-      <div class="arr" aria-hidden="true">&rarr;</div>
-      <div class="stage main"><span class="k">5</span><b>Trits {&minus;1, 0, +1}</b><span>&times; fixed scale &beta; per matrix</span></div>
-    </div>
-    <div class="adds">
-      <span class="eyebrow">added to the forward pass</span>
-      <div class="addrow">
-        <div class="stage"><b>Additive adapter</b><span>W = &beta;T + A&middot;B<sup>T</sup>, rank 4 or 16, AdamW</span><div class="flag">flags: weight decay &middot; cap &middot; LR &times;0.1</div></div>
-        <div class="stage"><b>Per-head temperature</b><span>queries &times; exp(s<sub>h</sub>), learned</span></div>
-        <div class="stage"><b>Float tail</b><span>embeddings and norm gains, fp32 AdamW</span></div>
-      </div>
-    </div>
-  </div>
+  <span class="eyebrow">What we asked and what each answer led to</span>
+  <h2>The story so far</h2>
+  <div class="diagram"><div class="threads" style="grid-template-columns:repeat(4,minmax(240px,1fr))">
+    <div class="thread"><h3>1 · Momentum fixes</h3><div class="chain">
+      <div class="node">Momentum is noise-level (|M|/|g| ≈ 4.1); its flips are ~50% right</div><div class="down">↓</div>
+      <div class="node good">20M screens: additive magnitude −0.052, sign gate −0.026</div><div class="down">↓</div>
+      <div class="node bad">vnorm, multiplicative, spend, refresh, stuck mask: no gain</div><div class="down">↓</div>
+      <div class="node good">Additive r4 at 300M: 3.082; r16 + adapter weight decay + temperature: <b>2.9925</b></div>
+    </div></div>
+    <div class="thread"><h3>2 · Look-ahead and induction</h3><div class="chain">
+      <div class="node">No bend at 12M; no induction heads in any look-ahead run</div><div class="down">↓</div>
+      <div class="node good">Without look-ahead: general induction from ~98M (3.05 at 295M; master 3.17)</div><div class="down">↓</div>
+      <div class="node">On natural text every run copies equally well; look-ahead runs only fail on random tokens</div><div class="down">↓</div>
+      <div class="node good">Switching look-ahead on later = a constant loss gain, circuits kept; best schedule 3.111</div><div class="down">↓</div>
+      <div class="node lead">Look-ahead's per-step win was mostly 3× more data; per token processed, plain momentum is better</div>
+    </div></div>
+    <div class="thread"><h3>3 · Why momentum is not aligned</h3><div class="chain">
+      <div class="node good">Weights frozen: momentum reaches 0.92 alignment in 33 batches (rank 256 loses nothing)</div><div class="down">↓</div>
+      <div class="node bad">With flips: +0.03–0.05 where flips are chosen</div><div class="down">↓</div>
+      <div class="node">One step of flips turns the true gradient to 0.45–0.82; the move overshoots (best at half of it)</div><div class="down">↓</div>
+      <div class="node lead">Mechanisms (V1, V2, your design) can't fix alignment at this step size; at ¼ rate V2 +0.17, yours +0.13, plain +0.10</div>
+    </div></div>
+    <div class="thread"><h3>4 · Step size</h3><div class="chain">
+      <div class="node good">¼ flip rate (branch): 0.16 better right away</div><div class="down">↓</div>
+      <div class="node bad">…then descends slower; the gap closes (0.161 → 0.125 over 58M), parallel to look-ahead</div><div class="down">↓</div>
+      <div class="node lead">Fewer flips drop bad and good flips alike; a selector keeps a 69%-downhill half (vs 54%)</div><div class="down">↓</div>
+      <div class="node lead">Running: ⅛ rate, accumulate-then-flip, your design at ¼</div>
+    </div></div>
+  </div></div>
 </section>
 
 <section>
-  <span class="eyebrow">What we asked, in order, and what each answer led to</span>
-  <h2>The question map</h2>
-  <p>Four threads, read top to bottom; each box is a finding and the next box is the experiment it prompted. Green: worked. Red: failed or ruled out. Amber: open lead. Scroll sideways on a narrow screen.</p>
-  <div class="diagram">
-  <div class="threads">
-    <div class="thread"><h3>A &middot; Why do we lag master?</h3>
-      <div class="chain">
-        <div class="node ">Single-step flip precision vs the true gradient: <b>M 0.48</b>, one batch's g 0.63, master 0.54</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node ">Master's 100-step net moves agree <b>96%</b> with the summed gradient; ours 68&ndash;72%. Its latent weights undo moves the gradient stops supporting.</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node ">M is noise-dominated: |M|/|g| &asymp; 4.1. 37% of M pushes weights already at &plusmn;1; the other 63% is at chance.</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node ">20M from-scratch screens of fixes</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node good">Helped: additive adapter &minus;0.052, sign gate &minus;0.026</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node bad">No effect or worse: vnorm, multiplicative, spend, refresh, stuck mask</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node good">Additive r4 at 300M: val 3.082 vs 3.127</div>
-      </div>
-      <p class="foot">Leads to B: the best loss still has no induction.</p>
-    </div>
-    <div class="thread"><h3>B &middot; Why no bend at ~12M?</h3>
-      <div class="chain">
-        <div class="node ">Master and fp32 steepen to slope &minus;0.30 at 12&ndash;20M; ours stays at &minus;0.21</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node ">At the same time fp32's long-context gain jumps and master grows induction heads</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node bad">Ours: no induction at any size</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node ">Our attention can't sharpen: q/k rms 1.1&ndash;1.4 vs 2&ndash;2.4, entropy 2.5&ndash;3.8 vs 0.85. Trits &times; fixed &beta;; master's scale can grow.</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node ">Per-head temperature: a previous-token head forms at 25M, then flickers (its rows churn 25&ndash;31% per 8M)</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node bad">Head protection: a patch, stopped at 28M</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node bad">Additive r16 + temperature: best text loss, still no induction (0.03 at 131M; master 0.44)</div>
-      </div>
-      <p class="foot">Leads to C: is look-ahead the cause?</p>
-    </div>
-    <div class="thread"><h3>C &middot; Is look-ahead blocking induction?</h3>
-      <div class="chain">
-        <div class="node ">No look-ahead, 30M: copy gain 0.18</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node bad">Exact vs shuffled repeat: 0.179 vs 0.176. It boosts tokens it has seen, with no ordered copying.</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node ">Text at 30M can't answer it (master has none there either), so build a toy</div>
-      </div>
-      <p class="foot">Leads to D.</p>
-    </div>
-    <div class="thread"><h3>D &middot; Toy: can our optimizer build induction?</h3>
-      <div class="chain">
-        <div class="node ">2 layers, repeated random segments. Master: <b>3.53</b> nats. Momentum + look-ahead: 2.94.</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node good">Without look-ahead: 1.07, only once the flip rate decays. Rate &divide;4: 2.48, formed much earlier. Too many noisy flips was the problem; look-ahead acts as a selective rate limiter.</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node bad">Additive adapter hurts: 2.27, and never forms without look-ahead</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node ">The adapter's A grows as lr&middot;&radic;t (Adam steps on noise) and overtakes the trit path</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node good">Adapter weight decay 0.1: <b>7.16</b> nats, val 3.80 (below master's 4.01). Cap 0.5: 4.25. LR &times;0.1: 2.81.</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node lead">Lead: decay on both factors acts like a nuclear-norm penalty. Adapter effective rank 2.5 vs 3.0. One seed; replicates running.</div>
-        <div class="down" aria-hidden="true">&darr;</div>
-        <div class="node lead">Next: the same fix on text (4090, 32M)</div>
-      </div>
-      <p class="foot"></p>
-    </div>
+  <span class="eyebrow">Everything that ran, by what it tried</span>
+  <h2>Tried</h2>
+  <div class="tabs" role="tablist" aria-label="Tried">
+    <button role="tab" id="t1" aria-selected="true" aria-controls="p1">Long runs</button>
+    <button role="tab" id="t2" aria-selected="false" aria-controls="p2">Momentum mechanisms</button>
+    <button role="tab" id="t3" aria-selected="false" aria-controls="p3">Step size</button>
+    <button role="tab" id="t4" aria-selected="false" aria-controls="p4">Diagnostics</button>
+    <button role="tab" id="t5" aria-selected="false" aria-controls="p5">20M fix screens</button>
+    <button role="tab" id="t6" aria-selected="false" aria-controls="p6">Induction toy</button>
   </div>
-  </div>
+  <div class="tbl" role="tabpanel" id="p1" aria-labelledby="t1"><table>
+    <tr><th>run</th><th>recipe</th><th>tokens</th><th>val</th><th>note</th></tr>
+    <tr class="ref"><td class="mono">fp32_baseline</td><td>full precision, AdamW</td><td class="num">300M</td><td class="num">2.683</td><td></td></tr>
+    <tr class="ref"><td class="mono">master_tracked</td><td>master weights</td><td class="num">300M</td><td class="num">2.759</td><td>induction 3.17</td></tr>
+    <tr><td class="mono">magadd16_wd_qk_lab</td><td>look-ahead + additive r16 + adapter weight decay + temperature</td><td class="num">300M</td><td class="num good">2.9925</td><td>best of ours</td></tr>
+    <tr><td class="mono">magadd_full</td><td>look-ahead + additive r4</td><td class="num">300M</td><td class="num">3.082</td><td></td></tr>
+    <tr><td class="mono">la_sched</td><td>look-ahead 0–30M, off to 131M, on after</td><td class="num">300M</td><td class="num">3.111</td><td></td></tr>
+    <tr><td class="mono">la_sched98</td><td>the same, back on at 98M</td><td class="num">300M</td><td class="num">3.114</td><td></td></tr>
+    <tr><td class="mono">magadd16_qk_lab</td><td>look-ahead + additive r16 + temperature</td><td class="num">200M</td><td class="num">3.121</td><td>its planned length</td></tr>
+    <tr><td class="mono">nola_then_la</td><td>no look-ahead to 131M, then on</td><td class="num">300M</td><td class="num">3.1225</td><td>keeps induction</td></tr>
+    <tr><td class="mono">lm_lowrank256_xb2_100M</td><td>baseline: momentum + look-ahead</td><td class="num">300M</td><td class="num">3.127</td><td>no general induction</td></tr>
+    <tr><td class="mono">nola_lab</td><td>momentum, no look-ahead</td><td class="num">300M</td><td class="num">3.158</td><td>plateau 2–5M; induction from ~98M</td></tr>
+    <tr><td class="mono">nola_b48</td><td>no look-ahead, batch 48</td><td class="num">900M processed</td><td class="num">2.889</td><td>= batch 16 per token processed</td></tr>
+    <tr><td class="mono">nola_add16</td><td>no look-ahead + additive r16</td><td class="num">112M</td><td class="num bad">~4.6</td><td>adapter takes over q/k; stopped</td></tr>
+  </table></div>
+  <div class="tbl" role="tabpanel" id="p2" aria-labelledby="t2" hidden><table>
+    <tr><th>mechanism</th><th>what it does</th><th>branch 131M→300M</th><th>from scratch @131M</th><th>bench (66 steps, held-out dL)</th></tr>
+    <tr class="ref"><td>plain momentum</td><td>running sum of gradients</td><td class="num">3.158</td><td class="num">3.573</td><td class="num">−0.024</td></tr>
+    <tr><td>V1 target point</td><td>remember the distance to the minimum; subtract each move</td><td class="num">3.1215</td><td class="num">3.582</td><td class="num">−0.047</td></tr>
+    <tr><td>V2 correct by the move</td><td>add the measured effect of each move (same-batch before/after) to the memory</td><td class="meh">not run as training</td><td class="meh">—</td><td class="num good">−0.068 (gain 1); diverges at 3 and 33</td></tr>
+    <tr><td>V3 both (bench version)</td><td>V1's target fed with V2's memory, curvature re-measured</td><td class="meh">—</td><td class="meh">—</td><td class="num bad">diverges</td></tr>
+    <tr><td>your design, gain 1</td><td>recent-gradient target (reversible) + move-corrected memory + rotation on disagreement</td><td class="num good">3.1202</td><td class="num good">3.505</td><td class="meh">—</td></tr>
+    <tr><td>your design, gain 0</td><td>without the move correction</td><td class="num">3.1325</td><td class="num">3.548</td><td class="meh">—</td></tr>
+  </table></div>
+  <div class="tbl" role="tabpanel" id="p3" aria-labelledby="t3" hidden><table>
+    <tr><th>run</th><th>what</th><th>status</th><th>result so far</th></tr>
+    <tr><td class="mono">small_step_b131</td><td>¼ flip rate, branch from 131M</td><td><span class="tag t-run">running</span></td><td>3.283 at 188M vs 3.408 at the trained rate (gap closing from 0.161)</td></tr>
+    <tr><td class="mono">small_step_s0</td><td>¼ rate from scratch</td><td><span class="tag t-run">running</span></td><td>same plateau (1.4–5.2M), steeper climb out: 5.80 vs 6.14 train loss at 10M</td></tr>
+    <tr><td class="mono">small_step8_lab / _s0</td><td>⅛ rate, branch and from scratch</td><td><span class="tag t-run">running</span></td><td>—</td></tr>
+    <tr><td class="mono">accum33_b131 / _s0</td><td>accumulate 33 steps, then flip a loss-chosen subset</td><td><span class="tag t-run">running</span></td><td>3.443 at 139M (trained rate 3.546, ¼ rate 3.395)</td></tr>
+    <tr><td class="mono">mech_user_q_b131</td><td>your design at ¼ rate</td><td><span class="tag t-lead">queued</span></td><td>—</td></tr>
+  </table></div>
+  <div class="tbl" role="tabpanel" id="p4" aria-labelledby="t4" hidden><table>
+    <tr><th>measurement</th><th>finding</th></tr>
+    <tr><td>momentum compression (frozen weights)</td><td>rank 256 = full size = best rank 256: 0.92 alignment after 33 batches, 99.7% of the top 1% right</td></tr>
+    <tr><td>where alignment is lost</td><td>everywhere, not only on recently flipped weights (unflipped weights −0.09 after the step)</td></tr>
+    <tr><td>line search along a 33-step move</td><td>best at half the move: −0.070 vs −0.010 for all of it (overshoot)</td></tr>
+    <tr><td>flip-rate sweep (33 steps)</td><td>alignment returns as the rate drops: ×1 −0.08, ×½ −0.02, ×¼ +0.08, ×⅛ +0.15; loss best at ×¼</td></tr>
+    <tr><td>before vs after the flips</td><td>before its flips every arm is +0.03–0.05; the step itself turns the gradient (0.45–0.82)</td></tr>
+    <tr><td>learned flip selector</td><td>A (aligned): kept half 69% downhill, −0.010 vs −0.003 random half, ~0 all proposals; B (loss change): weak</td></tr>
+    <tr><td>no-look-ahead plateau</td><td>blocks write a fixed vector ~200,000× the embeddings; output independent of input; block 0 breaks out at ~5M</td></tr>
+    <tr><td>copying on natural text</td><td>all runs gain ~1.9–2.0 nats on a repeated passage; master's lead is broad (0.25–0.5 on non-copyable text)</td></tr>
+    <tr><td>adapter without look-ahead</td><td>adapter output 6× the trits in q/k: attention runs on a rank-16 float projection</td></tr>
+  </table></div>
+  <div class="tbl" role="tabpanel" id="p5" aria-labelledby="t5" hidden><table>
+    <tr><th>arm (20M, from scratch)</th><th>val @20M</th><th>vs baseline (4.293, spread 0.023)</th></tr>
+    <tr><td>additive r4</td><td class="num">4.241</td><td class="num good">−0.052</td></tr>
+    <tr><td>sign gate</td><td class="num">4.267</td><td class="num good">−0.026</td></tr>
+    <tr><td>gate + vnorm</td><td class="num">4.271</td><td class="num meh">−0.022</td></tr>
+    <tr><td>vnorm</td><td class="num">4.281</td><td class="num meh">−0.011</td></tr>
+    <tr><td>multiplicative r4</td><td class="num">4.283</td><td class="num meh">−0.010</td></tr>
+    <tr><td>spend</td><td class="num">4.296</td><td class="num bad">+0.003</td></tr>
+    <tr><td>refresh</td><td class="num">4.299</td><td class="num bad">+0.006</td></tr>
+    <tr><td>stuck mask</td><td class="num">~4.39</td><td class="num bad">~+0.1</td></tr>
+  </table></div>
+  <div class="tbl" role="tabpanel" id="p6" aria-labelledby="t6" hidden><table>
+    <tr><th>arm (2-layer toy, induction nats at 15k steps)</th><th>seed 1</th><th>seed 2</th><th>other seeds</th></tr>
+    <tr class="ref"><td>master</td><td class="num">3.53</td><td></td><td></td></tr>
+    <tr><td>momentum + look-ahead</td><td class="num">2.94</td><td class="num">2.39</td><td class="num">3.97 (s3)</td></tr>
+    <tr><td>+ additive, unfixed</td><td class="num">2.27</td><td class="num">4.07</td><td class="num">4.23 (s3)</td></tr>
+    <tr><td>+ additive, weight decay</td><td class="num">7.16</td><td class="num">2.84</td><td class="num">3.81 (s3)</td></tr>
+    <tr><td>plain momentum, no look-ahead</td><td class="num">1.07</td><td class="num">−0.02</td><td></td></tr>
+    <tr><td>V1, no look-ahead</td><td class="num">6.49</td><td class="num">0.07</td><td></td></tr>
+    <tr><td>your design, no look-ahead</td><td class="num">2.68</td><td class="num">1.52</td><td></td></tr>
+    <tr><td>your design, gain 0</td><td class="num">0.44</td><td class="num">2.44</td><td></td></tr>
+  </table></div>
 </section>
 
 <section>
-  <span class="eyebrow">Every run that matters, by thread</span>
-  <h2>Experiment ledger</h2>
-  <div class="tabs" role="tablist" aria-label="Experiment groups">
-    <button role="tab" id="t-long" aria-selected="true" aria-controls="p-long">Long text runs</button>
-    <button role="tab" id="t-s20" aria-selected="false" aria-controls="p-s20">20M fix screens</button>
-    <button role="tab" id="t-heads" aria-selected="false" aria-controls="p-heads">Heads & temperature</button>
-    <button role="tab" id="t-toy" aria-selected="false" aria-controls="p-toy">Induction toy</button>
-  </div>
-
-  <div class="tbl" role="tabpanel" id="p-long" aria-labelledby="t-long">
-    <table>
-      <tr><th>run</th><th>recipe</th><th>where</th><th>tokens</th><th>val loss</th><th>induction</th></tr>
-      <tr class="ref"><td class="mono">fp32_baseline</td><td>full precision, AdamW</td><td>4090</td><td class="num">300M</td><td class="num">2.683</td><td class="meh">—</td></tr>
-      <tr class="ref"><td class="mono">master_tracked</td><td>master weights (fp32 latent + STE + AdamW)</td><td>—</td><td class="num">300M</td><td class="num">2.759</td><td class="num good">3.17</td></tr>
-      <tr><td class="mono">lm_lowrank256_xb2_100M</td><td>momentum + look-ahead</td><td>laptop</td><td class="num">300M</td><td class="num">3.127</td><td class="num bad">0.00</td></tr>
-      <tr><td class="mono">magadd_full</td><td>+ additive r4</td><td>4090</td><td class="num">300M</td><td class="num good">3.082</td><td class="num bad">~0.05</td></tr>
-      <tr><td class="mono">magadd16_qk</td><td>+ additive r16 + per-head temperature</td><td>4090</td><td class="num">181M, stopped</td><td class="num">3.268 @131M (r4: 3.347)</td><td class="num bad">0.03 @131M</td></tr>
-      <tr><td class="mono">lowrank256_nola_full</td><td>momentum, no look-ahead</td><td>4090, then laptop</td><td class="num">43M, stopped</td><td class="num">—</td><td class="num meh">0.00 @30M (seen-token boost 0.18)</td></tr>
-      <tr><td class="mono">magadd16_wd_qk</td><td>+ additive r16, adapter weight decay 0.1, temperature</td><td>4090</td><td class="num">32M, running</td><td class="num">—</td><td class="num">—</td></tr>
-      <tr><td class="mono">armA_cos_600M</td><td>old plain flips, no momentum</td><td>laptop</td><td class="num">600M</td><td class="num bad">~4.53</td><td class="num bad">0.00</td></tr>
-      <tr><td class="mono">all_fixes_full, mul60_heads</td><td>removed from the queue before starting</td><td>4090</td><td class="num">—</td><td class="meh">—</td><td class="meh">—</td></tr>
-    </table>
-  </div>
-
-  <div class="tbl" role="tabpanel" id="p-s20" aria-labelledby="t-s20" hidden>
-    <table>
-      <tr><th>arm (from scratch, same seed)</th><th>what the flag does</th><th>val @20M</th><th>vs baseline</th></tr>
-      <tr class="ref"><td>baseline ×3 seeds</td><td>momentum + look-ahead</td><td class="num">4.293 (spread 0.023)</td><td class="num">—</td></tr>
-      <tr><td>additive r4</td><td>W = βT + A·Bᵀ, float low-rank adapter</td><td class="num">4.241</td><td class="num good">−0.052</td></tr>
-      <tr><td>sign gate</td><td>propose only where M and g agree in sign</td><td class="num">4.267</td><td class="num good">−0.026</td></tr>
-      <tr><td>gate + vnorm</td><td>both</td><td class="num">4.271</td><td class="num meh">−0.022 (no stacking)</td></tr>
-      <tr><td>vnorm</td><td>M divided by a factored √(second moment)</td><td class="num">4.281</td><td class="num meh">−0.011 (noise)</td></tr>
-      <tr><td>multiplicative r4</td><td>W = βT ∘ (1 + A·Bᵀ)</td><td class="num">4.283</td><td class="num meh">−0.010 (noise)</td></tr>
-      <tr><td>spend 2</td><td>kept flips consume the push that caused them</td><td class="num">4.296</td><td class="num bad">+0.003</td></tr>
-      <tr><td>refresh 16/10</td><td>replace weak subspace directions</td><td class="num">4.299</td><td class="num bad">+0.006</td></tr>
-      <tr><td>stuck mask</td><td>drop gradient pushing past ±1</td><td class="num">~4.39</td><td class="num bad">~+0.1, stopped</td></tr>
-    </table>
-  </div>
-
-  <div class="tbl" role="tabpanel" id="p-heads" aria-labelledby="t-heads" hidden>
-    <table>
-      <tr><th>run</th><th>recipe</th><th>tokens</th><th>result</th></tr>
-      <tr><td class="mono">qktemp60</td><td>per-head temperature</td><td class="num">60M</td><td>val 3.553; prev-token head 0.97 at 25M then 0.55 / 0.75 / 0.85 / 0.52 (flicker)</td></tr>
-      <tr><td class="mono">qkprot60</td><td>temperature + head protection α=2</td><td class="num">28M, stopped</td><td>heads a little earlier (0.72 at 16M vs 0.61); stopped as a patch, not a mechanism</td></tr>
-      <tr><td class="mono">s60_magadd4</td><td>additive r4</td><td class="num">60M</td><td>val 3.541 (baseline ~3.56)</td></tr>
-      <tr><td class="mono">magadd_full</td><td>additive r4</td><td class="num">300M</td><td>prev-token head ~1.00 from 131M, seen-token boost 0.16, ordered copying ~0.05</td></tr>
-    </table>
-  </div>
-
-  <div class="tbl" role="tabpanel" id="p-toy" aria-labelledby="t-toy" hidden>
-    <table>
-      <tr><th>arm</th><th>flip rate</th><th>look-ahead</th><th>adapter</th><th>induction @15k</th><th>val</th></tr>
-      <tr class="ref"><td>master</td><td class="meh">—</td><td class="meh">—</td><td class="meh">—</td><td class="num">3.53</td><td class="num">4.01</td></tr>
-      <tr><td>mom + additive (weight decay 0.1) + LA</td><td class="num">0.02</td><td>yes</td><td>wd 0.1</td><td class="num good">7.16</td><td class="num good">3.80</td></tr>
-      <tr><td>mom + additive (cap 0.5) + LA</td><td class="num">0.02</td><td>yes</td><td>cap 0.5</td><td class="num good">4.25</td><td class="num">4.14</td></tr>
-      <tr><td>mom + LA</td><td class="num">0.02</td><td>yes</td><td>none</td><td class="num">2.94</td><td class="num">4.46</td></tr>
-      <tr><td>mom + additive (LR ×0.1) + LA</td><td class="num">0.02</td><td>yes</td><td>LR ×0.1</td><td class="num">2.81</td><td class="num">4.63</td></tr>
-      <tr><td>mom, low rate</td><td class="num">0.005</td><td>no</td><td>none</td><td class="num">2.48</td><td class="num">4.66</td></tr>
-      <tr><td>mom + additive + LA</td><td class="num">0.02</td><td>yes</td><td>unfixed</td><td class="num">2.27</td><td class="num">4.48</td></tr>
-      <tr><td>mom</td><td class="num">0.02</td><td>no</td><td>none</td><td class="num bad">1.07 (late)</td><td class="num">5.01</td></tr>
-      <tr><td>mom + additive</td><td class="num">0.02</td><td>no</td><td>unfixed</td><td class="num bad">0.01</td><td class="num bad">5.51</td></tr>
-    </table>
-  </div>
-  <p class="meh" style="font-size:13px">Toy: 2 layers, dim 256, 4 heads, vocab 256, context 256; data is random segments of 8–64 tokens, each immediately repeated; 15000 steps × 8192 tokens; momentum rank 64. Induction = loss on a shuffled repeat minus loss on an exact repeat, in nats. One seed per arm.</p>
-</section>
-
-<section>
-  <span class="eyebrow">What the theory still can't explain</span>
-  <h2>Open gaps</h2>
-  <div class="gaps">
-    <div class="gapcard"><span class="state open">open</span><h3>No integrator</h3><p>Master's latent weights sum every small push and undo moves the gradient stops supporting (96% of its 100-step moves agree with the summed gradient). Ours can only flip or not; evidence below the flip threshold is lost. No fix so far replaces this.</p></div>
-    <div class="gapcard"><span class="state open">open</span><h3>Proposal quality</h3><p>M's flip proposals score 0.48 precision against the true gradient, below one batch's gradient (0.63). Look-ahead filters them, but its precision does not improve with more batches, because it judges all flips jointly.</p></div>
-    <div class="gapcard"><span class="state lead">lead</span><h3>Scale that can grow</h3><p>Master's per-matrix scale grows; ours is fixed at β = 1/√(K·ρ), so attention can't sharpen. The additive adapter supplies scale but, unconstrained, turns into noise. Weight decay on it fixed the toy. Untested on text.</p></div>
-    <div class="gapcard"><span class="state lead">lead</span><h3>Flip rate vs structure</h3><p>Peak rate 0.02 was tuned for loss. In the toy, the same optimizer builds induction only once flips are rare enough (rate decay or ÷4). Text runs may churn fine circuits too fast.</p></div>
-    <div class="gapcard"><span class="state lead">lead</span><h3>Why weight decay works</h3><p>Weight decay on both A and B equals a nuclear-norm penalty on A·Bᵀ: directions without steady gradient die. Measured: adapter effective rank 2.5 with decay vs 3.0 without; A only 30% smaller. One seed; needs repeats.</p></div>
-    <div class="gapcard"><span class="state open">open</span><h3>The 12M bend</h3><p>After ~12M tokens master and fp32 steepen to slope −0.30; ours stays at −0.21. Candidate cause: the long-context circuits we never build. Not shown directly.</p></div>
+  <div class="two">
+    <div class="list">
+      <span class="eyebrow">Not tried yet</span>
+      <h2>Proposed, not run</h2>
+      <ul>
+        <li><span class="tag t-lead">next</span>The selector as a training rule: keep only the flips the aligned-selector ranks high (or a hand-made rule from its top features)</li>
+        <li><span class="tag t-lead">next</span>Low-rank versions of V2 / your design (tonight's runs kept their state full-size)</li>
+        <li><span class="tag t-lead">next</span>A flip rate that adapts to keep the landscape still between steps (measured by the same-batch gradient change)</li>
+        <li>Your design / V2 at ¼ rate with the look-ahead-free recipe plus the r16 adapter (weight decay + temperature)</li>
+        <li>Output bias so the unigram frequencies don't have to be built by the trits (the no-look-ahead plateau)</li>
+        <li>Copy-data curriculum</li>
+        <li>600M run; MLP width sweep (N+K scaling); multi-GPU trainer; FineWeb data</li>
+        <li>Never run from older plans: <code>all_fixes_full</code>, <code>mul60_heads</code>, <code>gate_full</code></li>
+      </ul>
+    </div>
+    <div class="list">
+      <span class="eyebrow">Open questions</span>
+      <h2>What we still can't explain</h2>
+      <ul>
+        <li><span class="tag t-bad">open</span>How to cut the bad flips without cutting the good ones: lower rates give an offset but a shallower slope</li>
+        <li><span class="tag t-bad">open</span>Master's lead is broad (all token types), not one missing circuit: what does its latent integration buy that we still lack?</li>
+        <li><span class="tag t-lead">lead</span>Why the r16 adapter + weight decay + temperature pulls ahead after ~150M (2.9925), and whether it works without look-ahead once the adapter is kept in check</li>
+        <li><span class="tag t-lead">lead</span>Whether the ~12M bend gap closes with the step-size fix</li>
+        <li><span class="tag t-good">settled</span>Look-ahead is not needed for loss per token and blocks general induction; momentum compression loses nothing</li>
+      </ul>
+    </div>
   </div>
 </section>
 
@@ -329,11 +309,14 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <span class="eyebrow">The figures worth looking at</span>
   <h2>Figures</h2>
   <div class="figs">
-    <figure><img src="toy_induction.png" alt="Induction score and val loss over steps for every toy arm"><figcaption><b>toy_induction.png</b>: the toy. Left: ordered-copy gain over training; the brown (weight decay) and cyan (cap) arms pass master (black). Right: val loss.</figcaption></figure>
-    <figure><img src="live.png" alt="Train loss, val perplexity, local slope and token stretch of long runs"><figcaption><b>live.png</b>: long text runs vs master and fp32. Thick green is additive r16 + temperature. Bottom right: tokens we need for master's loss (1.5× at ~100M for the best run).</figcaption></figure>
-    <figure><img src="s20.png" alt="20M screens of each fix against three baseline seeds"><figcaption><b>s20.png</b>: 20M from-scratch screens of each fix against three baseline seeds.</figcaption></figure>
+    <figure><img src="step_size.png" alt="Step size runs"><figcaption><b>step_size</b>: ¼ rate (purple) and accumulate-then-flip (red) drop right after branching; the trained rate (blue) keeps a steeper slope and closes in.</figcaption></figure>
+    <figure><img src="mechanisms.png" alt="Momentum mechanisms"><figcaption><b>mechanisms</b>: V1 and your design as branches and from scratch against plain momentum.</figcaption></figure>
+    <figure><img src="bench_mechanisms.png" alt="Mechanism bench"><figcaption><b>bench</b>: held-out loss over 66 steps per mechanism; V2 at gain 1 best, every gain 3 / 33 variant diverges.</figcaption></figure>
+    <figure><img src="look_ahead_schedules.png" alt="Look-ahead schedules"><figcaption><b>look-ahead schedules</b>: switching on after the no-look-ahead phase lands on the baseline curve.</figcaption></figure>
+    <figure><img src="magnitude.png" alt="Magnitude runs"><figcaption><b>magnitude</b>: the r16 + weight decay + temperature run (yellow) pulls ahead after ~150M.</figcaption></figure>
+    <figure><img src="induction_text.png" alt="Induction on text"><figcaption><b>induction</b>: general induction forms only without look-ahead (purple) and in master.</figcaption></figure>
   </div>
-  <p>Everything else is indexed in <code>docs/figures/README.md</code>, grouped by question. Superseded figures from the stateless-flip phase moved to <code>docs/figures/archive/</code>.</p>
+  <p>All figures and their scripts: <code>docs/figures/README.md</code>. Run tables: <code>docs/RUN_INDEX.md</code>; findings: <code>docs/RUNS.md</code>.</p>
 </section>
 
 </div>
@@ -341,11 +324,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <script>
 (function(){
   const tabs=[...document.querySelectorAll('[role="tab"]')];
-  function show(t){
-    tabs.forEach(b=>{const on=b===t; b.setAttribute('aria-selected',on); document.getElementById(b.getAttribute('aria-controls')).hidden=!on;});
-    try{localStorage.setItem('ledger-tab',t.id)}catch(e){}
-  }
+  function show(t){ tabs.forEach(b=>{const on=b===t; b.setAttribute('aria-selected',on); document.getElementById(b.getAttribute('aria-controls')).hidden=!on;}); try{localStorage.setItem('tried-tab',t.id)}catch(e){} }
   tabs.forEach(b=>b.addEventListener('click',()=>show(b)));
-  try{const s=localStorage.getItem('ledger-tab'); const t=s&&document.getElementById(s); if(t) show(t);}catch(e){}
+  try{const s=localStorage.getItem('tried-tab'); const t=s&&document.getElementById(s); if(t) show(t);}catch(e){}
 })();
 </script>
