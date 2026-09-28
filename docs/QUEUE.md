@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 09:45
+Last updated: 2026-09-28 10:05
 
 ## Now (28 Sep, 09:45)
 
@@ -14,8 +14,9 @@ Last updated: 2026-09-28 09:45
 |---|---|---|---|---|
 | shoveler | `magadd16_wd_qk_lab` | look-ahead + additive r16 + adapter weight decay + temperature | 285M / 300M (val 3.014 at step 8500) | ~10:40 |
 | 4090 | `nola_b48` (filler) | no look-ahead, batch 48 | step 5450 / 9155 (val 3.091) | ~13:30 |
+| shoveler (next to the run) | `mech_along` V0 / V2 / V3 | alignment and noise along `nola_lab` (164/229/295M) | 9 measurements | ~10:45 |
+| laptop | `mech_along` U1 / U0 / V1 | alignment and noise of your design and V1 along their own runs | 9 measurements | ~10:45 |
 | goosander | idle | - | - | - |
-| laptop | idle (figures refresh every 10 min) | - | - | - |
 
 ## Finished overnight (27-28 Sep)
 
