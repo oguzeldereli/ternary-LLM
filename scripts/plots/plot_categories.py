@@ -59,6 +59,7 @@ CATS = {
     "step_size": ("Step size: fewer flips per step, or accumulate then flip (no look-ahead, branches at 131M)", 3e8, [
         ("nola_lab", "plain rank-256 momentum, trained flip rate"),
         ("small_step_b131", "plain momentum at 1/4 of the flip rate"),
+        ("small_step8_b131", "plain momentum at 1/8 of the flip rate"),
         ("accum33_b131", "accumulate 33 steps, then flip a loss-chosen subset"),
         ("mech_user_b131", "your design (gain 1), trained rate"),
         ("mech_user_q_b131", "your design (gain 1) at 1/4 of the rate"),
