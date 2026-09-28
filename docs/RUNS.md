@@ -1327,3 +1327,33 @@ Decision: no look-ahead in new runs unless a new reason appears.
 after 25M tokens (3.342 vs 3.497 at step 4750). Running: 1/4 from scratch, 1/8, your design at 1/4, and
 accumulate-then-flip (see QUEUE.md). Figures: `categories/step_size.png`, `categories/mechanisms.png`,
 `bench_mechanisms.png`, `toy_mechanisms.png`, `induction_text.png`.
+
+### 28 Sep evening: flip choice and the wave (nola_lab @ step 5000, 164M)
+
+Flip choice along the true gradient (64 batches): flip n entries by one trit in -sign(T), n in multiples of one
+normal step (~0.18M flips), held-out loss change:
+
+| choice | 0.25x | 0.5x | 1x | 2x | 4x |
+|---|---|---|---|---|---|
+| largest \|T\| (global per layer) | +0.419 | +0.871 | +1.747 | +2.752 | +3.819 |
+| largest \|T\| per row | +0.118 | +0.147 | +0.208 | +1.354 | +3.210 |
+| largest \|T\| per column | +0.328 | +0.367 | +0.453 | +1.586 | +3.314 |
+| consistency \|T\|/std = Adam \|T\|/rms | +0.100 | +0.382 | +1.039 | +2.153 | +3.501 |
+| Adam, row x column factored | +0.025 | +0.172 | +0.594 | +1.590 | +3.542 |
+| proportional (trainer's rule) | -0.019 | -0.022 | +0.016 | +0.227 | +0.916 |
+| random | -0.013 | -0.021 | -0.024 | +0.014 | +0.221 |
+
+Top-\|T\| flips at 1x put 36% of the flips into the busiest 1% of rows. The loss from top-k choices is mostly
+concentration (per-row capping cuts it 8x); the trainer's proportional rule is close to random. The "low size" arm
+of `flip_choice2` is broken (float precision made it flip every movable weight) and is left out.
+
+Wave test (41 steps of real flips from the saved momentum, true gradient from 32 batches before each step):
+
+| lag | 0 | 1 | 2 | 3 | 5 | 8 | 10 | 16 | 20 | 30 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| cos(T_t, T_t+lag) | 1 | +0.692 | +0.187 | **-0.200** | -0.100 | +0.013 | -0.068 | -0.096 | +0.049 | +0.091 |
+| cos(M_t, T_t+lag) | -0.063 | -0.174 | -0.188 | -0.135 | -0.063 | -0.081 | -0.046 | -0.037 | -0.038 | -0.011 |
+
+The three main directions of the gradient sequence change sign every 3-4 steps (10-13 sign changes in 41 steps:
+period ~6-8 steps). The steady direction is 4.3% of the gradient's energy. Momentum (memory ~33 steps) averages over
+4-5 swings and anti-predicts the next 1-3 gradients. Controls running: frozen weights (rate 0) and 1/4 rate.

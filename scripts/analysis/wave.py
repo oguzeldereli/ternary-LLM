@@ -5,7 +5,7 @@ no-look-ahead snapshot (saved momentum, float tail frozen, plain momentum with t
   momentum lag     cos(M_t, T_t+lag): how well the momentum held at step t predicts the gradient lag steps later
   main directions  the 3 principal directions of the 41 gradients and each one's sign over time (swinging back and
                    forth = oscillation along that direction; the number of sign changes gives a rough period)
-  python -m scripts.analysis.wave RUN STEP
+  WAVE_RATE_MULT=0|0.25 python -m scripts.analysis.wave RUN STEP
 """
 import sys, math, numpy as np, torch
 from scripts.analysis.testbench import Bench, G_REF
@@ -16,6 +16,8 @@ RUN, ST = sys.argv[1], int(sys.argv[2])
 BETA, NT, K = 0.97, 32, 41
 train = np.memmap("data/wiki32k_train.bin", dtype=np.uint16, mode="r")
 prog = min(1.0, (ST - 30) / (9155 - 30)); RATE = 0.02 * 0.5 * (1 + math.cos(math.pi * prog))
+import os
+RATE *= float(os.environ.get("WAVE_RATE_MULT", "1"))   # 0 = frozen weights (control), 0.25 = quarter rate
 B = Bench(f"checkpoints/{RUN}/ckpt_{ST}.pt")
 Ls, names = B.Ls, B.names
 
