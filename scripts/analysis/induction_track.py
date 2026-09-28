@@ -8,7 +8,7 @@ import os, glob, re, json, torch, torch.nn.functional as F
 
 RUNS = {  # run dir: (loader kind, adapter kind for the loader or "")
     "curve_master": ("master", ""), "magadd16_qk": ("kernel", "add"), "magadd16_wd_qk": ("kernel", "add"),
-    "magadd_full": ("kernel", "add"), "lm_lowrank256_xb2_100M": ("kernel", ""), "nola_lab": ("kernel", ""), "nola_add16": ("kernel", "add"), "nola_then_la": ("kernel", ""), "la_sched": ("kernel", ""), "mech_v1_b131": ("kernel", ""), "mech_user_b131": ("kernel", ""), "mech_user_g0_b131": ("kernel", ""), "mech_v1_s0": ("kernel", ""), "mech_user_s0": ("kernel", ""), "mech_user_g0_s0": ("kernel", ""), "small_step_b131": ("kernel", ""), "accum33_b131": ("kernel", ""), "accum33_s0": ("kernel", ""), "small_step_s0": ("kernel", ""), "mech_user_q_b131": ("kernel", ""), "la_sched98": ("kernel", ""), "magadd16_qk_lab": ("kernel", "add"), "magadd16_wd_qk_lab": ("kernel", "add"),
+    "magadd_full": ("kernel", "add"), "lm_lowrank256_xb2_100M": ("kernel", ""), "nola_lab": ("kernel", ""), "nola_add16": ("kernel", "add"), "nola_then_la": ("kernel", ""), "la_sched": ("kernel", ""), "mech_v1_b131": ("kernel", ""), "mech_user_b131": ("kernel", ""), "mech_user_g0_b131": ("kernel", ""), "mech_v1_s0": ("kernel", ""), "mech_user_s0": ("kernel", ""), "mech_user_g0_s0": ("kernel", ""), "small_step_b131": ("kernel", ""), "accum33_b131": ("kernel", ""), "accum33_s0": ("kernel", ""), "small_step_s0": ("kernel", ""), "small_step8_lab": ("kernel", ""), "mech_user_q_b131": ("kernel", ""), "la_sched98": ("kernel", ""), "magadd16_qk_lab": ("kernel", "add"), "magadd16_wd_qk_lab": ("kernel", "add"),
 }
 CACHE = "checkpoints/induction_track.json"
 

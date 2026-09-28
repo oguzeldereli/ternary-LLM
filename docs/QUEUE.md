@@ -6,23 +6,22 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 13:30
+Last updated: 2026-09-28 13:50
 
-## Now (28 Sep, 12:40)
+## Now (28 Sep, 13:50)
 
 | machine | run | what | expected |
 |---|---|---|---|
-| **4090** (started) | `accum33_b131` | accumulate 33 steps without flips, then flip a loss-chosen random subset of the entries whose accumulated push stands out (|M| > 3 rms); branch of nola_lab 131M -> 300M | ~1.5 h after start |
-| | `accum33_s0` | the same from scratch -> 300M | ~2.5 h after that |
-| | `nola_b48` (resume, filler) | no look-ahead, batch 48 | after |
+| **4090** | `accum33_b131` | accumulate 33 steps without flips, then flip a loss-chosen random subset of the entries whose accumulated push stands out (|M| > 3 rms); branch 131M -> 300M | ~15:00 |
+| | `accum33_s0` | the same from scratch -> 300M | ~17:30 |
 | **goosander** | `small_step_b131` | plain momentum at 1/4 of the flip rate, branch 131M -> 300M | ~14:30 |
-| **cackling** (new, replaces shoveler) | `small_step_s0` | plain momentum at 1/4 of the flip rate, from scratch -> 300M | ~15:30 |
+| **cackling** | `small_step_s0` | plain momentum at 1/4 of the flip rate, from scratch -> 300M | ~15:30 |
 | | `mech_user_q_b131` | your design (gain 1) at 1/4 of the flip rate, branch 131M -> 300M | ~18:00 |
-| laptop | `small_step8_b131` | plain momentum at 1/8 of the flip rate, branch 131M -> 300M | ~18:00 |
+| **mallard** (third lab PC, added 13:40) | `small_step8_lab` | plain momentum at 1/8 of the flip rate, branch 131M -> 300M | ~16:00 |
+| laptop | `small_step8_b131` | the same 1/8 run, slower copy (can be stopped) | ~18:00 |
 
-Done since 11:20: `nola_b48` (no look-ahead, batch 48, 900M tokens read) val 2.8888; `mech_along` (all 18 measurements); `mech_align2` (alignment before vs after the flips: at the trained rate every arm is +0.03 to
-+0.05 before its flips, one step turns the true gradient to 0.45-0.82; at 1/4 of the rate V2 +0.169, your design
-+0.134, plain +0.101, V1 +0.061).
+Early numbers (val): at step 4750 the 1/4-rate branch is at 3.342 vs 3.497 for the same run at the trained rate and
+3.457 for your design at the trained rate; accumulate-then-flip 3.443 at step 4250 (trained rate 3.546).
 
 ## Finished overnight (27-28 Sep)
 

@@ -1298,3 +1298,32 @@ Fixes (`scripts/analysis/heads_over_time.py`):
 From-scratch 20M screens, final val (baselines: 4.2919 / 4.3045 / 4.2817, mean 4.2927, spread 0.023):
 additive magnitude 4.2407 (-0.052), sign gate 4.2669 (-0.026), gate + vnorm 4.2708, multiplicative 4.2825,
 vnorm 4.2814, spend 4.2960, refresh 4.2985, stuck mask worse (+0.1 by 12M, stopped).
+
+
+## 27-28 Sep: no look-ahead, why momentum is not aligned, step size
+
+**Look-ahead.** Momentum without look-ahead (`nola_lab`) sits at the unigram level for 2-5M tokens (the blocks
+build one large input-independent vector that drowns the token embeddings: the output is the same at every
+position), then runs at about master's slope and forms general induction heads from ~98M (3.05 nats at 295M vs
+master 3.17 at 300M). Look-ahead from the start never forms them; switching it on after 131M keeps them and gains
+a constant ~0.2 on loss within ~500 steps; switching it off costs a spike (flips 0.10% -> 0.38% per step). On
+natural text all runs copy equally well (repeat gain ~1.9-2.0 nats); the look-ahead runs only fail on random
+tokens. At equal text read, batch 48 without look-ahead = batch 16 without look-ahead, both better than look-ahead.
+Decision: no look-ahead in new runs unless a new reason appears.
+
+**Why momentum is not aligned with the true gradient** (bench at `nola_lab` 164M, 64-256-batch true gradients):
+- with frozen weights rank-256 momentum reaches cos 0.92 with the true gradient after 33 batches (compression loses
+  nothing); with flips at the trained rate it is +0.03-0.05 where the flips are chosen;
+- one step of flips turns the true gradient to 0.45-0.82 of its previous direction (the whole landscape moves,
+  not only the flipped weights; weights that never flipped are as misaligned);
+- the step overshoots: along the 33-step move the held-out loss is lowest at half of it (-0.070 vs -0.010);
+- mechanisms (V1 target point, V2 correction by the measured effect of each move, your design) do not change the
+  step, so at the trained rate none improves alignment; at 1/4 of the rate one step barely moves the landscape
+  (0.92-0.97) and alignment is plain +0.101, V2 +0.169, your design +0.134, V1 +0.061;
+- a learned selector over momentum's proposals (features available at flip time) keeps a half with 69% downhill
+  flips (54% for all), held-out loss change -0.010 vs -0.003 for a random half and ~0 for all proposals.
+
+**Step size.** Plain momentum at 1/4 of the flip rate (branch at 131M) is 0.155 better than the trained rate
+after 25M tokens (3.342 vs 3.497 at step 4750). Running: 1/4 from scratch, 1/8, your design at 1/4, and
+accumulate-then-flip (see QUEUE.md). Figures: `categories/step_size.png`, `categories/mechanisms.png`,
+`bench_mechanisms.png`, `toy_mechanisms.png`, `induction_text.png`.

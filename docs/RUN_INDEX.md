@@ -56,3 +56,28 @@ Each dir has `metrics.jsonl` (+ `ckpt.pt`); logs are `train.log` in the dir, or
 `acc_a`, `acc_b`, `p2_master`, `sanity_master`, `smoke`, `t_armA`, `t_armB`,
 `la_r0ramp_lr15` (stopped at step 20), `p3b_acc16`, `p3b_acc64` (never ran),
 `wiki_ev`, `wiki_ev3`, `wiki_mf` (early 51M/GPT-2-vocab runs from RESULTS.md, checkpoint only).
+
+
+## No look-ahead, momentum mechanisms, step size (27-28 Sep)
+
+All no look-ahead unless noted; "branch" = continued from `nola_lab` at step 4000 (131M) with its momentum.
+val = final validation loss (not perplexity) at the given tokens. Details: [RUNS.md](RUNS.md), status of running
+ones: [QUEUE.md](QUEUE.md).
+
+| run | what | tokens | val |
+|---|---|---|---|
+| `nola_lab` | rank-256 momentum, no look-ahead (4090 to 30M, lab 3090 to 300M) | 300M | 3.158 |
+| `nola_then_la` | `nola_lab` to 131M, then look-ahead x2 on | 300M | 3.1225 |
+| `la_sched` | look-ahead 0-30M, off to 131M, on after | 300M | 3.1108 |
+| `la_sched98` | look-ahead 0-30M, off to 98M, on after | 300M | 3.1135 |
+| `la40_off30` | look-ahead the first 40 steps, then off | 30M | 4.506 |
+| `nola_b48` | no look-ahead, batch 48 (3 x 16: the text a look-ahead step reads) | 9155 steps (900M read) | 2.889 |
+| `nola_add16` | no look-ahead + additive r16 (stopped: the adapter takes over q/k) | 112M | ~4.6 |
+| `magadd16_qk_lab` | look-ahead + additive r16 + per-head temperature (to its planned 200M) | 200M | 3.1212 |
+| **`magadd16_wd_qk_lab`** | look-ahead + additive r16 + adapter weight decay 0.1 + per-head temperature | 300M | **2.9925** |
+| `mech_v1_b131` | V1 target point (`--mech v1`), branch | 300M | 3.1215 |
+| `mech_user_b131` | your design (`--mech user`, gain 1), branch | 300M | 3.1202 |
+| `mech_user_g0_b131` | your design without the move correction (gain 0), branch | 300M | 3.1325 |
+| `mech_v1_s0` | V1 from scratch | 131M | 3.582 |
+| `mech_user_s0` | your design (gain 1) from scratch | 131M | 3.505 |
+| `mech_user_g0_s0` | your design (gain 0) from scratch | 131M | 3.548 |
