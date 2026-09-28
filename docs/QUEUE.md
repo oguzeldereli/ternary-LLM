@@ -6,17 +6,21 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 10:05
+Last updated: 2026-09-28 11:20
 
-## Now (28 Sep, 09:45)
+## Now (28 Sep, 11:20)
 
-| machine | run | what | at / planned | expected |
+| machine | run | what | status | expected |
 |---|---|---|---|---|
-| shoveler | `magadd16_wd_qk_lab` | look-ahead + additive r16 + adapter weight decay + temperature | 285M / 300M (val 3.014 at step 8500) | ~10:40 |
-| 4090 | `nola_b48` (filler) | no look-ahead, batch 48 | step 5450 / 9155 (val 3.091) | ~13:30 |
-| shoveler (next to the run) | `mech_along` V0 / V2 / V3 | alignment and noise along `nola_lab` (164/229/295M) | 9 measurements | ~10:45 |
-| laptop | `mech_along` U1 / U0 / V1 | alignment and noise of your design and V1 along their own runs | 9 measurements | ~10:45 |
-| goosander | idle | - | - | - |
+| goosander | `flip_selector` (priority) | learned flip selectors at nola_lab @164M: A most aligned, B most loss change, vs all / random 50% | decision step 20 of 33 | ~11:30 |
+| 4090 | `nola_b48` (filler) | no look-ahead, batch 48 | step 7660 / 9155 | ~12:30 |
+| laptop | `mech_along` U1 / U0 / V1 | alignment and noise of your design and V1 along their own runs | 5 of 18 measurements | ~12:00 |
+| shoveler | - | taken by another user (llama-server, 23 GB) since 11:11 | - | - |
+
+Finished this morning: `magadd16_wd_qk_lab` (look-ahead + additive r16 + adapter weight decay + temperature)
+**val 2.9925 at 300M**, our best; `mech_along` V0 / V2 / V3 along `nola_lab`; the flip-rate sweep at 164M
+(alignment returns at 1/4 of the rate: cos +0.084, top-1% precision 0.596, held-out dL -0.066 vs -0.009 at the
+trained rate); the overshoot line search (best at half of the 33-step move: -0.070 vs -0.010 for all of it).
 
 ## Finished overnight (27-28 Sep)
 
