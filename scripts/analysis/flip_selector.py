@@ -65,7 +65,7 @@ def features(F, g, T0, mv, i):
     rows, cols = m.nonzero(as_tuple=True)
     typ = torch.zeros(len(f), 7, device=f.device); typ[:, i % 7] = 1
     to_zero = (T0[m] != 0).float()
-    X = torch.stack([f.abs() / fm, gg.abs() / gm, ((f > 0) == (gg > 0)).float(), t == -1, t == 0, t == 1, to_zero,
+    X = torch.stack([f.abs() / fm, gg.abs() / gm, ((f > 0) == (gg > 0)).float(), (t == -1).float(), (t == 0).float(), (t == 1).float(), to_zero,
                      rr[rows] / lr, cr[cols] / lr, torch.full_like(f, (i // 7) / 11.0)], 1).float()
     return torch.cat([X, typ], 1)
 
