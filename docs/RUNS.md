@@ -1357,3 +1357,16 @@ Wave test (41 steps of real flips from the saved momentum, true gradient from 32
 The three main directions of the gradient sequence change sign every 3-4 steps (10-13 sign changes in 41 steps:
 period ~6-8 steps). The steady direction is 4.3% of the gradient's energy. Momentum (memory ~33 steps) averages over
 4-5 swings and anti-predicts the next 1-3 gradients. Controls running: frozen weights (rate 0) and 1/4 rate.
+
+Wave controls. Frozen weights (rate 0): cos(T_t, T_t+lag) = 0.950 at every lag 1-40 (the 32-batch noise floor),
+cos(M_t, T_t) = +0.815: no swing without flips. 1/4 rate:
+
+| lag | 1 | 2 | 3 | 5 | 8 | 10 | 13 | 16 |
+|---|---|---|---|---|---|---|---|---|
+| cos(T_t, T_t+lag) | +0.837 | +0.710 | +0.528 | +0.121 | -0.239 | -0.227 | -0.027 | +0.089 |
+| cos(M_t, T_t+lag) | -0.009 | -0.079 | -0.129 | -0.161 | -0.098 | -0.047 | -0.017 | -0.033 |
+
+Main directions: 3-6 sign changes in 41 steps (period ~16-20 vs ~6-8 at full rate). The swing is made by the flips;
+its period grows about as 1/sqrt(rate) while its depth stays, the signature of heavy-ball momentum underdamped in
+stiff directions (omega ~ sqrt(rate * curvature) ~ 0.9 per step at full rate, damping 1 - beta = 0.03). Lower rates
+slow the swing; they do not remove it.

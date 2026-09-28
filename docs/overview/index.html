@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 28 Sep 2026, 18:45</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 28 Sep 2026, 20:00</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -155,7 +155,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
     <tr><td>4090 (unattended queue)</td><td class="mono">rc_s0 → la40rc_s0 → adaptrate_rc_s0</td><td>from scratch, no look-ahead, learned row/column scales: plain momentum <b>done: 3.1307</b> (3.158 without scales); look-ahead for the first 40 steps only (no plateau); adaptive flip rate</td><td class="num">~18:30, ~21:00, ~23:30</td></tr>
-    <tr><td>gressingham</td><td class="mono">wave controls</td><td>the wave test with frozen weights (no flips: do the flips make the oscillation?) and at ¼ rate (does it scale with the step?)</td><td class="num">~19:20, ~20:00</td></tr>
+    <tr><td>gressingham</td><td class="mono">wave, β 0.8 / 0.5</td><td>does a shorter momentum memory damp the swing our flips make?</td><td class="num">~20:40, ~21:20</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
@@ -188,7 +188,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node">Why: largest entries pile up (busiest 1% of rows get 36% of the flips); capping per row cuts the damage 8× (+0.21). Our rule (∝ |M|, capped) ≈ random</div><div class="down">↓</div>
       <div class="node good"><b>Wave found</b>: the true gradient swings with a ~6–8 step period (autocorrelation +0.69, +0.19, <b>−0.20</b> at lags 1–3); the steady part is only 4% of its energy</div><div class="down">↓</div>
       <div class="node bad">Momentum (memory ~33 steps) <b>anti-predicts</b> the next gradients: −0.17, −0.19, −0.14 at lags 1–3. It averages over 4–5 swings and lags half a swing behind</div><div class="down">↓</div>
-      <div class="node lead">Running: is the swing made by our flips (frozen-weight control) and does it shrink at ¼ rate?</div>
+      <div class="node good"><b>Our flips make the swing</b>: frozen weights, no swing (gradient cos 0.95 at every lag, momentum +0.81). At ¼ rate the swing is slower (period ~16–20) but as deep (−0.24)</div><div class="down">↓</div>
+      <div class="node lead">Period ∝ 1/√rate: an underdamped heavy-ball oscillation. Memory 0.97 damps far too little for the step. Running: β 0.8 / 0.5</div>
     </div></div>
     <div class="thread"><h3>4 · Step size</h3><div class="chain">
       <div class="node good">¼ flip rate (branch): 0.16 better right away</div><div class="down">↓</div>
@@ -265,6 +266,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <tr><td>flip choice along the true gradient</td><td>flip n entries in the true gradient's sign, chosen by: size +1.75 at 1 step, consistency and Adam (identical ranking) +1.04, factored Adam +0.59, <b>random −0.024</b> (−0.013 at ¼, +0.014 at 2 steps). Choosing large entries is what hurts, not the direction</td></tr>
     <tr><td>flip choice, follow-up</td><td>at 1 step: global size +1.75, size per row +0.21, per column +0.45, our proportional rule +0.016 (−0.022 at ½), random −0.024. Top-size flips land 36% in the busiest 1% of rows. The penalty is concentration; our training rule does not have it. Best amount for random ≈ ½–1 step</td></tr>
     <tr><td>wave test (41 steps of real flips)</td><td>true-gradient autocorrelation +0.69 / +0.19 / −0.20 at lags 1 / 2 / 3, then ±0.1 around 0; the main directions change sign every 3–4 steps (period ~6–8). Momentum vs the next gradients: −0.06 now, −0.17 / −0.19 / −0.14 at lags 1–3. The steady direction is 4.3% of the gradient's energy</td></tr>
+    <tr><td>wave controls</td><td>frozen weights (rate 0): cos(T_t, T_t+lag) = 0.95 at every lag (the 32-batch noise floor), momentum +0.81 aligned: no swing without flips. ¼ rate: +0.84 / +0.71 / +0.53 / +0.12 at lags 1 / 2 / 3 / 5, −0.24 at 8, 3–6 sign changes in 41 steps (period ~16–20, vs ~6–8 at full rate); momentum −0.16 at lag 5. Period ×2.5 for rate ÷4 ≈ 1/√rate, as in heavy-ball momentum on a stiff valley: ω ≈ √(rate · curvature) ≈ 0.9 per step, damping 1 − β = 0.03</td></tr>
     <tr><td>no-look-ahead plateau</td><td>blocks write a fixed vector ~200,000× the embeddings; output independent of input; block 0 breaks out at ~5M</td></tr>
     <tr><td>copying on natural text</td><td>all runs gain ~1.9–2.0 nats on a repeated passage; master's lead is broad (0.25–0.5 on non-copyable text)</td></tr>
     <tr><td>adapter without look-ahead</td><td>adapter output 6× the trits in q/k: attention runs on a rank-16 float projection</td></tr>
@@ -299,7 +301,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <span class="eyebrow">Not tried yet</span>
       <h2>Proposed, not run</h2>
       <ul>
-        <li><span class="tag t-lead">next</span>If the flips make the swing: do not flip a weight back and forth within one swing (hold a flipped weight for ~4 steps; the older permanent lockout, without momentum, lost 102.66 vs 98.56), or flip only where the short memory (~3 steps) and the long one agree</li>
+        <li><span class="tag t-lead">next</span>Damping: Nesterov-style signal (βM + g, which reacts to the gradient turning), or M minus a multiple of its own recent change (PID derivative); both fit the low-rank state</li>
+        <li><span class="tag t-lead">next</span>Do not flip a weight back and forth within one swing (hold a flipped weight for ~4 steps; the older permanent lockout, without momentum, lost 102.66 vs 98.56), or flip only where the short memory (~3 steps) and the long one agree</li>
         <li>Size-free flip rule (p = rate everywhere, direction sign(M)): the follow-up says our rule is already close to random, so low priority</li>
         <li><span class="tag t-lead">next</span>Memory that adapts to the wave period, if the slow-wave test finds one</li>
         <li><span class="tag t-lead">next</span>Adaptive flip rate + row/column scales from scratch (queued on the 4090)</li>
@@ -317,7 +320,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <h2>What we still can't explain</h2>
       <ul>
         <li><span class="tag t-bad">open</span>Why flipping the largest entries of even the true gradient raises loss while random sign-aligned flips lower it: concentration in a few rows, or high curvature where the gradient is large? (follow-up running)</li>
-        <li><span class="tag t-lead">lead</span>The gradient swings with a ~6–8 step period and momentum lags it by about half a swing. Open: is the swing caused by our own flips overshooting in stiff directions (control running)? If so, the fix is to damp the overshoot, not to change the memory</li>
+        <li><span class="tag t-good">found</span>The misalignment is an oscillation our flips create: momentum keeps pushing after the gradient has turned (underdamped, period ∝ 1/√rate). Lower rates only slow the swing. Open: how to damp it without state (shorter memory? a derivative term, as in Nesterov / PID? smaller steps only in stiff directions?)</li>
         <li><span class="tag t-bad">open</span>How to cut the bad flips without cutting the good ones: lower rates give an offset but a shallower slope</li>
         <li><span class="tag t-bad">open</span>Master's lead is broad (all token types), not one missing circuit: what does its latent integration buy that we still lack?</li>
         <li><span class="tag t-lead">lead</span>Why the r16 adapter + weight decay + temperature pulls ahead after ~150M (2.9925), and whether it works without look-ahead once the adapter is kept in check</li>

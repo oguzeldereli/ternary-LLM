@@ -13,7 +13,9 @@ from bitnet.kernel import fused_flip
 from bitnet.train import get_batch
 
 RUN, ST = sys.argv[1], int(sys.argv[2])
-BETA, NT, K = 0.97, 32, 41
+NT, K = 32, 41
+import os
+BETA = float(os.environ.get("WAVE_BETA", "0.97"))   # momentum memory; the saved momentum is rescaled to it
 train = np.memmap("data/wiki32k_train.bin", dtype=np.uint16, mode="r")
 prog = min(1.0, (ST - 30) / (9155 - 30)); RATE = 0.02 * 0.5 * (1 + math.cos(math.pi * prog))
 import os
@@ -40,6 +42,7 @@ def truth(seed):
 
 
 F = [(U.cuda().float() @ V.cuda().float().T) for U, V in B.b["lowrank"]]
+F = [f * (1 - 0.97) / (1 - BETA) for f in F]              # a sum of gradients has size ~ g / (1 - beta)
 s = batches(5151); Ts, Ms = [], []
 for k in range(K):
     Ts.append(truth(900 + k).half()); Ms.append(torch.cat([f.flatten() for f in F]).half())
@@ -53,7 +56,7 @@ def dots(A, Bs):
 G = dots(Ts, Ts); nT = G.diagonal().sqrt(); G = G / nT[:, None] / nT[None, :]    # 41 x 41 cosines
 MT = dots(Ms, Ts); nM = torch.tensor([float(m.float().norm()) for m in Ms], dtype=torch.float64)
 MT = MT / nM[:, None] / nT[None, :]
-print(f"\n{RUN} @{ST}, rate {RATE:.4f}, true gradient from {NT} batches at each of {K} steps")
+print(f"\n{RUN} @{ST}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())
