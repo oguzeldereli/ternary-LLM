@@ -5,7 +5,7 @@ no-look-ahead snapshot (saved momentum, float tail frozen, plain momentum with t
   momentum lag     cos(M_t, T_t+lag): how well the momentum held at step t predicts the gradient lag steps later
   main directions  the 3 principal directions of the 41 gradients and each one's sign over time (swinging back and
                    forth = oscillation along that direction; the number of sign changes gives a rough period)
-  WAVE_RATE_MULT=0|0.25 python -m scripts.analysis.wave RUN STEP
+  WAVE_RATE_MULT=0|0.25 WAVE_BETA=0.8 WAVE_SUB=0.25 python -m scripts.analysis.wave RUN STEP
 """
 import sys, math, numpy as np, torch
 from scripts.analysis.testbench import Bench, G_REF
@@ -43,9 +43,19 @@ def truth(seed):
 
 F = [(U.cuda().float() @ V.cuda().float().T) for U, V in B.b["lowrank"]]
 F = [f * (1 - 0.97) / (1 - BETA) for f in F]              # a sum of gradients has size ~ g / (1 - beta)
+# WAVE_SUB < 1 keeps a fixed random share of the coordinates, on the CPU (small GPUs / little RAM)
+SUB = float(os.environ.get("WAVE_SUB", "1"))
+NTOT = sum(f.numel() for f in F)
+IDX = None if SUB >= 1 else torch.randperm(NTOT, device="cuda", generator=torch.Generator(device="cuda").manual_seed(1))[:int(SUB * NTOT)]
+
+
+def keep(v):
+    return v.half() if IDX is None else v[IDX].half().cpu()
+
+
 s = batches(5151); Ts, Ms = [], []
 for k in range(K):
-    Ts.append(truth(900 + k).half()); Ms.append(torch.cat([f.flatten() for f in F]).half())
+    Ts.append(keep(truth(900 + k))); Ms.append(keep(torch.cat([f.flatten() for f in F])))
     g = grad(next(s)); F = [BETA * f + x for f, x in zip(F, g)]
     for i, (l, f) in enumerate(zip(Ls, F)):
         fused_flip(l.wpacked, f.contiguous(), RATE, G_REF, 3000 + 131 * k + i, gmean=f.abs().mean().clamp_min(1e-12))

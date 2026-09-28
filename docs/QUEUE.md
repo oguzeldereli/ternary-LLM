@@ -6,14 +6,14 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 20:00
+Last updated: 2026-09-28 22:15
 
-## Now (28 Sep, 20:00)
+## Now (28 Sep, 22:15)
 
 | machine | run | what | status | expected |
 |---|---|---|---|---|
 | 4090 (unattended) | `rc_s0` -> `la40rc_s0` -> `adaptrate_rc_s0` | from scratch, no look-ahead, row/column scales: plain momentum; look-ahead first 40 steps only (no plateau); adaptive flip rate | rc_s0 done: **3.1307** (no scales 3.158); la40rc_s0 running | ~18:30, ~21:00, ~23:30 |
-| gressingham | `wave_beta` (analysis) | wave test at beta 0.8, then 0.5 (does short memory damp the swing?) | started 19:55 | ~20:40, ~21:20 |
+| laptop | `wave_laptop.sh` (analysis) | wave test at nola_lab @4500 with beta 0.97 / 0.8 / 0.5, 25% of coordinates (gressingham went down at ~20:00 during beta 0.8; all lab PCs unreachable since, likely off for the night) | started 22:00 | ~23:00, ~00:00, ~01:00 |
 
 All other lab PCs released. Finished 16:40-17:30 (val at 300M; plain `nola_lab` 3.158, master 2.759):
 `evid3_b131` 3.0970, `rc_b131` 3.1480, `adaptrate_b131` 3.1604, `multibeta_b131` 3.1926, `small_step_s0` 3.1933,

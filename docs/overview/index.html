@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 28 Sep 2026, 20:00</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 28 Sep 2026, 22:15</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -155,7 +155,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
     <tr><td>4090 (unattended queue)</td><td class="mono">rc_s0 → la40rc_s0 → adaptrate_rc_s0</td><td>from scratch, no look-ahead, learned row/column scales: plain momentum <b>done: 3.1307</b> (3.158 without scales); look-ahead for the first 40 steps only (no plateau); adaptive flip rate</td><td class="num">~18:30, ~21:00, ~23:30</td></tr>
-    <tr><td>gressingham</td><td class="mono">wave, β 0.8 / 0.5</td><td>does a shorter momentum memory damp the swing our flips make?</td><td class="num">~20:40, ~21:20</td></tr>
+    <tr><td>laptop</td><td class="mono">wave, β 0.97 / 0.8 / 0.5 @4500</td><td>does a shorter momentum memory damp the swing our flips make? (gressingham went down mid-test; all lab PCs off for the night)</td><td class="num">~23:00, ~00:00, ~01:00</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
