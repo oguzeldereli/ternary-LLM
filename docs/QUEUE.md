@@ -6,26 +6,25 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 15:00
+Last updated: 2026-09-28 14:55
 
-## Now (28 Sep, 13:50)
+## Now (28 Sep, 14:55)
 
-| machine | run | what | expected |
-|---|---|---|---|
-| **4090** | `accum33_b131` | accumulate 33 steps without flips, then flip a loss-chosen random subset of the entries whose accumulated push stands out (|M| > 3 rms); branch 131M -> 300M | ~15:00 |
-| | `accum33_s0` | the same from scratch -> 300M | ~17:30 |
-| **goosander** | `small_step_b131` | plain momentum at 1/4 of the flip rate, branch 131M -> 300M | ~14:30 |
-| **cackling** | `small_step_s0` | plain momentum at 1/4 of the flip rate, from scratch -> 300M | ~15:30 |
-| | `mech_user_q_b131` | your design (gain 1) at 1/4 of the flip rate, branch 131M -> 300M | ~18:00 |
-| **mallard** (third lab PC, added 13:40) | `small_step8_lab` | plain momentum at 1/8 of the flip rate, branch 131M -> 300M | ~16:00 |
-| **mandarin** (fourth lab PC, added 14:10) | `small_step8_s0` | plain momentum at 1/8 of the flip rate, from scratch -> 300M | ~17:30 |
-| **bufflehead** (lab PC) | `select_b131` | online-learned flip selector: propose at 2x the rate, an MLP keeps the best half (labels: do the next 8 batches' gradients still push the same way); branch 131M -> 300M | ~16:30 |
-| **ruddy** (lab PC) | `adaptrate_b131` | flip rate adapted to keep cos(g, M) near +0.03, bounded 1/16x-2x; branch 131M -> 300M | ~16:30 |
-| **eider** (lab PC) | `multibeta_b131` | three momenta (decay 0.8 / 0.95 / 0.99), per layer the best recent predictor flips; branch 131M -> 300M | ~17:00 |
-| laptop | `small_step8_b131` | the same 1/8 branch as mallard, slower copy (can be stopped) | ~18:00 |
+| machine | run | what | at | expected |
+|---|---|---|---|---|
+| 4090 | `accum33_s0` | accumulate-then-flip from scratch | step 300 | ~17:45 |
+| cackling | `small_step_s0` -> `mech_user_q_b131` | 1/4 rate from scratch; then your design at 1/4 rate (branch) | step 4180 | ~16:35, ~18:50 |
+| mallard | `small_step8_lab` | 1/8 rate, branch 131M -> 300M | step 6800 | ~15:40 |
+| mandarin | `small_step8_s0` | 1/8 rate from scratch | step 2220 | ~17:10 |
+| bufflehead | `select_b131` | online-learned flip selector, branch | step 4040 | ~16:45 |
+| ruddy | `adaptrate_b131` | adaptive flip rate, branch | starting | ~16:45 |
+| eider | `multibeta_b131` | adaptive momentum decay, branch | starting | ~17:00 |
+| laptop | `small_step8_b131` | slower copy of the 1/8 branch | step 5300 | ~18:00 |
+| goosander | - | free (1/4 branch finished) | - | - |
 
-Early numbers (val): at step 4750 the 1/4-rate branch is at 3.342 vs 3.497 for the same run at the trained rate and
-3.457 for your design at the trained rate; accumulate-then-flip 3.443 at step 4250 (trained rate 3.546).
+Finished today: `small_step_b131` (1/4 rate, branch) **3.1551 at 300M** (plain 3.158: the early 0.16 lead is gone by
+the end); `accum33_b131` (accumulate-then-flip, branch) **3.2795** (worse than plain); `la_sched` 3.1108;
+`nola_b48` 2.8888 (900M processed).
 
 ## Finished overnight (27-28 Sep)
 
