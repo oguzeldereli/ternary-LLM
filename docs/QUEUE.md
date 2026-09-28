@@ -6,22 +6,23 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 11:45
+Last updated: 2026-09-28 12:40
 
-## Now (28 Sep, 11:20)
+## Now (28 Sep, 12:40)
 
-| machine | run | what | status | expected |
-|---|---|---|---|---|
-| goosander | `mech_align2` | alignment BEFORE vs AFTER the flips, V0 / V2 / V1 / your design, at the trained rate and 1/4 | running | ~12:05 |
-| 4090 | `nola_b48` (filler) | no look-ahead, batch 48 | step 7660 / 9155 | ~12:30 |
-| laptop | `mech_along` U1 / U0 / V1 | alignment and noise of your design and V1 along their own runs | 5 of 18 measurements | ~12:00 |
-| shoveler | - | left: taken by another user (llama-server, 23 GB) since 11:11 | - | - |
-| barnacle | - | tried as the replacement: PyTorch downloads fail their checksums there (twice); cleaned up, not used | - | - |
+| machine | run | what | expected |
+|---|---|---|---|
+| **4090** (needs `start.sh accum_now.sh`) | `accum33_b131` | accumulate 33 steps without flips, then flip a loss-chosen random subset of the entries whose accumulated push stands out (|M| > 3 rms); branch of nola_lab 131M -> 300M | ~1.5 h after start |
+| | `accum33_s0` | the same from scratch -> 300M | ~2.5 h after that |
+| | `nola_b48` (resume, filler) | no look-ahead, batch 48 | after |
+| **goosander** | `small_step_b131` | plain momentum at 1/4 of the flip rate, branch 131M -> 300M | ~14:30 |
+| **cackling** (new, replaces shoveler) | `small_step_s0` | plain momentum at 1/4 of the flip rate, from scratch -> 300M | ~15:30 |
+| | `mech_user_q_b131` | your design (gain 1) at 1/4 of the flip rate, branch 131M -> 300M | ~18:00 |
+| laptop | `mech_along` U1 / U0 / V1 | alignment along the runs (slow, shared GPU) | ~13:30 |
 
-Finished this morning: `flip_selector` (held out: selector A keeps a half with 69% downhill flips, held-out dL -0.010 vs -0.003 for a random half and ~0 for all proposals; selector B weak); `magadd16_wd_qk_lab` (look-ahead + additive r16 + adapter weight decay + temperature)
-**val 2.9925 at 300M**, our best; `mech_along` V0 / V2 / V3 along `nola_lab`; the flip-rate sweep at 164M
-(alignment returns at 1/4 of the rate: cos +0.084, top-1% precision 0.596, held-out dL -0.066 vs -0.009 at the
-trained rate); the overshoot line search (best at half of the 33-step move: -0.070 vs -0.010 for all of it).
+Done since 11:20: `mech_align2` (alignment before vs after the flips: at the trained rate every arm is +0.03 to
++0.05 before its flips, one step turns the true gradient to 0.45-0.82; at 1/4 of the rate V2 +0.169, your design
++0.134, plain +0.101, V1 +0.061).
 
 ## Finished overnight (27-28 Sep)
 

@@ -60,7 +60,10 @@ CATS = {
         ("nola_lab", "plain rank-256 momentum, trained flip rate"),
         ("small_step_b131", "plain momentum at 1/4 of the flip rate"),
         ("accum33_b131", "accumulate 33 steps, then flip a loss-chosen subset"),
-        ("mech_user_b131", "your design (gain 1), trained rate")]),
+        ("mech_user_b131", "your design (gain 1), trained rate"),
+        ("mech_user_q_b131", "your design (gain 1) at 1/4 of the rate"),
+        ("small_step_s0", "plain momentum at 1/4 of the rate, from scratch"),
+        ("accum33_s0", "accumulate then flip, from scratch")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),
