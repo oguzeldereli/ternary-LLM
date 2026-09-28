@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 28 Sep 2026, 14:15</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 28 Sep 2026, 16:20</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -146,7 +146,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <div><span class="v">3.127</span><span class="l">baseline: momentum + look-ahead</span></div>
     <div><span class="v">3.158</span><span class="l">momentum, no look-ahead</span></div>
   </div>
-  <p>Batch 48 without look-ahead (900M tokens processed, 3× the others) reached 2.889. Early results of a 4× smaller flip rate: 0.16 better than the trained rate right after switching, then closing slowly (details below).</p>
+  <p>Batch 48 without look-ahead (900M tokens processed, 3× the others) reached 2.889. ¼ flip rate as a branch ended at 3.155: its early 0.16 lead was gone by 300M because the schedule anneals the rate anyway. <b>Leading now:</b> the adaptive flip rate branch, 3.182 at 254M vs 3.233 plain and 3.195 at ¼ rate.</p>
 </section>
 
 <section>
@@ -154,12 +154,15 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090</td><td class="mono">accum33_b131 → accum33_s0</td><td>accumulate 33 steps without flips, then flip a loss-chosen subset of the entries whose accumulated push stands out; branch from 131M, then from scratch</td><td class="num">~15:00, ~17:30</td></tr>
-    <tr><td>goosander</td><td class="mono">small_step_b131</td><td>plain momentum at ¼ of the flip rate, branch from 131M</td><td class="num">~14:30</td></tr>
-    <tr><td>cackling</td><td class="mono">small_step_s0 → mech_user_q_b131</td><td>¼ rate from scratch; then your design at ¼ rate (branch)</td><td class="num">~15:30, ~18:00</td></tr>
-    <tr><td>mallard</td><td class="mono">small_step8_lab</td><td>⅛ of the flip rate, branch from 131M</td><td class="num">~16:00</td></tr>
-    <tr><td>mandarin</td><td class="mono">small_step8_s0</td><td>⅛ of the flip rate, from scratch</td><td class="num">~17:30</td></tr>
-    <tr><td>laptop</td><td class="mono">small_step8_b131</td><td>slower copy of the ⅛ branch (can be stopped)</td><td class="num">~18:00</td></tr>
+    <tr><td>4090 (unattended queue)</td><td class="mono">rc_s0 → la40rc_s0 → adaptrate_rc_s0</td><td>from scratch, no look-ahead, learned row/column scales: plain momentum (3.790 at 66M vs 3.840 without scales); look-ahead for the first 40 steps only (no plateau); adaptive flip rate</td><td class="num">~18:30, ~21:00, ~23:30</td></tr>
+    <tr><td>cackling</td><td class="mono">small_step_s0</td><td>¼ flip rate from scratch (the one step-size run kept): 3.223 at 262M vs 3.211 plain</td><td class="num">~16:35</td></tr>
+    <tr><td>ruddy</td><td class="mono">adaptrate_b131</td><td>adaptive flip rate, branch from 131M: <b>3.182</b> at 254M vs 3.233 plain, 3.195 ¼ rate</td><td class="num">~16:45</td></tr>
+    <tr><td>eider</td><td class="mono">multibeta_b131</td><td>adaptive momentum memory (0.8 / 0.95 / 0.99 per layer), branch: led early, now 3.295 at 238M vs 3.274 plain</td><td class="num">~17:00</td></tr>
+    <tr><td>goosander</td><td class="mono">rc_b131</td><td>plain momentum + learned row/column scales, branch: 3.327 at 213M vs 3.334 plain</td><td class="num">~17:30</td></tr>
+    <tr><td>mallard</td><td class="mono">evid3_b131</td><td>3-bit evidence counter per weight + row/column scales, branch (reference: not stateless): 3.320 at 197M vs 3.384 plain</td><td class="num">~17:30</td></tr>
+    <tr><td>mandarin / pintail / harlequin</td><td class="mono">master_q4 / q3 / q2_b131</td><td>master with its latent weights stored at 4 / 3 / 2 bits (2 bits = a stateless master), branch of master at 131M. At 197M: 3.010 / 3.197 / <b>3.532</b> vs master 2.901, ours 3.384. A 2-bit master is worse than our momentum.</td><td class="num">~17:00</td></tr>
+    <tr><td>gressingham</td><td class="mono">wave → flip_choice</td><td>mechanism tests (see below): does the gradient oscillate slowly; which weights to flip along a direction</td><td class="num">~17:15</td></tr>
+    <tr><td>bufflehead</td><td class="mono">select_b131</td><td>online flip selector as a training rule: <span class="tag t-bad">parked</span> 3.366 at 229M vs 3.294 plain (why: below)</td><td class="num">stopped</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
@@ -185,13 +188,17 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node good">Weights frozen: momentum reaches 0.92 alignment in 33 batches (rank 256 loses nothing)</div><div class="down">↓</div>
       <div class="node bad">With flips: +0.03–0.05 where flips are chosen</div><div class="down">↓</div>
       <div class="node">One step of flips turns the true gradient to 0.45–0.82; the move overshoots (best at half of it)</div><div class="down">↓</div>
-      <div class="node lead">Mechanisms (V1, V2, your design) can't fix alignment at this step size; at ¼ rate V2 +0.17, yours +0.13, plain +0.10</div>
+      <div class="node lead">Mechanisms (V1, V2, your design) can't fix alignment at this step size; at ¼ rate V2 +0.17, yours +0.13, plain +0.10</div><div class="down">↓</div>
+      <div class="node bad">Valley test: no step-to-step zigzag (consecutive true gradients cos 0.51–0.85); momentum vs the 33-step mean starts at −0.23</div><div class="down">↓</div>
+      <div class="node bad">Oracle steps: flipping the largest entries of <i>any</i> direction raises loss, the true gradient most (+0.46 at ¼ step)</div><div class="down">↓</div>
+      <div class="node lead">Running: slow-wave test (gradient autocorrelation over 40 steps) and which weights to flip: by size, by consistency, Adam-normalised</div>
     </div></div>
     <div class="thread"><h3>4 · Step size</h3><div class="chain">
       <div class="node good">¼ flip rate (branch): 0.16 better right away</div><div class="down">↓</div>
       <div class="node bad">…then descends slower; the gap closes (0.161 → 0.125 over 58M), parallel to look-ahead</div><div class="down">↓</div>
       <div class="node lead">Fewer flips drop bad and good flips alike; a selector keeps a 69%-downhill half (vs 54%)</div><div class="down">↓</div>
-      <div class="node lead">Running: ⅛ rate, accumulate-then-flip, your design at ¼</div>
+      <div class="node bad">¼ rate ends at 3.155, accumulate-then-flip 3.2795: the schedule anneals the rate so the offset vanishes</div><div class="down">↓</div>
+      <div class="node good">Adaptive flip rate (drives itself to ~×0.06): 3.182 at 254M, the best branch</div>
     </div></div>
   </div></div>
 </section>
@@ -233,11 +240,14 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   </table></div>
   <div class="tbl" role="tabpanel" id="p3" aria-labelledby="t3" hidden><table>
     <tr><th>run</th><th>what</th><th>status</th><th>result so far</th></tr>
-    <tr><td class="mono">small_step_b131</td><td>¼ flip rate, branch from 131M</td><td><span class="tag t-run">running</span></td><td>3.283 at 188M vs 3.408 at the trained rate (gap closing from 0.161)</td></tr>
-    <tr><td class="mono">small_step_s0</td><td>¼ rate from scratch</td><td><span class="tag t-run">running</span></td><td>same plateau (1.4–5.2M), steeper climb out: 5.80 vs 6.14 train loss at 10M</td></tr>
-    <tr><td class="mono">small_step8_lab / _s0</td><td>⅛ rate, branch and from scratch</td><td><span class="tag t-run">running</span></td><td>—</td></tr>
-    <tr><td class="mono">accum33_b131 / _s0</td><td>accumulate 33 steps, then flip a loss-chosen subset</td><td><span class="tag t-run">running</span></td><td>3.443 at 139M (trained rate 3.546, ¼ rate 3.395)</td></tr>
-    <tr><td class="mono">mech_user_q_b131</td><td>your design at ¼ rate</td><td><span class="tag t-lead">queued</span></td><td>—</td></tr>
+    <tr><td class="mono">small_step_b131</td><td>¼ flip rate, branch from 131M</td><td><span class="tag t-good">done</span></td><td>3.1551 at 300M vs 3.158 (the lead closed as the rate annealed)</td></tr>
+    <tr><td class="mono">small_step_s0</td><td>¼ rate from scratch</td><td><span class="tag t-run">running</span></td><td>same plateau (1.4–5.2M), steeper climb out; 3.223 at 262M vs 3.211 plain</td></tr>
+    <tr><td class="mono">small_step8_lab / _s0</td><td>⅛ rate, branch and from scratch</td><td><span class="tag t-bad">stopped</span></td><td>stopped 15:10 to free machines</td></tr>
+    <tr><td class="mono">accum33_b131 / _s0</td><td>accumulate 33 steps, then flip a loss-chosen subset</td><td><span class="tag t-good">done</span></td><td>3.2795 at 300M (worse than plain 3.158)</td></tr>
+    <tr><td class="mono">mech_user_q_b131</td><td>your design at ¼ rate</td><td><span class="tag t-bad">dropped</span></td><td>not run</td></tr>
+    <tr><td class="mono">adaptrate_b131</td><td>flip rate adapts to keep momentum aligned (target 0.03)</td><td><span class="tag t-run">running</span></td><td><b>3.182</b> at 254M vs 3.233 plain; the rate settles at ~×0.06</td></tr>
+    <tr><td class="mono">multibeta_b131</td><td>per layer, pick the momentum memory (0.8 / 0.95 / 0.99) that aligns best</td><td><span class="tag t-run">running</span></td><td>3.295 at 238M vs 3.274 plain; picks 0.8 in most layers</td></tr>
+    <tr><td class="mono">select_b131</td><td>online-trained selector keeps half of 2× proposals</td><td><span class="tag t-bad">parked</span></td><td>3.366 at 229M vs 3.294 plain</td></tr>
   </table></div>
   <div class="tbl" role="tabpanel" id="p4" aria-labelledby="t4" hidden><table>
     <tr><th>measurement</th><th>finding</th></tr>
@@ -247,6 +257,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <tr><td>flip-rate sweep (33 steps)</td><td>alignment returns as the rate drops: ×1 −0.08, ×½ −0.02, ×¼ +0.08, ×⅛ +0.15; loss best at ×¼</td></tr>
     <tr><td>before vs after the flips</td><td>before its flips every arm is +0.03–0.05; the step itself turns the gradient (0.45–0.82)</td></tr>
     <tr><td>learned flip selector</td><td>A (aligned): kept half 69% downhill, −0.010 vs −0.003 random half, ~0 all proposals; B (loss change): weak</td></tr>
+    <tr><td>flip concentration (131M→164M)</td><td>same shape as master (top 1% of rows hold ~2.5% of changes); we change 3× more trits (46.6M vs 15.9M)</td></tr>
+    <tr><td>valley / zigzag</td><td>no step-to-step zigzag: consecutive true gradients cos 0.51–0.85, residuals +0.44–0.82. A slow wave (tens of steps) is not ruled out: testing now</td></tr>
+    <tr><td>online selector labels</td><td>its "good flip" label (next 8 batches agree) matches the true-gradient label only 55%; it learns "large |M| = good" (|M| 2.05 vs 0.86). Why it fails: noisy labels teach it to trust size</td></tr>
+    <tr><td>oracle step amounts</td><td>flip the top entries of a direction: true gradient +0.46 at ¼ step, short momentum (0.8) +0.42, one batch +0.16, saved momentum +0.06. The better the direction, the worse. Picking by size picks high-curvature weights</td></tr>
     <tr><td>no-look-ahead plateau</td><td>blocks write a fixed vector ~200,000× the embeddings; output independent of input; block 0 breaks out at ~5M</td></tr>
     <tr><td>copying on natural text</td><td>all runs gain ~1.9–2.0 nats on a repeated passage; master's lead is broad (0.25–0.5 on non-copyable text)</td></tr>
     <tr><td>adapter without look-ahead</td><td>adapter output 6× the trits in q/k: attention runs on a rank-16 float projection</td></tr>
@@ -281,9 +295,11 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <span class="eyebrow">Not tried yet</span>
       <h2>Proposed, not run</h2>
       <ul>
-        <li><span class="tag t-lead">next</span>The selector as a training rule: keep only the flips the aligned-selector ranks high (or a hand-made rule from its top features)</li>
-        <li><span class="tag t-lead">next</span>Low-rank versions of V2 / your design (tonight's runs kept their state full-size)</li>
-        <li><span class="tag t-lead">next</span>A flip rate that adapts to keep the landscape still between steps (measured by the same-batch gradient change)</li>
+        <li><span class="tag t-lead">next</span>Pick flips by consistency (|mean| / spread) instead of size, if the flip-choice test says so; a factored row × column spread is N + K numbers</li>
+        <li><span class="tag t-lead">next</span>Memory that adapts to the wave period, if the slow-wave test finds one</li>
+        <li><span class="tag t-lead">next</span>Adaptive flip rate + row/column scales from scratch (queued on the 4090)</li>
+        <li><span class="tag t-bad">parked</span>Online flip selector: labels too noisy (55% agreement); the offline one trained on true-gradient labels works (69% downhill)</li>
+        <li>Low-rank versions of V2 / your design (their state is still full-size)</li>
         <li>Your design / V2 at ¼ rate with the look-ahead-free recipe plus the r16 adapter (weight decay + temperature)</li>
         <li>Output bias so the unigram frequencies don't have to be built by the trits (the no-look-ahead plateau)</li>
         <li>Copy-data curriculum</li>
@@ -295,6 +311,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <span class="eyebrow">Open questions</span>
       <h2>What we still can't explain</h2>
       <ul>
+        <li><span class="tag t-bad">open</span>Why flipping the largest entries of even the true gradient raises loss: are these the high-curvature weights? (flip-choice test running)</li>
+        <li><span class="tag t-bad">open</span>Does the gradient swing slowly (period of tens of steps) so a fixed memory averages against it? (wave test running)</li>
         <li><span class="tag t-bad">open</span>How to cut the bad flips without cutting the good ones: lower rates give an offset but a shallower slope</li>
         <li><span class="tag t-bad">open</span>Master's lead is broad (all token types), not one missing circuit: what does its latent integration buy that we still lack?</li>
         <li><span class="tag t-lead">lead</span>Why the r16 adapter + weight decay + temperature pulls ahead after ~150M (2.9925), and whether it works without look-ahead once the adapter is kept in check</li>
@@ -309,6 +327,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <span class="eyebrow">The figures worth looking at</span>
   <h2>Figures</h2>
   <div class="figs">
+    <figure><img src="new_rules.png" alt="New flip rules"><figcaption><b>new rules</b>: adaptive flip rate (yellow) tracks the look-ahead baseline right after branching; the online selector (teal) spikes and stays behind; adaptive memory (red) led early, now falls back.</figcaption></figure>
+    <figure><img src="memory_and_scales.png" alt="Memory and scales"><figcaption><b>memory and scales</b>: master with its latent at 4 / 3 / 2 bits (yellow / red / green): at 2 bits (a stateless master) it jumps above our momentum. The 3-bit evidence counter (teal) gains ~0.06 over plain.</figcaption></figure>
     <figure><img src="step_size.png" alt="Step size runs"><figcaption><b>step_size</b>: ¼ rate (purple) and accumulate-then-flip (red) drop right after branching; the trained rate (blue) keeps a steeper slope and closes in.</figcaption></figure>
     <figure><img src="mechanisms.png" alt="Momentum mechanisms"><figcaption><b>mechanisms</b>: V1 and your design as branches and from scratch against plain momentum.</figcaption></figure>
     <figure><img src="bench_mechanisms.png" alt="Mechanism bench"><figcaption><b>bench</b>: held-out loss over 66 steps per mechanism; V2 at gain 1 best, every gain 3 / 33 variant diverges.</figcaption></figure>
