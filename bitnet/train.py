@@ -202,7 +202,7 @@ def _diag_agg(name, vals, per_block=7):
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
-                 qk_protect=0.0, qk_map=None):
+                 qk_protect=0.0, qk_map=None, speed_ref=0.0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -212,6 +212,10 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     adapt: the decay follows the turn of the gradient, beta_t = beta * cos(g_t, M_{t-1}) per
     layer. Aligned: plain momentum; 90 deg: reset (M = g); 180 deg: -beta, so the old momentum
     is reflected onto the new direction and adds to it. Returns the per-layer cosines.
+
+    speed_ref: (--speed_ref B) divide M by a slow EMA (decay B) of its mean |M| instead of by this step's mean |M|,
+            so the number of flips follows the momentum's size (it drops when the new gradients cancel it while
+            climbing a wall) instead of staying fixed. One float per layer.
 
     propose_only: update M but do not flip; leave l.gw and capture on and return the M's,
     so lookahead_step proposes from M and filters with the true gradients.
@@ -302,8 +306,12 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 M = M * T.repeat_interleave(attn.head_dim).pow(-qk_protect)[:, None]
             Ms.append(M); state.setdefault("_gms", []).append(gm); continue
         before = l.wpacked.clone() if l.track else None
-        fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003,
-                   gmean=M.abs().mean().clamp_min(1e-12))
+        gm = M.abs().mean().clamp_min(1e-12)
+        if speed_ref:
+            sr = state.setdefault("_sref", {})
+            sr[key] = gm if key not in sr else speed_ref * sr[key] + (1 - speed_ref) * gm
+            gm = sr[key]
+        fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003, gmean=gm)
         if before is not None:
             l._record_flips(before, l.wpacked)
     info = {"lr_cos": sum(cs) / len(cs), "lr_cos_layers": cs} if cs else {}
@@ -1007,6 +1015,9 @@ def main():
     ap.add_argument("--sel_k", type=int, default=8, help="steps of later gradients summed for a proposal's label")
     ap.add_argument("--sel_warm", type=int, default=5, help="training rounds before the selector is used")
     ap.add_argument("--sel_train_steps", type=int, default=30)
+    ap.add_argument("--speed_ref", type=float, default=0.0,
+                    help="momentum flips: divide M by a slow EMA (this decay, e.g. 0.995) of its mean |M| instead of "
+                         "by its current mean, so the flip count follows the momentum's size (0 = off)")
     ap.add_argument("--adapt_rate", action="store_true",
                     help="flip-rate controller keeping the running cos(g_t, M_t-1) near adapt_rate_target")
     ap.add_argument("--adapt_rate_target", type=float, default=0.03)
@@ -1634,7 +1645,7 @@ def main():
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
-                                       args.flip_seed, args.lr_adapt)
+                                       args.flip_seed, args.lr_adapt, speed_ref=args.speed_ref)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)

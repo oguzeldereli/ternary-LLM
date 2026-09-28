@@ -6,14 +6,26 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 22:15
+Last updated: 2026-09-29 00:30
 
-## Now (28 Sep, 22:15)
+## Now (29 Sep, 00:30)
+
+Speed follows velocity (`--speed_ref`): the flip rule divided the momentum by its own current mean size, so a fixed
+~165k weights flipped every step even when new gradients had cancelled the momentum (climbing a valley wall). The new
+rule divides by a slow EMA of that size (one float per layer), so fewer weights flip when the momentum shrinks.
 
 | machine | run | what | status | expected |
 |---|---|---|---|---|
-| 4090 (unattended) | `rc_s0` -> `la40rc_s0` -> `adaptrate_rc_s0` | from scratch, no look-ahead, row/column scales: plain momentum; look-ahead first 40 steps only (no plateau); adaptive flip rate | rc_s0 done: **3.1307** (no scales 3.158); la40rc_s0 running | ~18:30, ~21:00, ~23:30 |
-| laptop | `wave_laptop.sh` (analysis) | wave test at nola_lab @4500 with beta 0.97 / 0.8 / 0.5, 25% of coordinates (gressingham went down at ~20:00 during beta 0.8; all lab PCs unreachable since, likely off for the night) | started 22:00 | ~23:00, ~00:00, ~01:00 |
+| 4090 | `speedref_rc_s0` (`queue_4090_c.sh`) | as `rc_s0` (3.1307) with `--speed_ref 0.995` | started 00:05 | 131M ~01:10, 300M ~02:35 |
+| 4090 | swing test, fixed divisor (25% of coordinates) | does the swing damp when speed follows velocity | started 00:25 | ~00:45 |
+| laptop | swing test, `--speed_ref 0.995` rule (25%) | the trainer's exact rule | started 00:25 | ~01:20 |
+| pintail | `wave_full.sh`: swing test, all coordinates: old rule, fixed, slow EMA | full-size check | started 00:27 | ~00:45, ~01:05, ~01:25 |
+| shoveler | - | set up, idle (for the night) | - | - |
+
+Swing test, old rule (4090, 25%): held-out 3.5495 -> 3.5387 (-0.0108) over 41 steps, 165k flips every step, swing as
+before (lag 3 -0.252, momentum vs next gradient -0.172). Lab PCs rebooted (Mon/Thu) 20:00-00:07; `nola_lab`
+ckpt_5000 is gone with /tmp, so the swing tests use ckpt_4500. The laptop's beta 0.5 test was stopped (beta 0.8
+made the swing faster: lag 2 -0.294, momentum -0.207 now).
 
 All other lab PCs released. Finished 16:40-17:30 (val at 300M; plain `nola_lab` 3.158, master 2.759):
 `evid3_b131` 3.0970, `rc_b131` 3.1480, `adaptrate_b131` 3.1604, `multibeta_b131` 3.1926, `small_step_s0` 3.1933,
