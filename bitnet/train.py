@@ -314,6 +314,37 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     return (info, Ms) if propose_only else (info or None)
 
 
+def evidence_step(model, lr_state, ev, r, beta, step, bits, flip_seed=0):
+    """--evidence_bits B: a signed per-weight counter (B bits, range +-L with L = 2^(B-1) - 1). Momentum's flip rule
+    proposes at L x the rate; a proposal does not flip, it ticks the counter in its direction (opposite ticks
+    cancel); a weight flips only when its counter reaches +-L, and the counter then resets. Master's
+    threshold-with-memory at B bits per weight (a reference: it is state, not stateless)."""
+    from .kernel import unpack_rows
+    info, Ms = lowrank_step(model, lr_state, r, beta, step, flip_seed, propose_only=True)
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    for l in layers:
+        l.gw = None; l.capture = False
+    L = 2 ** (bits - 1) - 1
+    n_tick = n_flip = 0
+    for i, (l, M) in enumerate(zip(layers, Ms)):
+        w0 = unpack_rows(l.wpacked, l.K).to(torch.int8)
+        c = ev.setdefault(i, torch.zeros_like(w0))
+        tmp = l.wpacked.clone()
+        fused_flip(tmp, M.contiguous(), l.rate * L, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003,
+                   gmean=M.abs().mean().clamp_min(1e-12))
+        tick = unpack_rows(tmp, l.K).to(torch.int8) - w0                 # proposed moves (0 where blocked by +-1)
+        c += tick; c.clamp_(-L, L)
+        fire = c.abs() >= L
+        new = torch.where(fire, (w0 + c.sign()).clamp(-1, 1), w0)
+        c[fire] = 0
+        before = l.wpacked.clone() if l.track else None
+        l.wpacked.copy_(pack_rows(new.to(torch.int8)))
+        if before is not None: l._record_flips(before, l.wpacked)
+        n_tick += int((tick != 0).sum()); n_flip += int((new != w0).sum())
+    info["ev_ticks"] = n_tick; info["ev_flips"] = n_flip
+    return info
+
+
 def _sel_features(M, g, w0, idx_mask, i):
     """flip-time features of the proposals of layer i (idx_mask: proposed entries), as in the offline selector:
     |M|/mean|M|, |g|/mean|g|, sign(M)==sign(g), trit -1/0/+1, move goes to 0, row and column rms of M relative
@@ -962,6 +993,12 @@ def main():
     ap.add_argument("--lr_adapt", action="store_true",
                     help="low-rank momentum decay = lr_beta * cos(g, M): reset at 90 deg, "
                          "reflected at 180 deg")
+    ap.add_argument("--master_bits", type=int, default=0,
+                    help="master mode degraded: latent weights stored on a (2^K - 1)-level grid (stochastic "
+                         "rounding) after every step; 0 = full precision")
+    ap.add_argument("--evidence_bits", type=int, default=0,
+                    help="per-weight signed evidence counter of this many bits: momentum's proposed flips tick it, "
+                         "a flip happens only at +-(2^(bits-1) - 1) net ticks, then it resets (0 = off)")
     ap.add_argument("--select", action="store_true",
                     help="online-learned flip selector: propose at sel_prop x the rate, keep the top sel_keep by an MLP "
                          "trained on whether later gradients still push in the proposed direction")
@@ -1341,6 +1378,7 @@ def main():
     mag_on = [False]
     mech_state = {}
     sel_state = {}
+    ev_state = {}
     ar_state = {"mult": 1.0, "ema": 0.0}
     mb_betas = [float(b) for b in args.multibeta.split(",")] if args.multibeta else []
     mb_states = [{} for _ in mb_betas]; mb_scores = {}
@@ -1376,9 +1414,23 @@ def main():
                              f"{use_beta}: forward differs, refusing to resume")
         if args.lowrank_mag and any(k.endswith("mag_A") for k in blob["model"]):
             enable_mag(int(blob.get("step", 0)) + 1)
-        model.load_state_dict(blob["model"])
-        if "opt" in blob:
-            tail_opt.load_state_dict(blob["opt"])
+        new_rc = args.rc_scale and not any(k.endswith("row_scale") for k in blob["model"])
+        if new_rc:
+            # branching a checkpoint trained without row/column scales: they start at 1 (the layer is unchanged)
+            # and their optimizer group starts fresh; everything else loads as saved
+            missing, unexpected = model.load_state_dict(blob["model"], strict=False)
+            assert all(k.endswith(("row_scale", "col_scale")) for k in missing) and not unexpected, (missing, unexpected)
+            rc_groups = [g for g in tail_opt.param_groups if "rc_lr" in g]
+            tail_opt.param_groups[:] = [g for g in tail_opt.param_groups if "rc_lr" not in g]
+            if "opt" in blob:
+                tail_opt.load_state_dict(blob["opt"])
+            for g in rc_groups:
+                tail_opt.add_param_group(g)
+            print(f"row/column scales added to a checkpoint without them ({len(missing)} tensors, start at 1)", flush=True)
+        else:
+            model.load_state_dict(blob["model"])
+            if "opt" in blob:
+                tail_opt.load_state_dict(blob["opt"])
         start_step = int(blob.get("step", 0)) + 1
         # fast-forward the data streams, so a resumed run sees the batches the uninterrupted
         # run would have (not the step-0 batches again)
@@ -1570,6 +1622,9 @@ def main():
                 del Ms
             elif args.mech:
                 rs_info = mech_step(model, mech_state, step, args, x, y, tail, args.flip_seed)
+            elif args.evidence_bits:
+                rs_info = evidence_step(model, lr_state, ev_state, args.lowrank, args.lr_beta, step,
+                                        args.evidence_bits, args.flip_seed)
             elif args.select:
                 rs_info = select_step(model, lr_state, sel_state, args.lowrank, args.lr_beta, step, args, args.flip_seed)
             elif args.multibeta:
@@ -1600,6 +1655,18 @@ def main():
             rs_info["rate_mult"] = ar_state["mult"]; rs_info["cos_ema"] = ar_state["ema"]
         torch.nn.utils.clip_grad_norm_(tail, tc.grad_clip)
         tail_opt.step()
+        if args.master_bits and args.mode == "master":
+            # --master_bits K: master degraded toward us: after every step each latent weight is stored on a
+            # (2^K - 1)-level uniform grid over [-2 gamma, 2 gamma] (gamma = the matrix's absmean), with stochastic
+            # rounding (unbiased, so small updates still count on average). K = 2 leaves 3 levels: a stateless master
+            from .master import MasterTernaryLinear
+            with torch.no_grad():
+                for m_ in model.modules():
+                    if isinstance(m_, MasterTernaryLinear):
+                        w_ = m_.weight; gam = w_.abs().mean().clamp_min(1e-8); c_ = 2 * gam
+                        lv = 2 ** args.master_bits - 1; d_ = 2 * c_ / (lv - 1)
+                        u_ = (w_.clamp(-c_, c_) + c_) / d_
+                        w_.copy_((torch.floor(u_ + torch.rand_like(u_))).clamp_(0, lv - 1) * d_ - c_)
         n_flips = apply_flips(model) if args.mode == "flip" else 0
 
         rec = {"step": step, "loss": last_loss, "lr": lr, "flip_rate_cfg": rate_now,

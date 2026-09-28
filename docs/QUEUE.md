@@ -6,25 +6,29 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 14:55
+Last updated: 2026-09-28 15:35
 
-## Now (28 Sep, 14:55)
+## Now (28 Sep, 15:35)
 
-| machine | run | what | at | expected |
+| machine | run | what | status | expected |
 |---|---|---|---|---|
-| 4090 | `accum33_s0` | accumulate-then-flip from scratch | step 300 | ~17:45 |
-| cackling | `small_step_s0` -> `mech_user_q_b131` | 1/4 rate from scratch; then your design at 1/4 rate (branch) | step 4180 | ~16:35, ~18:50 |
-| mallard | `small_step8_lab` | 1/8 rate, branch 131M -> 300M | step 6800 | ~15:40 |
-| mandarin | `small_step8_s0` | 1/8 rate from scratch | step 2220 | ~17:10 |
-| bufflehead | `select_b131` | online-learned flip selector, branch | step 4040 | ~16:45 |
-| ruddy | `adaptrate_b131` | adaptive flip rate, branch | starting | ~16:45 |
-| eider | `multibeta_b131` | adaptive momentum decay, branch | starting | ~17:00 |
-| laptop | `small_step8_b131` | slower copy of the 1/8 branch | step 5300 | ~18:00 |
-| goosander | - | free (1/4 branch finished) | - | - |
+| 4090 | `accum33_s0` -> `rc_s0` (needs `start.sh rc_s0_now.sh`) | stop accumulate-then-flip; then plain momentum + row/column scales from scratch -> 300M; restarts the sync (logs only) | - | ~19:30 |
+| cackling | `small_step_s0` | 1/4 rate from scratch (the one kept of the step-size runs) | 3.444 at 131M | ~16:35 |
+| bufflehead | `select_b131` | online flip selector, branch | 3.693 at step 5250 (plain 3.455): worse | ~16:45 |
+| ruddy | `adaptrate_b131` | adaptive flip rate, branch | **3.253 at step 5500** (plain 3.427, 1/4 rate 3.295); rate driven to x0.062 | ~16:45 |
+| eider | `multibeta_b131` | adaptive momentum decay, branch | 3.433 at step 5000 (plain 3.480) | ~17:00 |
+| goosander | `rc_b131` | plain momentum + learned row/column scales, branch | started | ~17:30 |
+| mallard | `evid3_b131` | 3-bit evidence counter per weight + row/column scales, branch | started | ~17:30 |
+| mandarin | `master_q4_b131` | master with latent stored at 4 bits, branch of master at 131M | started | ~17:00 |
+| pintail | `master_q3_b131` | master, latent at 3 bits | started | ~17:00 |
+| harlequin | `master_q2_b131` | master, latent at 2 bits (3 levels: a stateless master) | started | ~17:00 |
 
-Finished today: `small_step_b131` (1/4 rate, branch) **3.1551 at 300M** (plain 3.158: the early 0.16 lead is gone by
-the end); `accum33_b131` (accumulate-then-flip, branch) **3.2795** (worse than plain); `la_sched` 3.1108;
-`nola_b48` 2.8888 (900M processed).
+Stopped at 15:10 (step-size runs other than 1/4 from scratch): `small_step8_lab`, `small_step8_s0`, `small_step8_b131`,
+the queued `mech_user_q_b131`. Finished: `small_step_b131` 3.1551, `accum33_b131` 3.2795.
+
+Home-quota incident 15:20: the syncs shipped every checkpoint through the home folder (10 GB) and filled it; all
+syncs now ship logs only, checkpoints stay on each machine. VirtualBox.xml (truncated by the full disk) restored
+from VirtualBox.xml-prev.
 
 ## Finished overnight (27-28 Sep)
 

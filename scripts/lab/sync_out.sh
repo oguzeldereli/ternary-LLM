@@ -6,13 +6,8 @@ set -u
 S=/tmp/$USER/tern; R=$S/repo/checkpoints; H=$HOME/ternary-sync
 mkdir -p "$S/.synced" "$H/runs" "$H/outbox"
 while true; do
-  rsync -a --exclude '*.pt' --exclude '*.tmp' "$R/" "$H/runs/"
-  find "$R" -name '*.pt' -type f | while read -r f; do
-    key=$S/.synced/$(printf '%s' "$f" | md5sum | cut -c1-16)-$(stat -c %Y "$f")
-    [ -e "$key" ] && continue
-    rel=${f#$R/}; dest=$H/outbox/$rel
-    mkdir -p "$(dirname "$dest")"
-    cp "$f" "$dest.part" && mv "$dest.part" "$dest" && touch "$key"
-  done
+  # logs and metrics only: checkpoints (~0.5-1.3 GB each) stay on this PC's local disk, since shipping them through
+  # the home folder filled the 10 GB quota; the laptop copies the ones it needs directly from here
+  rsync -a --exclude '*.pt' --exclude '*.part' --exclude '*.tmp' "$R/" "$H/runs/"
   sleep 60
 done
