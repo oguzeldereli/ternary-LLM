@@ -30,6 +30,8 @@ from the saved low-rank momentum).
 | | 1 | `mech_user_g0_b131` | your design without the move correction (gain 0: target point + rotation), branch at 131M; starts after both bench tests | 131 -> 300M | ~05:40 |
 | | 2 | `la_sched98` (running now, paused before item 1, then resumed) | look-ahead 0-30M, off, on again from 98M | 166 -> 300M | ~09:50 |
 | **laptop** | 1 | `mom_mech_v1`, `mom_mech_user`, `mom_mech_user_g0` (running) | the mechanisms on the 2-layer induction toy (no look-ahead, 15000 steps) | toy | ~02:35 (v1), ~04:05 (user) |
+| | 2 | `mom_s2`, `mom_mech_v1_s2`, `mom_mech_user_s2`, `mom_mech_user_g0_s2` | seed 2 of the toy mechanism arms and of plain momentum (toy seeds vary a lot) | toy | ~07:40 |
+| | 3 | `mech_user_g0_s0` | your design without the move correction, from scratch | 0 -> 131M | ~95M by 10:30, done ~11:30 |
 
 Finished tonight: `nola_then_la` (no look-ahead to 131M, then look-ahead): **val 3.1225 at 300M** (look-ahead
 baseline 3.127, no look-ahead 3.158, look-ahead + additive r4 3.082); `la40_off30`: val 4.506 at 30M.
