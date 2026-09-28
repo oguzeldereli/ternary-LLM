@@ -118,7 +118,8 @@ for arm in ARMS:
             g_same = tern_grad(prev_batch)                      # the previous batch at the new point
             delta = [a - b for a, b in zip(g_same, prev_g)]     # the change our last move caused
             if arm != "V4":
-                F = [f + S * d for f, d in zip(F, delta)]       # transport every remembered gradient
+                gain = float(os.environ.get("MECH_GAIN", S))     # default S (~33): every remembered gradient shifted
+                F = [f + gain * d for f, d in zip(F, delta)]    # transport every remembered gradient
             if arm == "V3":
                 hn = secant_h(delta, prev_move)
                 h = [hn_i if hn_i is not None else h_i for hn_i, h_i in zip(hn, h)]
