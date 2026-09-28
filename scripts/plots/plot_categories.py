@@ -56,6 +56,11 @@ CATS = {
         ("mech_v1_s0", "V1 target point, from scratch"),
         ("mech_user_s0", "your design (gain 1), from scratch"),
         ("mech_user_g0_s0", "your design without move correction, from scratch (laptop)")]),
+    "step_size": ("Step size: fewer flips per step, or accumulate then flip (no look-ahead, branches at 131M)", 3e8, [
+        ("nola_lab", "plain rank-256 momentum, trained flip rate"),
+        ("small_step_b131", "plain momentum at 1/4 of the flip rate"),
+        ("accum33_b131", "accumulate 33 steps, then flip a loss-chosen subset"),
+        ("mech_user_b131", "your design (gain 1), trained rate")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),

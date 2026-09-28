@@ -314,6 +314,65 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     return (info, Ms) if propose_only else (info or None)
 
 
+def accum_step(model, state, r, beta, step, K, z, flip_seed=0, fresh=None):
+    """--accum_flip K: accumulate, then flip once. Momentum is updated every step (rank-r, as lowrank_step) but no
+    trit moves; every K-th step each layer flips the weights whose accumulated push stands out from the noise of
+    the sum: |M_ij| > z * rms(M) of the layer (pure noise would pass for ~0.3% at z = 3; a consistent signal lifts
+    more entries past it, so the number of flips follows the accumulated evidence). Then the momentum restarts
+    from zero (the landscape has moved)."""
+    from .kernel import unpack_rows
+    info, Ms = lowrank_step(model, state, r, beta, step, flip_seed, propose_only=True)
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    for l in layers:
+        l.gw = None; l.capture = False
+    if (step + 1) % K != 0:
+        info["accum_flips"] = 0
+        return info
+    # candidates: entries whose accumulated push stands out (|M| > z rms per layer); how many of them to flip is
+    # chosen by loss: random subsets of 0, 1/1024, 1/256, 1/64 .. 1/2, all of the candidates, each scored on the same 2 fresh
+    # batches (forward only); the best is applied. Random subsets spread the flips over rows and columns
+    W0, MV = [], []
+    for l, M in zip(layers, Ms):
+        thr = z * M.pow(2).mean().sqrt()
+        w = unpack_rows(l.wpacked, l.K).to(torch.int8)
+        move = torch.where(M.abs() > thr, -torch.sign(M), torch.zeros_like(M)).to(torch.int8)
+        W0.append(w); MV.append(move)
+    gen = torch.Generator(device=W0[0].device).manual_seed(step * 7 + flip_seed)
+    U = [torch.rand(w.shape, device=w.device, generator=gen) for w in W0]
+    batches_ = [fresh() for _ in range(2)] if fresh is not None else []
+
+    def apply(frac):
+        for l, w, mv, u in zip(layers, W0, MV, U):
+            sel = (u < frac) & (mv != 0)
+            l.wpacked.copy_(pack_rows((w + torch.where(sel, mv, torch.zeros_like(mv))).clamp_(-1, 1)))
+
+    def loss_now():
+        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            return sum(model(xb, yb)[1].item() for xb, yb in batches_) / max(len(batches_), 1)
+
+    fracs = [0.0, 1 / 1024, 1 / 256, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1.0]
+    scores = []
+    if batches_:
+        for f in fracs:
+            apply(f); scores.append(loss_now())
+        best = fracs[min(range(len(fracs)), key=lambda i: scores[i])]
+    else:
+        best = 1.0
+    before = [l.wpacked.clone() for l in layers]
+    for l, w in zip(layers, W0): l.wpacked.copy_(pack_rows(w))
+    apply(best)
+    n = 0
+    for l, w, b in zip(layers, W0, before):
+        n += int((unpack_rows(l.wpacked, l.K).to(torch.int8) != w).sum())
+        if l.track: l._record_flips(pack_rows(w), l.wpacked)
+        U_, V_ = state[id(l)]
+        state[id(l)] = (torch.zeros_like(U_), V_)                   # restart the sum, keep the subspace
+    info["accum_candidates"] = int(sum(int((m != 0).sum()) for m in MV))
+    info["accum_frac"] = best
+    info["accum_flips"] = n
+    return info
+
+
 def mech_step(model, state, step, args, x, y, tail, flip_seed=0):
     """--mech: momentum mechanisms for a landscape that moves under its own flips (no look-ahead). State is kept
     full-size per weight (fp32) to judge the mechanisms; a low-rank version comes after. Gradient convention: a
@@ -784,6 +843,10 @@ def main():
     ap.add_argument("--lr_adapt", action="store_true",
                     help="low-rank momentum decay = lr_beta * cos(g, M): reset at 90 deg, "
                          "reflected at 180 deg")
+    ap.add_argument("--accum_flip", type=int, default=0,
+                    help="accumulate momentum K steps without flips, then flip where |M| > accum_z * rms(M) per "
+                         "layer, and restart the momentum (0 = off)")
+    ap.add_argument("--accum_z", type=float, default=3.0)
     ap.add_argument("--mech", default="", choices=["", "v1", "user"],
                     help="momentum mechanism without look-ahead (full-size state, see mech_step): v1 = target "
                          "point; user = recent-gradient target + move-corrected direction + rotation on disagreement")
@@ -1144,6 +1207,8 @@ def main():
     la_on = lambda st: bool(args.lookahead) and not (la_off[0] <= st < la_off[1])
     mag_on = [False]
     mech_state = {}
+    acc_gen = torch.Generator().manual_seed(tc.seed + 999)
+    accum_fresh = (lambda: get_batch(train_data, tc.batch_size, tc.seq_len, device, acc_gen)) if args.accum_flip else None
 
     def enable_mag(step0):
         # the new parameters join the float tail (the look-ahead passes and the gradient clip treat them like the
@@ -1360,6 +1425,9 @@ def main():
                 del Ms
             elif args.mech:
                 rs_info = mech_step(model, mech_state, step, args, x, y, tail, args.flip_seed)
+            elif args.accum_flip:
+                rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
+                                     args.accum_z, args.flip_seed, fresh=accum_fresh)
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                        args.flip_seed, args.lr_adapt)
@@ -1410,6 +1478,9 @@ def main():
             extra = f"| flips {n_flips:>7d} " if args.mode == "flip" else ""
             if rs_info and "lr_cos" in rs_info:
                 extra += f"| cos(g,M) {rs_info['lr_cos']:+.3f} "
+            if rs_info and "accum_candidates" in rs_info:
+                extra += (f"| accum flips {rs_info['accum_flips']} of {rs_info['accum_candidates']} candidates "
+                          f"(fraction {rs_info['accum_frac']:.3g}) ")
             if rs_info and "mech_flips" in rs_info:
                 extra += f"| mech flips {rs_info['mech_flips']} "
                 if "mech_carried" in rs_info:
