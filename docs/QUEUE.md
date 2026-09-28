@@ -6,41 +6,46 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 01:35
+Last updated: 2026-09-28 09:45
 
-## Night of 27-28 Sep (until ~10:30)
+## Now (28 Sep, 09:45)
 
-Order: the new momentum mechanisms first, then unfinished runs that were already running, then other unfinished
-runs. `--mech` runs keep their mechanism state full-size (one fp32 value per weight) to judge the mechanisms;
-a low-rank version follows if one works. Their state is not saved in checkpoints (a resume restarts it warm
-from the saved low-rank momentum).
+| machine | run | what | at / planned | expected |
+|---|---|---|---|---|
+| shoveler | `magadd16_wd_qk_lab` | look-ahead + additive r16 + adapter weight decay + temperature | 285M / 300M (val 3.014 at step 8500) | ~10:40 |
+| 4090 | `nola_b48` (filler) | no look-ahead, batch 48 | step 5450 / 9155 (val 3.091) | ~13:30 |
+| goosander | idle | - | - | - |
+| laptop | idle (figures refresh every 10 min) | - | - | - |
 
-| machine | # | run | what | tokens | expected |
-|---|---|---|---|---|---|
-| **4090** (started) | 1 | `mech_user_b131` | your design, move-correction gain 1: branch of `nola_lab` at 131M -> 300M | 131 -> 300M | ~04:10 |
-| | 2 | `mech_user_s0` | your design, gain 1, from scratch | 0 -> 131M | ~06:20 |
-| | 3 | `la_sched` (resume) | look-ahead 0-30M, off to 131M, on after | 215 -> 300M | ~08:20 |
-| | 4 | `nola_b48` (resume, filler; stopped at step 2290) | no look-ahead, batch 48 | step 2290 -> 9155 | after 10:30 |
-| **shoveler** | 1 | `mech_v1_b131` (running) | V1 target point: branch of `nola_lab` at 131M -> 300M | 131 -> 300M | ~03:20 |
-| | 2 | `mech_v1_s0` | V1 from scratch | 0 -> 131M | ~04:50 |
-| | 3 | `magadd16_qk_lab` | look-ahead + additive r16 + temperature, to its planned 200M | 181 -> 200M | ~05:25 |
-| | 4 | `magadd16_wd_qk_lab` | the same + adapter weight decay (best loss so far) | 131 -> 300M | ~10:40 |
-| **goosander** | 0 | full mechanism test (finishing) | V0-V3 on the no-look-ahead bench, 66 steps | - | ~01:45 |
-| | 0b | corrected V2 / V3 bench test (next to the run) | move correction alone / with the target, gains 1 and 3 (33 diverged) | - | ~02:20 |
-| | 1 | `mech_user_g0_b131` | your design without the move correction (gain 0: target point + rotation), branch at 131M; starts after both bench tests | 131 -> 300M | ~05:40 |
-| | 2 | `la_sched98` (running now, paused before item 1, then resumed) | look-ahead 0-30M, off, on again from 98M | 166 -> 300M | ~09:50 |
-| **laptop** | 1 | `mom_mech_v1`, `mom_mech_user`, `mom_mech_user_g0` (running) | the mechanisms on the 2-layer induction toy (no look-ahead, 15000 steps) | toy | ~02:35 (v1), ~04:05 (user) |
-| | 2 | `mom_s2`, `mom_mech_v1_s2`, `mom_mech_user_s2`, `mom_mech_user_g0_s2` | seed 2 of the toy mechanism arms and of plain momentum (toy seeds vary a lot) | toy | ~07:40 |
-| | 3 | `mech_user_g0_s0` | your design without the move correction, from scratch | 0 -> 131M | ~95M by 10:30, done ~11:30 |
+## Finished overnight (27-28 Sep)
 
-Finished tonight: `nola_then_la` (no look-ahead to 131M, then look-ahead): **val 3.1225 at 300M** (look-ahead
-baseline 3.127, no look-ahead 3.158, look-ahead + additive r4 3.082); `la40_off30`: val 4.506 at 30M.
+300M runs (val loss at 300M; references: master 2.759, look-ahead + additive r4 3.082, look-ahead baseline 3.127,
+no look-ahead 3.158):
 
-Comparison for the branches: `nola_lab` itself (the same run with plain rank-256 momentum), val 3.573 at 131M,
-3.158 at 300M. For the from-scratch runs: `nola_lab` (plateau at 2-5M) and the look-ahead baseline.
+| run | what | val @300M |
+|---|---|---|
+| `la_sched` | look-ahead 0-30M, off to 131M, on after | **3.1108** |
+| `la_sched98` | look-ahead 0-30M, off to 98M, on after | 3.1135 |
+| `mech_user_b131` | your design (gain 1), no look-ahead, branch of `nola_lab` from 131M | **3.1202** |
+| `mech_v1_b131` | V1 target point, no look-ahead, branch from 131M | 3.1215 |
+| `nola_then_la` | no look-ahead to 131M, then look-ahead | 3.1225 |
+| `mech_user_g0_b131` | your design without the move correction, branch from 131M | 3.1325 |
+| `magadd16_qk_lab` | look-ahead + additive r16 + temperature, to its planned 200M | 3.1212 @200M |
 
-Scripts: `scripts/remote/night_4090.sh`, `scripts/lab/night_shoveler.sh`, `scripts/lab/night_goosander.sh`,
-`scripts/lab/mech_run.sh`, `scripts/toy/mech.sh`; the mechanisms are `mech_step` in `bitnet/train.py`.
+From scratch to 131M (no look-ahead; references at 131M: `nola_lab` 3.573, look-ahead baseline 3.345):
+
+| run | val @131M |
+|---|---|
+| `mech_user_s0` (your design, gain 1) | **3.505** |
+| `mech_user_g0_s0` (your design, gain 0) | 3.548 |
+| `mech_v1_s0` (V1) | 3.582 |
+
+Bench, corrected move correction (no-look-ahead checkpoint, held-out loss change after 66 steps; plain momentum
+-0.024, V1 -0.047): V2 gain 1 **-0.068**, gain 3 +0.098; V3 (bench version, unfloored curvature) gain 1 +0.89,
+gain 3 +0.53 (diverges).
+
+Toy (induction nats at 15k steps, seed 1 / seed 2): plain momentum 1.07 / -0.02; V1 6.49 / 0.07; your design
+2.68 / 1.52; your design gain 0 0.44 / 2.44.
 
 ## The mechanisms (`--mech`)
 
