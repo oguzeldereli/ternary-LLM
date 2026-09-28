@@ -48,6 +48,13 @@ CATS = {
         ("nola_b48", "momentum, no look-ahead, batch 48 (3 x 16)"),
         ("nola_lab", "momentum, no look-ahead, batch 16"),
         ("la40_off30", "look-ahead for the first 40 steps, then off (x3 for those steps only: negligible)")]),
+    "mechanisms": ("Momentum mechanisms, no look-ahead (target point, your design)", 3e8, [
+        ("nola_lab", "plain rank-256 momentum (no look-ahead)"),
+        ("mech_v1_b131", "V1 target point, branch at 131M"),
+        ("mech_user_b131", "your design (gain 1), branch at 131M"),
+        ("mech_user_g0_b131", "your design without move correction, branch at 131M"),
+        ("mech_v1_s0", "V1 target point, from scratch"),
+        ("mech_user_s0", "your design (gain 1), from scratch")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),

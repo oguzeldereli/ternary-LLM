@@ -314,6 +314,107 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     return (info, Ms) if propose_only else (info or None)
 
 
+def mech_step(model, state, step, args, x, y, tail, flip_seed=0):
+    """--mech: momentum mechanisms for a landscape that moves under its own flips (no look-ahead). State is kept
+    full-size per weight (fp32) to judge the mechanisms; a low-rank version comes after. Gradient convention: a
+    flip moves against the sign of the signal. Per layer:
+
+    v1    target point: D = estimated displacement to the minimum (trit units); each step D <- b_D (D - move) +
+          (1 - b_D)(-g / h), h one curvature number per layer measured once (same-batch secant after the first
+          step); flip toward D (signal -D). Logs the size of the carried part b_D (D - move) vs the new part.
+    user  target point from the most recent gradients (short memory, can reverse) + remembered direction F
+          corrected by the measured effect of each move + rotation of F onto the target when they disagree:
+            delta = g_prev_batch(now) - g_prev_batch(then)   (the change our last move caused; batch noise cancels)
+            h <- 0.8 h + 0.2 max(delta.move / |move|^2, eps) (geometry re-measured every step)
+            F <- F + gain * delta ; F <- beta F + g           (direction corrected by the move, then new evidence)
+            gs <- b_s gs + (1 - b_s) g                        (recent gradients)
+            D <- b_D (D - move) + (1 - b_D)(-gs / h)          (target point, reversible)
+            if cos(F, -D) < 0: F <- |F| (-D / |D|)            (geometry changed: rotate the memory onto the target)
+          flip from F.
+    Both start warm from the saved low-rank momentum when there is one (F = U V^T, S = 1/(1 - beta))."""
+    from .kernel import unpack_rows
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    kind, beta = args.mech, args.lr_beta
+    b_D = args.mech_beta_d if args.mech_beta_d else (0.97 if kind == "v1" else 0.9)
+    need_delta = kind == "user" or any("h" not in state.get(i, {}) for i in range(len(layers)))
+    g_now = []
+    for l in layers:
+        g_now.append(l.gw.float()); l.gw = None
+    delta = None
+    if need_delta and state.get("prev_xy") is not None:
+        tail_g = [None if p.grad is None else p.grad.clone() for p in tail]
+        xp, yp = state["prev_xy"]
+        for l in layers: l.capture = True
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            model(xp, yp)[1].backward()
+        delta = [l.gw.float() - gp for l, gp in zip(layers, state["prev_g"])]
+        for l in layers: l.gw = None
+        for p, g in zip(tail, tail_g): p.grad = g
+    for l in layers: l.capture = False
+    info = {"mech_flips": 0}
+    carried, fresh, resets, cosFD = [], [], 0, []
+    new_h = []
+    for i, (l, g) in enumerate(zip(layers, g_now)):
+        st = state.setdefault(i, {})
+        if "F" not in st:
+            uv = state.get("warm", {}).get(i)
+            st["F"] = (uv[0] @ uv[1].T) if uv is not None else g.clone()
+            st["S"] = 1.0 / (1 - beta) if uv is not None else 1.0
+            st["gs"] = g.clone()
+        mv = st.get("move")
+        if delta is not None and mv is not None:
+            n = float((mv * mv).sum())
+            if n > 0 and kind == "v1":
+                st["h"] = max(float((delta[i] * mv).sum()) / n, 1e-12)      # as on the bench: measured once
+            elif n > 0:
+                # user: curvature from running averages of (delta . move) and |move|^2 (one step's secant can be
+                # ~0 or negative), floored so a typical target distance |gs| / h stays within ~2 trit steps
+                st["hnum"] = 0.8 * st.get("hnum", 0.0) + 0.2 * float((delta[i] * mv).sum())
+                st["hden"] = 0.8 * st.get("hden", 0.0) + 0.2 * n
+                floor = 0.5 * float(st["gs"].abs().mean())
+                st["h"] = max(st["hnum"] / st["hden"], floor, 1e-12)
+            if kind == "user":
+                st["F"] += args.mech_gain * delta[i]
+        st["F"] = beta * st["F"] + g; st["S"] = beta * st["S"] + 1.0
+        st["gs"] = args.mech_beta_s * st["gs"] + (1 - args.mech_beta_s) * g
+        if "h" in st:
+            h = st["h"]
+            if "D" not in st:
+                st["D"] = -(st["F"] / st["S"]) / h
+                if kind == "user": st["D"].clamp_(-2.0, 2.0)
+            else:
+                src = g if kind == "v1" else st["gs"]
+                c_part = b_D * (st["D"] - (mv if mv is not None else 0.0))
+                n_part = (1 - b_D) * (-src / h)
+                carried.append(float(c_part.norm())); fresh.append(float(n_part.norm()))
+                st["D"] = c_part + n_part
+                if kind == "user": st["D"].clamp_(-2.0, 2.0)                # a trit cannot move further
+            if kind == "user":
+                c = float((st["F"] * (-st["D"])).sum() / (st["F"].norm() * st["D"].norm()).clamp_min(1e-30))
+                cosFD.append(c)
+                if c < 0:
+                    st["F"] = st["F"].norm() * (-st["D"]) / st["D"].norm().clamp_min(1e-30); resets += 1
+        sig = (-st["D"]) if (kind == "v1" and "D" in st) else st["F"]
+        before = unpack_rows(l.wpacked, l.K).to(torch.int8)
+        fused_flip(l.wpacked, sig.contiguous(), l.rate, l.g_ref, 9_000_000 + step * 131 + i + flip_seed * 1_000_003,
+                   gmean=sig.abs().mean().clamp_min(1e-12))
+        after = unpack_rows(l.wpacked, l.K).to(torch.int8)
+        st["move"] = (after - before).float()
+        info["mech_flips"] += int(st["move"].abs().sum())
+        if l.track: l._record_flips(pack_rows(before), l.wpacked)
+        if "h" in st: new_h.append(st["h"])
+    still = kind == "user" or any("h" not in state.get(i, {}) for i in range(len(layers)))
+    state["prev_xy"] = (x, y) if still else None      # v1 needs the same-batch pass only until h is measured
+    state["prev_g"] = g_now if still else None
+    if carried:
+        info["mech_carried"] = sum(carried) / len(carried); info["mech_fresh"] = sum(fresh) / len(fresh)
+    if cosFD:
+        info["mech_cosFD"] = sum(cosFD) / len(cosFD); info["mech_resets"] = resets
+    if new_h:
+        info["mech_h"] = sum(new_h) / len(new_h)
+    return info
+
+
 class TritTracker:
     """Master mode: per step, trits changed (absmean ternarization of the latent weights), flips that
     undo the weight's previous change, and trits never changed since tracking began."""
@@ -683,6 +784,13 @@ def main():
     ap.add_argument("--lr_adapt", action="store_true",
                     help="low-rank momentum decay = lr_beta * cos(g, M): reset at 90 deg, "
                          "reflected at 180 deg")
+    ap.add_argument("--mech", default="", choices=["", "v1", "user"],
+                    help="momentum mechanism without look-ahead (full-size state, see mech_step): v1 = target "
+                         "point; user = recent-gradient target + move-corrected direction + rotation on disagreement")
+    ap.add_argument("--mech_beta_d", type=float, default=0.0, help="target-point decay (0 = 0.97 for v1, 0.9 user)")
+    ap.add_argument("--mech_beta_s", type=float, default=0.8, help="user: memory of the recent-gradient average")
+    ap.add_argument("--mech_gain", type=float, default=1.0,
+                    help="user: gain of the move correction F += gain * delta (the bench's 33 overshot)")
     ap.add_argument("--lookahead_off", default="",
                     help="steps without look-ahead, 'A:B' = off for A <= step < B (flips from the proposals "
                          "directly); e.g. 915:4000 = on to 30M, off to 131M, on again")
@@ -1035,6 +1143,7 @@ def main():
     la_off = tuple(int(x) for x in args.lookahead_off.split(":")) if args.lookahead_off else (0, 0)
     la_on = lambda st: bool(args.lookahead) and not (la_off[0] <= st < la_off[1])
     mag_on = [False]
+    mech_state = {}
 
     def enable_mag(step0):
         # the new parameters join the float tail (the look-ahead passes and the gradient clip treat them like the
@@ -1115,6 +1224,10 @@ def main():
     # after any resume, so 'net' counts from the weights this run starts at
     if args.lowrank_mag and not mag_on[0]:
         enable_mag(start_step)
+    if args.mech and lr_state:
+        lays = [m for m in model.modules() if isinstance(m, KernelTernaryLinear)]
+        mech_state["warm"] = {i: lr_state[id(m)] for i, m in enumerate(lays) if id(m) in lr_state}
+        print(f"--mech {args.mech}: warm start from the saved low-rank momentum ({len(mech_state['warm'])} layers)", flush=True)
     if args.track_reversals:
         for m in model.modules():
             if isinstance(m, KernelTernaryLinear):
@@ -1245,6 +1358,8 @@ def main():
                         lr_state[id(m)] = (U + args.lr_spend * lr_state["_gm"][id(m)] * (d.float() @ V), V)
                 rs_info.update(la)
                 del Ms
+            elif args.mech:
+                rs_info = mech_step(model, mech_state, step, args, x, y, tail, args.flip_seed)
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                        args.flip_seed, args.lr_adapt)
@@ -1295,6 +1410,12 @@ def main():
             extra = f"| flips {n_flips:>7d} " if args.mode == "flip" else ""
             if rs_info and "lr_cos" in rs_info:
                 extra += f"| cos(g,M) {rs_info['lr_cos']:+.3f} "
+            if rs_info and "mech_flips" in rs_info:
+                extra += f"| mech flips {rs_info['mech_flips']} "
+                if "mech_carried" in rs_info:
+                    extra += f"carried/new {rs_info['mech_carried']:.3g}/{rs_info['mech_fresh']:.3g} "
+                if "mech_cosFD" in rs_info:
+                    extra += f"cos(F,target) {rs_info['mech_cosFD']:+.2f} resets {rs_info['mech_resets']} "
             if rs_info and "la_kept" in rs_info:
                 extra += f"| la kept {rs_info['la_kept'] / max(rs_info['la_proposed'], 1) * 100:.0f}% "
             if fs:
