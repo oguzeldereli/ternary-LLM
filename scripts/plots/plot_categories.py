@@ -81,7 +81,9 @@ CATS = {
         ("master_q4_b131", "master, latent stored at 4 bits"),
         ("master_q3_b131", "master, latent stored at 3 bits"),
         ("master_q2_b131", "master, latent stored at 2 bits (3 levels: stateless master)"),
-        ("rc_s0", "plain momentum + row/column scales, from scratch (4090)")]),
+        ("rc_s0", "plain momentum + row/column scales, from scratch (4090)"),
+        ("la40rc_s0", "+ look-ahead first 40 steps only (no plateau), from scratch (4090)"),
+        ("adaptrate_rc_s0", "adaptive flip rate + row/column scales, from scratch (4090)")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),

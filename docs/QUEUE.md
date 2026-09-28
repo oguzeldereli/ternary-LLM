@@ -12,7 +12,7 @@ Last updated: 2026-09-28 15:35
 
 | machine | run | what | status | expected |
 |---|---|---|---|---|
-| 4090 | `accum33_s0` -> `rc_s0` (needs `start.sh rc_s0_now.sh`) | stop accumulate-then-flip; then plain momentum + row/column scales from scratch -> 300M; restarts the sync (logs only) | - | ~19:30 |
+| 4090 (needs `start.sh queue_4090_b.sh`, then unattended) | `rc_s0` -> `la40rc_s0` -> `adaptrate_rc_s0` | from scratch, no look-ahead, row/column scales: plain momentum; look-ahead first 40 steps only (no plateau); adaptive flip rate | - | ~18:30, ~21:00, ~23:30 |
 | cackling | `small_step_s0` | 1/4 rate from scratch (the one kept of the step-size runs) | 3.444 at 131M | ~16:35 |
 | bufflehead | `select_b131` | online flip selector, branch | 3.693 at step 5250 (plain 3.455): worse | ~16:45 |
 | ruddy | `adaptrate_b131` | adaptive flip rate, branch | **3.253 at step 5500** (plain 3.427, 1/4 rate 3.295); rate driven to x0.062 | ~16:45 |
