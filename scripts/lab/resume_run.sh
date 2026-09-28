@@ -3,7 +3,7 @@
 # given train flags (the run's own recipe; --resume and --out_dir are added). Waits for READY and a free GPU.
 #   bash resume_run.sh NAME [train flags...]
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 N=$1; shift
 until [ -f checkpoints/$N/ckpt.pt ] || [ -f $HOME/ternary-sync/inbox/$N/READY ]; do sleep 30; done
 if [ ! -f checkpoints/$N/ckpt.pt ]; then

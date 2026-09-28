@@ -3,7 +3,7 @@
 # look-ahead): no adapter, unfixed additive adapter, adapter with weight decay 0.1. Twelve runs in parallel.
 #   setsid nohup bash ~/ternary-LLM/scripts/lab/toy_seeds.sh &
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 for f in toy_ind_v256_train.bin toy_ind_v256_val.bin; do [ -f data/$f ] || cp $HOME/ternary-data/$f data/; done
 pgrep -u "$USER" -f "scripts/lab/sync_out.sh" >/dev/null || setsid nohup bash $HOME/ternary-LLM/scripts/lab/sync_out.sh >/dev/null 2>&1 &
 run() {

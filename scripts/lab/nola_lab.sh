@@ -3,7 +3,7 @@
 # (lowrank256_nola_laptop, step 1305) under the name nola_lab; snapshots every 500 steps; the sync ships logs
 # and checkpoints home for the laptop. Start detached:  setsid nohup bash ~/ternary-LLM/scripts/lab/nola_lab.sh &
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 N=nola_lab
 if [ ! -f checkpoints/$N/ckpt.pt ]; then
   mkdir -p checkpoints/$N && cp $HOME/ternary-sync/inbox/$N/* checkpoints/$N/ && rm -rf $HOME/ternary-sync/inbox/$N

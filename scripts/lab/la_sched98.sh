@@ -2,7 +2,7 @@
 # Lab PC: the look-ahead schedule with an earlier switch-back: ON to 30M (step 915), OFF to 98M (step 3000, where
 # nola_lab's induction had appeared), ON after. Full 300M from scratch, snapshots every 500 steps. Waits for the GPU.
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 while pgrep -u "$USER" -f "python -m bitnet.train|scripts.toy.eval" >/dev/null; do sleep 30; done
 pgrep -u "$USER" -f "scripts/lab/sync_out.sh" >/dev/null || setsid nohup bash $HOME/ternary-LLM/scripts/lab/sync_out.sh >/dev/null 2>&1 &
 N=la_sched98

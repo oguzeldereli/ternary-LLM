@@ -3,7 +3,7 @@
 # no-look-ahead bench (true gradient cached from the full test), 66 steps. Runs next to the training job.
 # Output line by line: ~/ternary-sync/runs/momentum_mech/momentum_mech_gain.txt
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 D=$S/bench_nola; O=$HOME/ternary-sync/runs/momentum_mech; mkdir -p $O
 for G in 1 3; do
   echo "== gain $G"

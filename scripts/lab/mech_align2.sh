@@ -2,7 +2,7 @@
 # Lab PC: alignment BEFORE vs AFTER the flips, per arm, at the trained flip rate and at 1/4 of it (164M snapshots).
 # Output line by line: ~/ternary-sync/runs/momentum_mech/align2.txt
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 for r in nola_lab:nola5000 mech_v1_b131:mech_v1_b131 mech_user_b131:mech_user_b131; do
   d=${r%%:*}; src=${r##*:}; mkdir -p checkpoints/$d
   [ -f checkpoints/$d/ckpt_5000.pt ] || cp $HOME/ternary-sync/inbox/$src/ckpt_5000.pt checkpoints/$d/

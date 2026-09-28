@@ -4,7 +4,7 @@
 # loss offset; the nola_then_la branch kept its induction). Snapshots every 500 steps. Waits for the GPU.
 #   setsid nohup bash ~/ternary-LLM/scripts/lab/la_sched.sh &
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 while pgrep -u "$USER" -f "python -m bitnet.train" >/dev/null; do sleep 30; done
 pgrep -u "$USER" -f "scripts/lab/sync_out.sh" >/dev/null || setsid nohup bash $HOME/ternary-LLM/scripts/lab/sync_out.sh >/dev/null 2>&1 &
 N=la_sched

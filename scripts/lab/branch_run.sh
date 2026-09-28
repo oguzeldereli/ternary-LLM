@@ -3,7 +3,7 @@
 #   branch_run.sh NAME [train flags]
 set -u
 L=$HOME/ternary-LLM/scripts/lab
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 N=$1; shift
 pgrep -u "$USER" -f "scripts/lab/sync_out.sh" >/dev/null || setsid nohup bash $L/sync_out.sh >/dev/null 2>&1 &
 mkdir -p $S/bench_nola; [ -f $S/bench_nola/ckpt_4000.pt ] || cp $HOME/ternary-sync/inbox/bench_nola/ckpt_4000.pt $S/bench_nola/

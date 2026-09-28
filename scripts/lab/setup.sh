@@ -18,9 +18,9 @@ if [ ! -x "$S/env/bin/python" ]; then
   "$S/bin/micromamba" create -y -q -p "$S/env" -c conda-forge python=3.13 gcc gxx tmux rsync
 fi
 "$S/env/bin/python" -c "import torch" 2>/dev/null || \
-  "$S/env/bin/pip" install --quiet torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126
+  "$S/env/bin/pip" install --quiet --no-cache-dir torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126
 "$S/env/bin/python" -c "import scipy, matplotlib" 2>/dev/null || \
-  "$S/env/bin/pip" install --quiet numpy==2.3.5 scipy matplotlib
+  "$S/env/bin/pip" install --quiet --no-cache-dir numpy==2.3.5 scipy matplotlib
 mkdir -p "$S/repo/data" "$S/repo/checkpoints"
 "$S/env/bin/rsync" -a --delete --exclude checkpoints --exclude data --exclude __pycache__ --exclude .git \
   "$HOME/ternary-LLM/" "$S/repo/"

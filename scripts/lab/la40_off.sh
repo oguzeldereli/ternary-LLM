@@ -3,7 +3,7 @@
 # to 10M tokens (step 305), snapshots every 20 steps. Runs outside checkpoints/ so the sync doesn't ship the
 # snapshots; the plateau analysis runs here and only logs + the analysis go home (~/ternary-sync/runs/la40_off).
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 D=$S/scratch_runs/la40_off; rm -rf "${D:?}"; mkdir -p $D
 python -m bitnet.train --preset small --mode kernel --data data/wiki32k_train.bin --val data/wiki32k_val.bin \
   --seq_len 2048 --batch_size 16 --grad_accum 1 --steps 9155 --warmup 305 --rate_schedule cosine --rate 0.0 \

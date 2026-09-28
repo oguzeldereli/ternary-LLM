@@ -2,7 +2,7 @@
 # Lab PC, next to the running job: look-ahead for the first 40 steps only, then off, from scratch to 30M (step 915).
 # Same run as the 10M priority test (deterministic), extended: does it converge onto the no-look-ahead curve?
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 N=la40_off30; mkdir -p checkpoints/$N
 pgrep -u "$USER" -f "scripts/lab/sync_out.sh" >/dev/null || setsid nohup bash $HOME/ternary-LLM/scripts/lab/sync_out.sh >/dev/null 2>&1 &
 python -m bitnet.train --preset small --mode kernel --data data/wiki32k_train.bin --val data/wiki32k_val.bin \

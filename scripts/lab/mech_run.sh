@@ -4,7 +4,7 @@
 #   START = scratch: from step 0.   STOP = --stop_after step (9156 = the full 300M schedule).
 # Waits until no other training run of this user is on the GPU (a resumed run continues where it stopped).
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 N=$1; MECH=$2; START=$3; STOP=$4; shift 4
 while pgrep -u "$USER" -f "python -m bitnet.train|scripts.analysis.momentum_mech" >/dev/null; do sleep 30; done
 pgrep -u "$USER" -f "scripts/lab/sync_out.sh" >/dev/null || setsid nohup bash $HOME/ternary-LLM/scripts/lab/sync_out.sh >/dev/null 2>&1 &

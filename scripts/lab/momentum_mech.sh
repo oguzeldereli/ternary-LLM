@@ -3,7 +3,7 @@
 # momentum), V0 plain / V1 target point / V2 transport / V3 both, 66 steps each. Output line by line to
 # ~/ternary-sync/runs/momentum_mech/momentum_mech_lab.txt
 set -u
-S=/tmp/$USER/tern; source $S/env.sh; cd $S/repo
+S=/tmp/$USER/tern; source $S/env.sh || exit 1; cd $S/repo || exit 1   # never run from the home folder (10 GB quota)
 D=$S/bench_nola; mkdir -p $D
 [ -f $D/ckpt_4000.pt ] || cp $HOME/ternary-sync/inbox/bench_nola/ckpt_4000.pt $D/
 O=$HOME/ternary-sync/runs/momentum_mech; mkdir -p $O
