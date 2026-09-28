@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 13:50
+Last updated: 2026-09-28 14:10
 
 ## Now (28 Sep, 13:50)
 
@@ -18,7 +18,8 @@ Last updated: 2026-09-28 13:50
 | **cackling** | `small_step_s0` | plain momentum at 1/4 of the flip rate, from scratch -> 300M | ~15:30 |
 | | `mech_user_q_b131` | your design (gain 1) at 1/4 of the flip rate, branch 131M -> 300M | ~18:00 |
 | **mallard** (third lab PC, added 13:40) | `small_step8_lab` | plain momentum at 1/8 of the flip rate, branch 131M -> 300M | ~16:00 |
-| laptop | `small_step8_b131` | the same 1/8 run, slower copy (can be stopped) | ~18:00 |
+| **mandarin** (fourth lab PC, added 14:10) | `small_step8_s0` | plain momentum at 1/8 of the flip rate, from scratch -> 300M | ~17:30 |
+| laptop | `small_step8_b131` | the same 1/8 branch as mallard, slower copy (can be stopped) | ~18:00 |
 
 Early numbers (val): at step 4750 the 1/4-rate branch is at 3.342 vs 3.497 for the same run at the trained rate and
 3.457 for your design at the trained rate; accumulate-then-flip 3.443 at step 4250 (trained rate 3.546).

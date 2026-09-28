@@ -44,7 +44,8 @@ CATS = {
         ("la40_off", "look-ahead for the first 40 steps only (1.3M), then off"),
         ("plateau_la", "look-ahead throughout (rerun with snapshots)"),
         ("nola_lab", "no look-ahead, full run")]),
-    "text_read": ("Equal text read: look-ahead reads 3 batches per step (x3 here); batch 48 without look-ahead reads the same", 9.2e8, [
+    "text_read": ("Equal tokens processed: look-ahead processes 3 batches per step (x3 here); batch 48 without look-ahead the same. "
+                  "The file has 398.5M tokens: 300M processed covers ~53% of it, 900M ~90%", 9.2e8, [
         ("nola_b48", "momentum, no look-ahead, batch 48 (3 x 16)"),
         ("nola_lab", "momentum, no look-ahead, batch 16"),
         ("la40_off30", "look-ahead for the first 40 steps, then off (x3 for those steps only: negligible)")]),
@@ -65,6 +66,7 @@ CATS = {
         ("mech_user_b131", "your design (gain 1), trained rate"),
         ("mech_user_q_b131", "your design (gain 1) at 1/4 of the rate"),
         ("small_step_s0", "plain momentum at 1/4 of the rate, from scratch"),
+        ("small_step8_s0", "plain momentum at 1/8 of the rate, from scratch"),
         ("accum33_s0", "accumulate then flip, from scratch")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
@@ -120,7 +122,8 @@ for key, (title, tmax, runs) in CATS.items():
         dax.plot(t[md], smooth(L)[md] - base(t[md]), ls, color=c, lw=lw, label=lab)
         mv = vt <= tmax * 1.05
         if mv.any(): b.plot(vt[mv], V[mv], "o" + ls, color=c, lw=lw, ms=3.5, label=lab)
-    xl = "text read (tokens incl. look-ahead batches)" if key in XMULT else "tokens"
+    xl = ("tokens processed (random windows with repeats; look-ahead counts its check batches)" if key in XMULT
+          else "tokens")
     a.set(xscale="log", yscale="log", xlim=(3e4, tmax * 1.05), xlabel=xl, ylabel="train loss (smoothed)")
     b.set(xscale="log", xlim=(3e6 if tmax > 1e8 else 1e6, tmax * 1.05), xlabel=xl, ylabel="validation loss")
     vals = [x for d, *_ in lines if (r := load(d)) is not None
