@@ -1,5 +1,7 @@
 # Run index
 
+Running, queued, unfinished and never-run runs: [QUEUE.md](QUEUE.md) (kept current).
+
 Every directory under `checkpoints/` (gitignored). Unless noted: 110M (`small`), wiki32k,
 seq 2048, 16 x 2048 = 32,768 tokens/step, same seed and batch order, kernel mode with
 int8 forward. "val" = final validation perplexity. Details and discussion: [RUNS.md](RUNS.md).
