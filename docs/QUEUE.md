@@ -6,23 +6,18 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 16:25
+Last updated: 2026-09-28 18:00
 
-## Now (28 Sep, 16:25)
+## Now (28 Sep, 18:00)
 
 | machine | run | what | status | expected |
 |---|---|---|---|---|
-| 4090 (needs `start.sh queue_4090_b.sh`, then unattended) | `rc_s0` -> `la40rc_s0` -> `adaptrate_rc_s0` | from scratch, no look-ahead, row/column scales: plain momentum; look-ahead first 40 steps only (no plateau); adaptive flip rate | rc_s0 3.790 at step 2000 (no scales 3.840) | ~18:30, ~21:00, ~23:30 |
-| cackling | `small_step_s0` | 1/4 rate from scratch (the one kept of the step-size runs) | 3.223 at step 8000 (plain from scratch 3.211) | ~16:35 |
-| bufflehead | `select_b131` | online flip selector, branch | stopped (parked): 3.366 at step 7000 (plain 3.294) | - |
-| ruddy | `adaptrate_b131` | adaptive flip rate, branch | **3.182 at step 7750** (plain 3.233, 1/4 rate 3.195); rate driven to x0.062 | ~16:45 |
-| eider | `multibeta_b131` | adaptive momentum decay, branch | 3.295 at step 7250 (plain 3.274): lead lost | ~17:00 |
-| goosander | `rc_b131` | plain momentum + learned row/column scales, branch | 3.327 at step 6500 (plain 3.334) | ~17:30 |
-| mallard | `evid3_b131` | 3-bit evidence counter per weight + row/column scales, branch | 3.320 at step 6000 (plain 3.384) | ~17:30 |
-| mandarin | `master_q4_b131` | master with latent stored at 4 bits, branch of master at 131M | 3.010 at step 6250 (master 2.882) | ~17:00 |
-| pintail | `master_q3_b131` | master, latent at 3 bits | 3.197 at step 6000 (master 2.901) | ~17:00 |
-| harlequin | `master_q2_b131` | master, latent at 2 bits (3 levels: a stateless master) | 3.532 at step 6000 (ours plain 3.384): worse than momentum | ~17:00 |
-| gressingham | `wave` -> `flip_choice` (analysis) | slow-wave test (true-gradient autocorrelation over 40 steps); flip choice by size / consistency / Adam-normalised | started 16:15 | ~17:15 |
+| 4090 (unattended) | `rc_s0` -> `la40rc_s0` -> `adaptrate_rc_s0` | from scratch, no look-ahead, row/column scales: plain momentum; look-ahead first 40 steps only (no plateau); adaptive flip rate | rc_s0 3.225 at step 7500 (no scales ~3.253) | ~18:30, ~21:00, ~23:30 |
+| gressingham | `wave` -> `flip_choice2` (analysis) | slow-wave test (rerun: first try ran out of memory at the end); why random flips beat top-k | started 17:57 | ~18:40, ~19:10 |
+
+All other lab PCs released. Finished 16:40-17:30 (val at 300M; plain `nola_lab` 3.158, master 2.759):
+`evid3_b131` 3.0970, `rc_b131` 3.1480, `adaptrate_b131` 3.1604, `multibeta_b131` 3.1926, `small_step_s0` 3.1933,
+`master_q4_b131` 2.9231, `master_q3_b131` 3.1222, `master_q2_b131` 3.4686. Stopped: `select_b131` (3.366 at 229M).
 
 Stopped at 15:10 (step-size runs other than 1/4 from scratch): `small_step8_lab`, `small_step8_s0`, `small_step8_b131`,
 the queued `mech_user_q_b131`. Finished: `small_step_b131` 3.1551, `accum33_b131` 3.2795.

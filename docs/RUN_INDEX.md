@@ -81,3 +81,14 @@ ones: [QUEUE.md](QUEUE.md).
 | `mech_v1_s0` | V1 from scratch | 131M | 3.582 |
 | `mech_user_s0` | your design (gain 1) from scratch | 131M | 3.505 |
 | `mech_user_g0_s0` | your design (gain 0) from scratch | 131M | 3.548 |
+| `small_step_b131` | 1/4 of the flip rate, branch | 300M | 3.1551 |
+| `small_step_s0` | 1/4 of the flip rate, from scratch | 300M | 3.1933 |
+| `accum33_b131` | accumulate 33 steps without flips, then flip a loss-chosen subset, branch | 300M | 3.2795 |
+| `adaptrate_b131` | adaptive flip rate (`--adapt_rate`, keeps cos(g, M) near 0.03), branch | 300M | 3.1604 |
+| `multibeta_b131` | adaptive momentum decay (`--multibeta 0.8,0.95,0.99`), branch | 300M | 3.1926 |
+| `select_b131` | online flip selector (`--select`), branch; stopped | 229M | 3.366 |
+| `rc_b131` | plain momentum + learned row/column scales (`--rc_scale`), branch | 300M | 3.1480 |
+| `evid3_b131` | 3-bit evidence counter per weight (`--evidence_bits 3`) + row/column scales, branch (not stateless) | 300M | 3.0970 |
+| `master_q4_b131` | master, latent stored at 4 bits (`--master_bits 4`), branch of `master_tracked` at 131M | 300M | 2.9231 |
+| `master_q3_b131` | master, latent at 3 bits | 300M | 3.1222 |
+| `master_q2_b131` | master, latent at 2 bits (3 levels: a stateless master) | 300M | 3.4686 |

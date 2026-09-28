@@ -45,20 +45,23 @@ for k in range(K):
     for i, (l, f) in enumerate(zip(Ls, F)):
         fused_flip(l.wpacked, f.contiguous(), RATE, G_REF, 3000 + 131 * k + i, gmean=f.abs().mean().clamp_min(1e-12))
     if k % 10 == 0: print(f"  step {k} measured", flush=True)
-T = torch.stack([t.float() for t in Ts]); T = T / T.norm(dim=1, keepdim=True)
-M = torch.stack([m.float() for m in Ms]); M = M / M.norm(dim=1, keepdim=True)
-G = T @ T.T                                                  # 41 x 41 cosines
+# everything from dot products (stacking 41 full gradients does not fit on the GPU)
+def dots(A, Bs):
+    return torch.tensor([[float(a.float() @ b.float()) for b in Bs] for a in A], dtype=torch.float64)
+G = dots(Ts, Ts); nT = G.diagonal().sqrt(); G = G / nT[:, None] / nT[None, :]    # 41 x 41 cosines
+MT = dots(Ms, Ts); nM = torch.tensor([float(m.float().norm()) for m in Ms], dtype=torch.float64)
+MT = MT / nM[:, None] / nT[None, :]
 print(f"\n{RUN} @{ST}, rate {RATE:.4f}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())
-    cm = float(torch.stack([M[t] @ T[t + lag] for t in range(K - lag)]).mean())
+    cm = float(torch.diagonal(MT, lag).mean())
     print(f"{lag:3d}  {c:+22.3f}   {cm:+22.3f}")
-# principal directions of the gradient sequence (centered), via the 41 x 41 Gram matrix
-Tc = T - T.mean(0, keepdim=True)
-w, V = torch.linalg.eigh(Tc @ Tc.T)
+# principal directions of the (unit) gradient sequence, centered, via the Gram matrix
+Gc = G - G.mean(0, keepdim=True) - G.mean(1, keepdim=True) + G.mean()
+w, V = torch.linalg.eigh(Gc)
 share = (w / w.sum()).flip(0)
-print(f"\nmean direction share of the energy: {float((T.mean(0).norm() ** 2) / (T.norm(dim=1) ** 2).mean()):.3f}")
+print(f"\nmean direction share of the energy: {float(G.mean()):.3f}")
 for j in range(3):
     v = V[:, -1 - j]
     signs = "".join("+" if x > 0 else "-" for x in v.tolist())
