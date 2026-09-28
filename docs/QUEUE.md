@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-28 14:10
+Last updated: 2026-09-28 15:00
 
 ## Now (28 Sep, 13:50)
 
@@ -19,6 +19,9 @@ Last updated: 2026-09-28 14:10
 | | `mech_user_q_b131` | your design (gain 1) at 1/4 of the flip rate, branch 131M -> 300M | ~18:00 |
 | **mallard** (third lab PC, added 13:40) | `small_step8_lab` | plain momentum at 1/8 of the flip rate, branch 131M -> 300M | ~16:00 |
 | **mandarin** (fourth lab PC, added 14:10) | `small_step8_s0` | plain momentum at 1/8 of the flip rate, from scratch -> 300M | ~17:30 |
+| **bufflehead** (lab PC) | `select_b131` | online-learned flip selector: propose at 2x the rate, an MLP keeps the best half (labels: do the next 8 batches' gradients still push the same way); branch 131M -> 300M | ~16:30 |
+| **ruddy** (lab PC) | `adaptrate_b131` | flip rate adapted to keep cos(g, M) near +0.03, bounded 1/16x-2x; branch 131M -> 300M | ~16:30 |
+| **eider** (lab PC) | `multibeta_b131` | three momenta (decay 0.8 / 0.95 / 0.99), per layer the best recent predictor flips; branch 131M -> 300M | ~17:00 |
 | laptop | `small_step8_b131` | the same 1/8 branch as mallard, slower copy (can be stopped) | ~18:00 |
 
 Early numbers (val): at step 4750 the 1/4-rate branch is at 3.342 vs 3.497 for the same run at the trained rate and

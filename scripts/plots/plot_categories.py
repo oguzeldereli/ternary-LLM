@@ -68,6 +68,12 @@ CATS = {
         ("small_step_s0", "plain momentum at 1/4 of the rate, from scratch"),
         ("small_step8_s0", "plain momentum at 1/8 of the rate, from scratch"),
         ("accum33_s0", "accumulate then flip, from scratch")]),
+    "new_rules": ("Flip selection, adaptive flip rate, adaptive momentum decay (no look-ahead, branches at 131M)", 3e8, [
+        ("nola_lab", "plain rank-256 momentum, trained flip rate"),
+        ("small_step_b131", "plain momentum at 1/4 of the flip rate"),
+        ("select_b131", "online-learned flip selector (propose 2x, keep best half)"),
+        ("adaptrate_b131", "adaptive flip rate (keeps cos(g, M) near +0.03)"),
+        ("multibeta_b131", "adaptive momentum decay (0.8 / 0.95 / 0.99, best predictor per layer)")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),

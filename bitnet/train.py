@@ -314,6 +314,125 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     return (info, Ms) if propose_only else (info or None)
 
 
+def _sel_features(M, g, w0, idx_mask, i):
+    """flip-time features of the proposals of layer i (idx_mask: proposed entries), as in the offline selector:
+    |M|/mean|M|, |g|/mean|g|, sign(M)==sign(g), trit -1/0/+1, move goes to 0, row and column rms of M relative
+    to the layer's, depth, layer type (7)"""
+    f, gg, t = M[idx_mask], g[idx_mask], w0[idx_mask].float()
+    fm, gm = M.abs().mean().clamp_min(1e-12), g.abs().mean().clamp_min(1e-12)
+    rr = M.pow(2).mean(1).sqrt(); cr = M.pow(2).mean(0).sqrt(); lr_ = M.pow(2).mean().sqrt().clamp_min(1e-12)
+    rows, cols = idx_mask.nonzero(as_tuple=True)
+    typ = torch.zeros(len(f), 7, device=f.device); typ[:, i % 7] = 1
+    X = torch.stack([f.abs() / fm, gg.abs() / gm, ((f > 0) == (gg > 0)).float(), (t == -1).float(), (t == 0).float(),
+                     (t == 1).float(), (t != 0).float(), rr[rows] / lr_, cr[cols] / lr_,
+                     torch.full_like(f, (i // 7) / 11.0)], 1)
+    return torch.cat([X, typ], 1)
+
+
+def select_step(model, lr_state, sel, r, beta, step, args, flip_seed=0):
+    """--select: momentum proposes flips at sel_prop x the rate; a small MLP scores each proposal from flip-time
+    features and the top sel_keep fraction is applied. The MLP learns online: every proposal (kept or not) is
+    remembered for sel_k steps while each step's batch gradient at its weight is added up; its label is 1 if the
+    later gradients still push in the proposed direction (move * sum < 0), 0 if they push back. Memory scales
+    with the number of proposals, not with the number of weights."""
+    from .kernel import unpack_rows
+    info, Ms = lowrank_step(model, lr_state, r, beta, step, flip_seed, propose_only=True)
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    g = [l.gw.float() for l in layers]
+    for l in layers:
+        l.gw = None; l.capture = False
+    dev = g[0].device
+    if "mlp" not in sel:
+        sel["mlp"] = torch.nn.Sequential(torch.nn.Linear(17, 64), torch.nn.ReLU(), torch.nn.Linear(64, 64),
+                                         torch.nn.ReLU(), torch.nn.Linear(64, 1)).to(dev)
+        sel["opt"] = torch.optim.Adam(sel["mlp"].parameters(), 1e-3)
+        sel["buf"] = []; sel["trained"] = 0; sel["mu"] = None
+    # 1) this step's gradient goes into every remembered proposal's running sum; mature entries become labels
+    for e in sel["buf"]:
+        for i in range(len(layers)):
+            if e["idx"][i].numel():
+                e["acc"][i] += g[i].flatten()[e["idx"][i]]
+        e["age"] += 1
+    mature = [e for e in sel["buf"] if e["age"] >= args.sel_k]
+    sel["buf"] = [e for e in sel["buf"] if e["age"] < args.sel_k]
+    if mature:
+        X = torch.cat([e["X"][i] for e in mature for i in range(len(layers)) if e["idx"][i].numel()]).float()
+        y = torch.cat([((e["mv"][i] * e["acc"][i]) < 0).float() for e in mature for i in range(len(layers))
+                       if e["idx"][i].numel()])
+        sel["mu"], sel["sd"] = X.mean(0), X.std(0).clamp_min(1e-6)
+        Xn = (X - sel["mu"]) / sel["sd"]
+        with torch.enable_grad():
+            for _ in range(args.sel_train_steps):
+                bi = torch.randint(0, len(Xn), (min(8192, len(Xn)),), device=dev)
+                loss = torch.nn.functional.binary_cross_entropy_with_logits(sel["mlp"](Xn[bi]).squeeze(1), y[bi])
+                sel["opt"].zero_grad(); loss.backward(); sel["opt"].step()
+        sel["trained"] += 1
+        info["sel_label_good"] = float(y.mean()); info["sel_bce"] = float(loss)
+    # 2) propose at sel_prop x the rate, keep the best sel_keep fraction per layer
+    entry = {"idx": [], "mv": [], "acc": [], "X": [], "age": 0}
+    n_prop = n_keep = 0
+    for i, (l, M) in enumerate(zip(layers, Ms)):
+        w0 = unpack_rows(l.wpacked, l.K).to(torch.int8)
+        tmp = l.wpacked.clone()
+        fused_flip(tmp, M.contiguous(), l.rate * args.sel_prop, l.g_ref,
+                   8_000_000 + step * 131 + i + flip_seed * 1_000_003, gmean=M.abs().mean().clamp_min(1e-12))
+        mv_full = unpack_rows(tmp, l.K).to(torch.int8) - w0
+        prop = mv_full != 0
+        n = int(prop.sum())
+        if n == 0:
+            for k_ in ("idx", "mv", "acc", "X"): entry[k_].append(torch.empty(0, device=dev))
+            continue
+        X = _sel_features(M, g[i], w0, prop, i)
+        if sel["trained"] >= args.sel_warm and sel["mu"] is not None:
+            with torch.no_grad():
+                score = sel["mlp"]((X - sel["mu"]) / sel["sd"]).squeeze(1)
+        else:
+            score = torch.rand(n, device=dev)                  # until the selector has learned: a random subset
+        kk = max(1, int(round(n * args.sel_keep)))
+        keep = torch.zeros(n, dtype=torch.bool, device=dev); keep[score.topk(kk).indices] = True
+        flat = prop.flatten().nonzero(as_tuple=True)[0]
+        mv = mv_full.flatten()[flat].float()
+        new = w0.flatten().clone(); new[flat[keep]] += mv[keep].to(torch.int8)
+        before = l.wpacked.clone() if l.track else None
+        l.wpacked.copy_(pack_rows(new.view_as(w0).clamp_(-1, 1)))
+        if before is not None: l._record_flips(before, l.wpacked)
+        entry["idx"].append(flat); entry["mv"].append(mv); entry["acc"].append(torch.zeros_like(mv))
+        entry["X"].append(X.half())
+        n_prop += n; n_keep += int(keep.sum())
+    sel["buf"].append(entry)
+    info["sel_prop"] = n_prop; info["sel_kept"] = n_keep; info["sel_active"] = int(sel["trained"] >= args.sel_warm)
+    return info
+
+
+def multibeta_step(model, states, betas, scores, r, step, flip_seed=0):
+    """--multibeta: several low-rank momenta with different memories; per layer the one whose previous value
+    predicted this step's gradient best (running average of cos(g_t, M_b,t-1)) proposes the flips."""
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    cos, Mss = [], []
+    for b, st in zip(betas, states):
+        info_b, Ms = lowrank_step(model, st, r, b, step, flip_seed, propose_only=True)
+        cos.append(info_b.get("lr_cos_layers")); Mss.append(Ms)
+    for l in layers:
+        l.gw = None; l.capture = False
+    chosen, cchosen = [0] * len(betas), []
+    for i, l in enumerate(layers):
+        sc = scores.setdefault(i, [0.0] * len(betas))
+        if cos[0] is not None:
+            for j in range(len(betas)):
+                sc[j] = 0.9 * sc[j] + 0.1 * cos[j][i]
+        j = max(range(len(betas)), key=lambda q: sc[q])
+        chosen[j] += 1
+        if cos[j] is not None: cchosen.append(cos[j][i])
+        M = Mss[j][i]
+        before = l.wpacked.clone() if l.track else None
+        fused_flip(l.wpacked, M.contiguous(), l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003,
+                   gmean=M.abs().mean().clamp_min(1e-12))
+        if before is not None: l._record_flips(before, l.wpacked)
+    info = {"mb_choice": chosen}
+    if cchosen: info["lr_cos"] = sum(cchosen) / len(cchosen)
+    return info
+
+
 def accum_step(model, state, r, beta, step, K, z, flip_seed=0, fresh=None):
     """--accum_flip K: accumulate, then flip once. Momentum is updated every step (rank-r, as lowrank_step) but no
     trit moves; every K-th step each layer flips the weights whose accumulated push stands out from the noise of
@@ -843,6 +962,20 @@ def main():
     ap.add_argument("--lr_adapt", action="store_true",
                     help="low-rank momentum decay = lr_beta * cos(g, M): reset at 90 deg, "
                          "reflected at 180 deg")
+    ap.add_argument("--select", action="store_true",
+                    help="online-learned flip selector: propose at sel_prop x the rate, keep the top sel_keep by an MLP "
+                         "trained on whether later gradients still push in the proposed direction")
+    ap.add_argument("--sel_prop", type=float, default=2.0)
+    ap.add_argument("--sel_keep", type=float, default=0.5)
+    ap.add_argument("--sel_k", type=int, default=8, help="steps of later gradients summed for a proposal's label")
+    ap.add_argument("--sel_warm", type=int, default=5, help="training rounds before the selector is used")
+    ap.add_argument("--sel_train_steps", type=int, default=30)
+    ap.add_argument("--adapt_rate", action="store_true",
+                    help="flip-rate controller keeping the running cos(g_t, M_t-1) near adapt_rate_target")
+    ap.add_argument("--adapt_rate_target", type=float, default=0.03)
+    ap.add_argument("--adapt_rate_gain", type=float, default=0.3)
+    ap.add_argument("--multibeta", default="",
+                    help="comma-separated momentum decays, e.g. 0.8,0.95,0.99: per layer the best predictor flips")
     ap.add_argument("--accum_flip", type=int, default=0,
                     help="accumulate momentum K steps without flips, then flip where |M| > accum_z * rms(M) per "
                          "layer, and restart the momentum (0 = off)")
@@ -1207,6 +1340,10 @@ def main():
     la_on = lambda st: bool(args.lookahead) and not (la_off[0] <= st < la_off[1])
     mag_on = [False]
     mech_state = {}
+    sel_state = {}
+    ar_state = {"mult": 1.0, "ema": 0.0}
+    mb_betas = [float(b) for b in args.multibeta.split(",")] if args.multibeta else []
+    mb_states = [{} for _ in mb_betas]; mb_scores = {}
     acc_gen = torch.Generator().manual_seed(tc.seed + 999)
     accum_fresh = (lambda: get_batch(train_data, tc.batch_size, tc.seq_len, device, acc_gen)) if args.accum_flip else None
 
@@ -1289,6 +1426,11 @@ def main():
     # after any resume, so 'net' counts from the weights this run starts at
     if args.lowrank_mag and not mag_on[0]:
         enable_mag(start_step)
+    if args.multibeta and lr_state:
+        for st in mb_states:
+            for k_, v_ in lr_state.items():
+                if isinstance(k_, int): st[k_] = tuple(t.clone() for t in v_)
+        print(f"--multibeta {mb_betas}: every momentum starts from the saved one", flush=True)
     if args.mech and lr_state:
         lays = [m for m in model.modules() if isinstance(m, KernelTernaryLinear)]
         mech_state["warm"] = {i: lr_state[id(m)] for i, m in enumerate(lays) if id(m) in lr_state}
@@ -1379,6 +1521,9 @@ def main():
         if args.rate_search:
             rate_now = rate_now * rs_state["mult"]
             set_flip_rate(model, rate_now)
+        if args.adapt_rate:
+            rate_now = rate_now * ar_state["mult"]
+            set_flip_rate(model, rate_now)
         STATE.lr = lr
         for g in tail_opt.param_groups:
             g["lr"] = (g["rc_lr"] if g.get("rc_lr") else lr) * g.get("lr_mult", 1.0)
@@ -1425,6 +1570,10 @@ def main():
                 del Ms
             elif args.mech:
                 rs_info = mech_step(model, mech_state, step, args, x, y, tail, args.flip_seed)
+            elif args.select:
+                rs_info = select_step(model, lr_state, sel_state, args.lowrank, args.lr_beta, step, args, args.flip_seed)
+            elif args.multibeta:
+                rs_info = multibeta_step(model, mb_states, mb_betas, mb_scores, args.lowrank, step, args.flip_seed)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
@@ -1442,6 +1591,13 @@ def main():
         if mwin is not None and args.mode == "master":   # the gradients master's latent weights see
             for i, l in enumerate(mwin.layers(model)):
                 mwin.add(i, l.weight.grad)
+        if args.adapt_rate and rs_info is not None and "lr_cos" in rs_info:
+            # --adapt_rate: keep momentum predictive of the next gradient; below target the flip rate shrinks
+            # (the landscape moves less per step), above it grows back; bounded to [1/16, 2] x the schedule
+            ar_state["ema"] = 0.9 * ar_state["ema"] + 0.1 * float(rs_info["lr_cos"])
+            ar_state["mult"] = min(max(ar_state["mult"] * math.exp(args.adapt_rate_gain * (ar_state["ema"] - args.adapt_rate_target)),
+                                       1 / 16), 2.0)
+            rs_info["rate_mult"] = ar_state["mult"]; rs_info["cos_ema"] = ar_state["ema"]
         torch.nn.utils.clip_grad_norm_(tail, tc.grad_clip)
         tail_opt.step()
         n_flips = apply_flips(model) if args.mode == "flip" else 0
@@ -1478,6 +1634,13 @@ def main():
             extra = f"| flips {n_flips:>7d} " if args.mode == "flip" else ""
             if rs_info and "lr_cos" in rs_info:
                 extra += f"| cos(g,M) {rs_info['lr_cos']:+.3f} "
+            if rs_info and "sel_prop" in rs_info:
+                extra += f"| select {rs_info['sel_kept']}/{rs_info['sel_prop']} {'on' if rs_info['sel_active'] else 'warmup'} "
+                if "sel_label_good" in rs_info: extra += f"good {rs_info['sel_label_good']:.2f} "
+            if rs_info and "rate_mult" in rs_info:
+                extra += f"| rate x{rs_info['rate_mult']:.3f} (cos ema {rs_info['cos_ema']:+.3f}) "
+            if rs_info and "mb_choice" in rs_info:
+                extra += f"| beta choice {rs_info['mb_choice']} "
             if rs_info and "accum_candidates" in rs_info:
                 extra += (f"| accum flips {rs_info['accum_flips']} of {rs_info['accum_candidates']} candidates "
                           f"(fraction {rs_info['accum_frac']:.3g}) ")
