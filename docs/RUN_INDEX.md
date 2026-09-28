@@ -92,3 +92,4 @@ ones: [QUEUE.md](QUEUE.md).
 | `master_q4_b131` | master, latent stored at 4 bits (`--master_bits 4`), branch of `master_tracked` at 131M | 300M | 2.9231 |
 | `master_q3_b131` | master, latent at 3 bits | 300M | 3.1222 |
 | `master_q2_b131` | master, latent at 2 bits (3 levels: a stateless master) | 300M | 3.4686 |
+| `rc_s0` | plain momentum + learned row/column scales, from scratch (4090) | 300M | 3.1307 |

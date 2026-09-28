@@ -146,7 +146,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <div><span class="v">3.127</span><span class="l">baseline: momentum + look-ahead</span></div>
     <div><span class="v">3.158</span><span class="l">momentum, no look-ahead</span></div>
   </div>
-  <p>Batch 48 without look-ahead (900M tokens processed, 3× the others) reached 2.889. Every flip-rate change (¼ rate 3.155, adaptive rate 3.160) leads mid-run and ends at plain's 3.158: the schedule anneals the rate anyway. Stateless gains that survived to 300M: row/column scales 3.148 (−0.010). The 3-bit evidence counter (not stateless) 3.097. Master with its latent at 2 bits: 3.469, worse than our momentum.</p>
+  <p>Batch 48 without look-ahead (900M tokens processed, 3× the others) reached 2.889. Every flip-rate change (¼ rate 3.155, adaptive rate 3.160) leads mid-run and ends at plain's 3.158: the schedule anneals the rate anyway. Stateless gains that survived to 300M: row/column scales, 3.148 as a branch (−0.010) and <b>3.131 from scratch (−0.027)</b>. The 3-bit evidence counter (not stateless) 3.097. Master with its latent at 2 bits: 3.469, worse than our momentum.</p>
 </section>
 
 <section>
@@ -154,7 +154,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090 (unattended queue)</td><td class="mono">rc_s0 → la40rc_s0 → adaptrate_rc_s0</td><td>from scratch, no look-ahead, learned row/column scales: plain momentum (3.225 at 246M vs ~3.253 without scales); look-ahead for the first 40 steps only (no plateau); adaptive flip rate</td><td class="num">~18:30, ~21:00, ~23:30</td></tr>
+    <tr><td>4090 (unattended queue)</td><td class="mono">rc_s0 → la40rc_s0 → adaptrate_rc_s0</td><td>from scratch, no look-ahead, learned row/column scales: plain momentum <b>done: 3.1307</b> (3.158 without scales); look-ahead for the first 40 steps only (no plateau); adaptive flip rate</td><td class="num">~18:30, ~21:00, ~23:30</td></tr>
     <tr><td>gressingham</td><td class="mono">wave controls</td><td>the wave test with frozen weights (no flips: do the flips make the oscillation?) and at ¼ rate (does it scale with the step?)</td><td class="num">~19:20, ~20:00</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
@@ -224,6 +224,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <tr><td class="mono">lm_lowrank256_xb2_100M</td><td>baseline: momentum + look-ahead</td><td class="num">300M</td><td class="num">3.127</td><td>no general induction</td></tr>
     <tr><td class="mono">nola_lab</td><td>momentum, no look-ahead</td><td class="num">300M</td><td class="num">3.158</td><td>plateau 2–5M; induction from ~98M</td></tr>
     <tr><td class="mono">evid3_b131</td><td>3-bit evidence counter per weight + row/column scales (branch; not stateless)</td><td class="num">300M</td><td class="num">3.097</td><td>reference</td></tr>
+    <tr><td class="mono">rc_s0</td><td>plain momentum + learned row/column scales, from scratch</td><td class="num">300M</td><td class="num good">3.131</td><td>−0.027; best stateless run without look-ahead</td></tr>
     <tr><td class="mono">rc_b131</td><td>plain momentum + learned row/column scales (branch)</td><td class="num">300M</td><td class="num">3.148</td><td>−0.010</td></tr>
     <tr class="ref"><td class="mono">master_q4 / q3 / q2</td><td>master, latent stored at 4 / 3 / 2 bits (branch of master at 131M)</td><td class="num">300M</td><td class="num">2.923 / 3.122 / 3.469</td><td>2 bits = stateless master: worse than ours</td></tr>
     <tr><td class="mono">nola_b48</td><td>no look-ahead, batch 48</td><td class="num">900M processed</td><td class="num">2.889</td><td>= batch 16 per token processed</td></tr>

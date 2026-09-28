@@ -12,7 +12,7 @@ Last updated: 2026-09-28 18:45
 
 | machine | run | what | status | expected |
 |---|---|---|---|---|
-| 4090 (unattended) | `rc_s0` -> `la40rc_s0` -> `adaptrate_rc_s0` | from scratch, no look-ahead, row/column scales: plain momentum; look-ahead first 40 steps only (no plateau); adaptive flip rate | rc_s0 3.225 at step 7500 (no scales ~3.253) | ~18:30, ~21:00, ~23:30 |
+| 4090 (unattended) | `rc_s0` -> `la40rc_s0` -> `adaptrate_rc_s0` | from scratch, no look-ahead, row/column scales: plain momentum; look-ahead first 40 steps only (no plateau); adaptive flip rate | rc_s0 done: **3.1307** (no scales 3.158); la40rc_s0 running | ~18:30, ~21:00, ~23:30 |
 | gressingham | `wave_controls` (analysis) | wave test with frozen weights, then at 1/4 rate | started 18:40 | ~19:20, ~20:00 |
 
 All other lab PCs released. Finished 16:40-17:30 (val at 300M; plain `nola_lab` 3.158, master 2.759):
