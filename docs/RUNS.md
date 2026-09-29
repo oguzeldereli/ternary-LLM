@@ -1632,3 +1632,22 @@ By target-token count (<1e4 / 1e4-1e5 / 1e5-1e6 / >1e6): sharp @3000 is +0.39 / 
   2.751): what master has is a per-weight integrator that sums weak, sporadic evidence over hundreds of steps and
   flips only when the sum crosses a threshold (noise cancels before any trit moves). Ours sums over ~33 steps, then
   converts it at once into stochastic flips, which random-walk the weights whose signal is weaker than the noise.
+
+Per-bucket learning over time (`lbf2_laptop.txt`): loss drop per 1000 steps, master / Adam + gate + sharp, by pair count:
+
+| steps | 0 | 1-9 | 10-99 | 1e2-1e3 | 1e3-1e4 | >1e4 |
+|---|---|---|---|---|---|---|
+| 1000-2000 (33-66M) | 0.38 / 0.38 | 0.51 / 0.44 | 0.56 / 0.48 | 0.58 / 0.47 | 0.34 / 0.26 | 0.13 / 0.07 |
+| 2000-3000 (66-98M) | 0.27 / 0.19 | 0.28 / 0.12 | 0.29 / 0.15 | 0.24 / 0.17 | 0.12 / 0.12 | 0.06 / 0.07 |
+| gap sharp - master at 33 / 66 / 98M | +0.16 / +0.16 / +0.24 | +0.10 / +0.17 / +0.33 | +0.12 / +0.20 / +0.34 | +0.16 / +0.27 / +0.34 | +0.10 / +0.18 / +0.18 | +0.01 / +0.07 / +0.06 |
+
+- From 66M on, pairs seen >= 1e3 times in the training set are learned at master's rate (their gap is frozen,
+  built in the early dive); pairs seen < 1e3 times at about half master's rate, so their gap keeps growing.
+- 1e3 training-set occurrences = one appearance every ~12 steps; 1e2 = every ~120 steps. The boundary sits where a
+  pair turns up less often than the momentum's ~33-step memory: its push has faded before the next one comes.
+- Pairs never seen in training (generalisation) lag as much as rare seen ones: what is slow is the features rare
+  contexts use (sporadic gradient signal), not memorising each pair.
+- Undo: in the swing test with gate + Adam step it reverses 2% of flips (2.4k of 110k per step) and changes nothing
+  (-0.0917 vs -0.0920); in training `gvundo_rc_s0` is +0.006 / +0.043 vs the two Adam + gate seeds at step 2000.
+- Dry friction (1/33 per step instead of x0.97) was only swing-tested (-0.030 / -0.032 vs -0.025 for the tanh
+  chance alone), never trained; it is not in the trainer.
