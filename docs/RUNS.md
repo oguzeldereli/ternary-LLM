@@ -1605,3 +1605,30 @@ not predict training.
 
 Open: what master's per-weight latent buys that we can get within the memory rule; why local statistics lag;
 protecting formed circuits; whether undo and sharp help in training (running).
+
+### 29 Sep 23:45: what master's lead is made of (`scripts/analysis/loss_by_freq.py`, `rank_capture.py`)
+
+Held-out loss split by how often the training set holds the (previous, target) pair (same 48 sequences as
+loss_by_pos; positions 2-2048):
+
+| run | pair count 0 | 1-9 | 10-99 | 1e2-1e3 | 1e3-1e4 | >1e4 | all |
+|---|---|---|---|---|---|---|---|
+| share of positions | 1.9% | 4.9% | 11.0% | 22.7% | 27.7% | 31.8% | |
+| master @3000 | 8.51 | 7.19 | 5.59 | 3.96 | 2.59 | 1.62 | 3.262 |
+| Adam + gate + sharp @3000 | 8.75 (+0.24) | 7.52 (+0.33) | 5.93 (+0.34) | 4.30 (+0.34) | 2.77 (+0.18) | 1.68 (+0.06) | 3.470 (+0.208) |
+| master @5000 | 8.20 | 6.95 | 5.27 | 3.65 | 2.39 | 1.54 | 3.059 |
+| Adam + gate @5000 | 8.59 (+0.39) | 7.34 (+0.39) | 5.78 (+0.51) | 4.14 (+0.49) | 2.68 (+0.29) | 1.65 (+0.11) | 3.370 (+0.311) |
+| plain `rc_s0` @5000 | 8.74 | 7.46 | 5.92 | 4.32 | 2.82 | 1.73 | 3.497 |
+
+By target-token count (<1e4 / 1e4-1e5 / 1e5-1e6 / >1e6): sharp @3000 is +0.39 / +0.31 / +0.23 / +0.07 behind master.
+
+- Master's lead is on pairs the training set holds 10-1000 times (34% of positions, ~63% of the gap); on frequent
+  pairs (>1e4, a third of positions) the gap is 0.06. At 32k tokens per step a pair seen 100 times in 400M tokens
+  appears once every ~120 steps: far longer than the momentum's ~33-step memory.
+- Not the rank: at gatevnorm_rc_s0 @5000 the held-out gradient of each pair bucket lies 78-89% inside the saved
+  momentum's rank-256 row x column subspace (random subspace: 7%), rare pairs included. But cos(M, G) is -0.03 to 0.00
+  in every bucket: the subspace is right, the content is not the long-run gradient.
+- With earlier results (`evid3_b131`, a 3-bit per-weight evidence counter: -0.05; master with a 4-bit latent 2.923 vs
+  2.751): what master has is a per-weight integrator that sums weak, sporadic evidence over hundreds of steps and
+  flips only when the sum crosses a threshold (noise cancels before any trit moves). Ours sums over ~33 steps, then
+  converts it at once into stochastic flips, which random-walk the weights whose signal is weaker than the noise.
