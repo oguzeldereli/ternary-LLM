@@ -1560,3 +1560,27 @@ one fresh batch; each rule's expected flips (no sampling). Rows in fifths by ste
 Most of the rule's per-step gain (-0.031) comes from the absolute tanh flip chance (-0.025 with the usual friction);
 no friction + cap adds a little at cap 1x and hurts at 2x (the velocity grows, flips rise). None of them damps the
 swing. Full runs and the cap sweep are training.
+
+### 29 Sep 21:10: where the loss gap is (loss by context position, `scripts/analysis/loss_by_pos.py`)
+
+Validation loss by position in the 2048-token context (0-1: no context; 2-15: local; 512+: long context through
+attention) and the ordered-copy (induction) gain, at 98M tokens (step 3000):
+
+| run | 0-1 | 2-15 | 16-127 | 128-511 | 512+ | copy gain |
+|---|---|---|---|---|---|---|
+| master (`curve_master`) | 5.59 | **3.80** | 3.62 | 3.28 | 3.23 | +0.09 |
+| gate + Adam step | 5.90 | 4.36 | 3.94 | 3.54 | 3.48 | -0.00 |
+| plain `rc_s0` | 5.59 | 4.28 | 4.09 | 3.70 | 3.66 | **+0.31** |
+| user's rule, cap 3 | 6.24 | 4.58 | 4.07 | 3.67 | 3.60 | +0.00 |
+| user's rule, cap 1, flip scale 10 | 6.81 | 5.02 | 4.37 | 3.94 | 3.88 | -0.00 |
+
+- The largest gap to master is local context (positions 2-15: +0.48 plain, +0.56 gate + Adam step); elsewhere
+  +0.25-0.35. Master's lead is short-range statistics, not induction (plain forms induction by 98M, more than master).
+- The user's cap-1 rule gets *worse* at no-context prediction while training (6.51 -> 6.73 -> 6.81 at 33 / 66 / 98M)
+  and barely improves locally (5.17 -> 5.02): it loses the unigram/bigram statistics the other runs learn in their
+  early dive; it only improves at long context.
+- The probe loader (`induction_heads.load`) had silently dropped learned row/column scales; fixed.
+
+Swing-test arm 5 (user's rule + undo + gate + Adam step) was broken: the fixed-scale tanh was calibrated on the raw
+momentum while the Adam step rescales it, so flips ran away (316k -> 464k/step), undo reversed 22%, lag-1 -0.64,
+held-out +0.089. Replaced by gate + Adam step + undo with the old rule (cackling).
