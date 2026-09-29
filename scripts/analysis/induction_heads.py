@@ -56,8 +56,12 @@ def load(path, kind):
         for a in m.modules():
             if isinstance(a, BM.Attention):
                 a.qk_logscale = torch.nn.Parameter(torch.zeros(a.n_heads))
-    missing, _ = m.load_state_dict(b["model"], strict=False)
-    assert not any(k.endswith(("qk_logscale", "mag_A", "mag_B")) for k in missing)
+    if any(k.endswith("row_scale") for k in b["model"]):          # runs with --rc_scale
+        from bitnet.flip import enable_rc_scales
+        enable_rc_scales(m)
+    missing, unexpected = m.load_state_dict(b["model"], strict=False)
+    assert not any(k.endswith(("qk_logscale", "mag_A", "mag_B", "row_scale", "col_scale")) for k in missing)
+    assert not unexpected, f"checkpoint keys the model does not have: {unexpected[:5]}"
     return b["step"], m.to("cuda").eval(), b["cfg"].vocab_size
 
 
