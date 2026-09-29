@@ -64,6 +64,9 @@ NORM = os.environ.get("WAVE_NORM", "own")
 SIG = os.environ.get("WAVE_SIG", "plain"); VN, RR = {}, {}
 GRAV = float(os.environ.get("WAVE_GRAV", "0"))   # 0 = off; e.g. 0.5: strong pull-back when climbing
 GM0 = [f.abs().mean().clamp_min(1e-12) for f in F]
+# WAVE_GM_BETA=0.97: the fixed divisor in gradient units taken from the 0.97 momentum (size ~ g / 0.03), so a shorter
+# memory (smaller M) flips fewer weights instead of the same number
+if os.environ.get("WAVE_GM_BETA"): GM0 = [x * (1 - BETA) / (1 - float(os.environ["WAVE_GM_BETA"])) for x in GM0]
 
 
 def held():
