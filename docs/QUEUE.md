@@ -6,12 +6,24 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-29 10:45
+Last updated: 2026-09-29 15:45
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
+
+## Now (29 Sep, 15:45): the user's rule
+
+Momentum as one velocity vector: `--lr_beta 1` (no friction; the gradient is the gravity), `--mom_ncap C` (cap the
+whole momentum at C x a slow EMA of the total gradient norm), `--pfun_tanh 10` (flip chance rate * tanh(|M| / (3 v0)),
+v0 = 10 x a slow EMA of the layer's mean |g|: absolute units). All from scratch with row/column scales.
+
+| machine | run | what | expected |
+|---|---|---|---|
+| 4090 | `usersweep_cap3` -> `cap10` -> `cap30` -> `cap100` -> `nocap` | short sweep of the cap, stop at step 1500 (~50M) | ~25 min each, to ~18:00 |
+| pintail | `user_cap10_s0` | full 300M, cap 10 | ~19:10 |
+| mallard | `user_cap30_s0` | full 300M, cap 30 (shoveler's GPU was taken by another user) | ~19:15 |
 
 ## Night 28-29 Sep (planned 01:10, runs to ~10:00)
 
