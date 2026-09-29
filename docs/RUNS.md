@@ -1408,3 +1408,26 @@ the gate's flip count). Found while wiring it: without look-ahead the trainer ha
   predicted (a per-layer divisor cannot see the swing).
 - Seed spread: `rc_s0_seed2` 3.3225 vs `rc_s0` 3.3237 at step 6250, 3.578 vs 3.581 at 3500: ~0.003.
 - 4090 swing tests (gate rate control, gravity, gradient units) had died silently at their start; relaunched 03:28.
+
+### 29 Sep 04:30: the gate's rate control, gravity, and the finished speed reference
+
+Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 at 165k flips/step, lag-3 -0.25,
+45.4% of flips uphill, |M|/|T| at a reversal 6.9, never follows 21.7%):
+
+| arm | held-out | flips/step | cos(T_t, T_t+1 / +2 / +3 / +5) | uphill flips | reversal: follows in 1-3 / never | \|M\|/\|T\| at reversal |
+|---|---|---|---|---|---|---|
+| old rule at x0.62 rate (the gate's rate control) | -0.0595 | 103k | +0.75 / +0.41 / +0.06 / -0.19 | 44.8% | 15.1% / 22.8% | 10.0 |
+| sign gate (02:20) | -0.0851 | 103k | +0.28 / +0.28 / +0.18 / +0.12 | - | - | - |
+| asymmetric gravity 0.5 (measurement only) | -0.0620 | 172k | -0.12 / -0.10 / +0.16 / +0.01 | **38.7%** | **51.6% / 5.8%** | **1.9** |
+
+- The 41-step held-out change strongly favours fewer flips (x0.62 rate alone: -0.060 vs -0.012), so arms must be
+  compared at matched flip counts. At 103k flips the gate beats the rate control by 0.026 and removes the swing.
+- Gravity 0.5 does exactly what it is meant to: momentum turns within 1-3 steps at 52% of reversals (never: 5.8%
+  vs 22%), |M|/|T| at a reversal drops 6.9 -> 1.9, uphill flips 45% -> 39%, and -0.062 at *more* flips than the old
+  rule (172k vs 165k). Not trained: the user called it a hack; decision for the morning.
+- Probe on `speedref_rc_s0` @5000 (its own checkpoint): same swing as `rc_s0` (lag 5 -0.17, momentum -0.14 to -0.18,
+  45.9% uphill, |M|/|T| 10.3). `speedref_rc_s0` final 3.1315 vs `rc_s0` 3.1307: no effect.
+- `gate_rc_s0` 3.4013 vs `rc_s0` 3.4174 at step 5250 (-0.016; seed spread ~0.005: `rc_s0_seed2` 3.1400 vs 3.1454
+  at 8750).
+- The 4090 list runner had waited on the tmux server's command line (it keeps the name `queue_4090_c.sh`), idle
+  03:37-04:30; fixed, `gatevnorm_rc_s0` started 04:30.

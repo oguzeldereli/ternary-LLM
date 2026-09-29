@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 4090: same as runner_lab.sh with the 4090 recipe; waits for the running queue_4090_c.sh first.
+# 4090: same as runner_lab.sh with the 4090 recipe; waits for any running training first (not for queue_4090_c.sh by name: the tmux server's command line keeps that name).
 set -u
 S=/scratch0/$USER; REPO=$HOME/ternary-LLM; L=$REPO/scripts/night/4090.list
 source $S/env.sh; cd $REPO
-while pgrep -u "$USER" -f "[q]ueue_4090_c.sh" >/dev/null || pgrep -u "$USER" -f "[p]ython -m bitnet.train" >/dev/null; do sleep 30; done
+while pgrep -u "$USER" -f "[p]ython -m bitnet.train" >/dev/null; do sleep 30; done
 while line=$(grep -m1 -v '^#' "$L" 2>/dev/null) && [ -n "$line" ]; do
   grep -v -x -F "$line" "$L" > "$L.tmp"; mv "$L.tmp" "$L"
   set -- $line; N=$1; shift
