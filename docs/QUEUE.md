@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-29 01:10
+Last updated: 2026-09-29 02:25
 
 ## Night 28-29 Sep (planned 01:10, runs to ~10:00)
 
@@ -20,9 +20,9 @@ each run; edit the lists on the remote home, not by rsync from the laptop).
 
 | machine | now | next (list) | expected |
 |---|---|---|---|
-| 4090 | `speedref_rc_s0` (--speed_ref 0.995) | `gate_rc_s0`, `vnorm_rc_s0` | ~03:00, ~05:30, ~08:00 |
-| pintail | swing arms, all coordinates: gate, vnorm 0.99, row speed 0.995 | `rowspeed_rc_s0` | ~02:30, then ~06:10 |
-| shoveler | `rc_s0_seed2` (seed-to-seed spread) | `gatevnorm_rc_s0` | ~04:40, ~08:20 |
+| 4090 | `speedref_rc_s0` (--speed_ref 0.995) | `gatevnorm_rc_s0`, `vnorm_rc_s0` | ~03:00, ~05:30, ~08:00 |
+| pintail | `gate_rc_s0` (started 02:20; swing arms done: gate best, see RUNS.md) | - | ~06:00 |
+| shoveler | `rc_s0_seed2` (seed-to-seed spread) | `gate_rc_s0_seed2` | ~04:40, ~08:20 |
 | laptop | probes: swing test on rc_s0 / speedref_rc_s0 checkpoints @5000, @8000 | - | ~04:30 |
 | 4090 (next to training) | swing test with per-weight reversal analysis (old rule), then asymmetric gravity 0.5 / 0.8 | - | ~01:50, ~02:15, ~02:40 |
 

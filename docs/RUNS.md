@@ -1383,3 +1383,17 @@ slow the swing; they do not remove it.
 - Only 24.7% of the momentum's size (squared) lies in the span of the 41 true gradients; the rest points where the
   true gradient never goes (accumulated batch noise). This, not the swing, sets |M| and the flip count, which is why
   a per-layer divisor could not see the swing.
+
+### 29 Sep 02:20: per-direction swing arms (nola_lab @4500, all coordinates, 41 steps)
+
+| arm | held-out change | flips / step | cos(T_t, T_t+1 / +2 / +3) | momentum vs next gradient (lag 1) |
+|---|---|---|---|---|
+| old rule | -0.0116 | 165k | +0.66 / +0.12 / -0.25 | -0.17 |
+| **sign gate** (flip only where this batch agrees with M) | **-0.0851** | 103k | +0.28 / +0.28 / +0.18 | -0.04 |
+| factored Adam step (`vnorm 0.99`) | -0.0303 | 173k | +0.71 / +0.26 / -0.13 | -0.16 |
+| per-row speed reference (`rowema 0.995`) | -0.0157 | 182k | +0.65 / +0.12 / -0.23 | -0.17 |
+
+The gate removes the swing (no negative lag) and gains 7x more in 41 steps; control queued (old rule at x0.62 rate,
+the gate's flip count). Found while wiring it: without look-ahead the trainer had ignored `--lr_gate` and
+`--lr_vnorm` in every run since look-ahead was dropped. Now training: `gate_rc_s0` (pintail),
+`gatevnorm_rc_s0` then `vnorm_rc_s0` (4090), `gate_rc_s0_seed2` (shoveler, after `rc_s0_seed2`).
