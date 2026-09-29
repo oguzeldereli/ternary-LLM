@@ -6,12 +6,24 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-29 18:00
+Last updated: 2026-09-29 22:05
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
+
+## Now (29 Sep, 22:05)
+
+Only two runs, both no look-ahead, from scratch, row/column scales (all other runs and tests stopped at 21:40):
+
+| machine | run | what | expected |
+|---|---|---|---|
+| 4090 | `gvundo_rc_s0` | Adam + gate + undo | ~00:30 |
+| bufflehead | `gvsharp_rc_s0` | Adam + gate + sharp (additive r16 + adapter weight decay + per-head temperature); moved off harlequin, where another user's Ray job halved its speed | ~01:45 |
+
+Free: gressingham (GPU at 90 C), mallard, harlequin (another user), cackling, shoveler / pintail (other users), laptop.
+Names: sharp = `--lowrank_mag add:16 --mag_wd 0.1 --qk_temp`; undo = `--undo`.
 
 ## Now (29 Sep, 18:00)
 

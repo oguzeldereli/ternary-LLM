@@ -1584,3 +1584,24 @@ attention) and the ordered-copy (induction) gain, at 98M tokens (step 3000):
 Swing-test arm 5 (user's rule + undo + gate + Adam step) was broken: the fixed-scale tanh was calibrated on the raw
 momentum while the Adam step rescales it, so flips ran away (316k -> 464k/step), undo reversed 22%, lag-1 -0.64,
 held-out +0.089. Replaced by gate + Adam step + undo with the old rule (cackling).
+
+### 29 Sep summary: what was tried, what failed, what is open
+
+Worked (no look-ahead, from scratch, 300M): gate + Adam step 3.077 / 3.070 (2 seeds) vs plain 3.131 / 3.127. The Adam
+step alone gains at equal flips (3.106); the gate alone is only its lower flip count (3.117 vs its rate control
+3.121); plain at gate + Adam step's flip count is plain (3.129), and the Adam step at that count without the gate is
+3.122, so the two need each other: the gate fixes direction, the Adam step moves flips out of steep rows.
+
+Failed: per-layer speed reference (3.1315), the user's rule in training (cap 3: 3.217, starves of flips late; cap 1:
+loses the no-context statistics), asymmetric gravity (3.50 alone and with gate + Adam), dry friction (swing test only:
+same as the tanh flip chance), the full combination user rule + undo + gate + Adam (swing test broken by a scale
+mismatch), beta 0.9 + undo (flip-unflip churn).
+
+Measured: master has the same per-weight picture as us (46.5% of trit changes uphill, every step overshoots its own
+direction within one step, Adam's momentum anti-predicts the next gradient); it differs by no lag-3 reversal and 12%
+never-turning weights (ours 22%). The gap to master is largest on local context (positions 2-15). Induction forms in
+plain at ~98M and in gate + Adam at ~180M, and flickers on and off in both. The 41-step swing test's loss number does
+not predict training.
+
+Open: what master's per-weight latent buys that we can get within the memory rule; why local statistics lag;
+protecting formed circuits; whether undo and sharp help in training (running).

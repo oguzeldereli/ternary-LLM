@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 10:45</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 22:05</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -157,10 +157,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090</td><td class="mono">swing tests: your rule</td><td>gate + Adam step seed 2 finished <b>3.0699</b>. Now: momentum as one velocity vector, gravity = gradient (no friction), norm cap 1× / 2×, absolute tanh flip chance; and tanh-absolute with friction 0.97</td><td class="num">~13:40</td></tr>
-    <tr><td>pintail</td><td class="mono">vnorm064_rc_s0</td><td>the Adam step at gate + Adam step's 0.64× flip count, without the gate: does the gate add anything?</td><td class="num">~14:20</td></tr>
-    <tr><td>shoveler</td><td class="mono">rate064_rc_s0</td><td>gate + Adam step's rate control: plain at 0.64× flips</td><td class="num">~13:10</td></tr>
-    <tr><td>laptop</td><td class="mono">-</td><td>probes done: the swing is inside rc_s0 and speedref_rc_s0 (45% of flips uphill); gone in the gate runs (momentum vs next gradient −0.04 to −0.08); per weight the momentum still lags (|M|/|T| 7–12 at a reversal)</td><td class="num">idle</td></tr>
+    <tr><td>4090</td><td class="mono">gvundo_rc_s0</td><td><b>Adam + gate + undo</b>: flip back last step's flips that the new batch gradient and the momentum both call uphill. From scratch, row/column scales, no look-ahead</td><td class="num">~00:30</td></tr>
+    <tr><td>bufflehead</td><td class="mono">gvsharp_rc_s0</td><td><b>Adam + gate + sharp</b> (sharp = additive r16 adapter + adapter weight decay + per-head temperature), no look-ahead</td><td class="num">~01:45</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
@@ -168,7 +166,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <section>
   <span class="eyebrow">What we asked and what each answer led to</span>
   <h2>The story so far</h2>
-  <div class="diagram"><div class="threads" style="grid-template-columns:repeat(4,minmax(240px,1fr))">
+  <div class="diagram"><div class="threads" style="grid-template-columns:repeat(5,minmax(230px,1fr))">
     <div class="thread"><h3>1 · Momentum fixes</h3><div class="chain">
       <div class="node">Momentum is noise-level (|M|/|g| ≈ 4.1); its flips are ~50% right</div><div class="down">↓</div>
       <div class="node good">20M screens: additive magnitude −0.052, sign gate −0.026</div><div class="down">↓</div>
@@ -210,6 +208,16 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node bad">¼ rate ends at 3.155, accumulate-then-flip 3.2795: the schedule anneals the rate so the offset vanishes</div><div class="down">↓</div>
       <div class="node bad">Adaptive flip rate (drives itself to ~×0.06): best mid-run (3.182 at 254M), ends 3.160 = plain</div>
     </div></div>
+    <div class="thread"><h3>5 · Speed, gravity, your rule (29 Sep)</h3><div class="chain">
+      <div class="node bad">One speed reference per layer (<code>speedref</code>): 3.1315 = plain. It cannot see a swing that lives in a few directions</div><div class="down">↓</div>
+      <div class="node">Your rule (no friction, velocity cap on the whole vector, fixed-scale tanh flip chance): 2.5–4× the old rule per flip in 41 steps, but the swing stays unless the cap is ~1 gradient</div><div class="down">↓</div>
+      <div class="node bad">In training: cap 3 ahead of plain to ~150M, then starves of flips late: 3.217. Cap 1 loses the unigram/bigram statistics (no-context loss rises 6.51 → 6.81): no dive</div><div class="down">↓</div>
+      <div class="node bad">Asymmetric gravity (momentum decays 0.5 when climbing): best per-weight turning in tests, 3.50 in training (both alone and with gate + Adam)</div><div class="down">↓</div>
+      <div class="node">Dry friction (fixed amount off per step), per vector or per weight: same as the tanh flip chance alone; swing unchanged</div><div class="down">↓</div>
+      <div class="node good">Undo (flip back last step's flips the fresh batch and the momentum call uphill): 3% of flips reversed, swing nearly gone, 41-step gain ×2. Training run on the 4090</div><div class="down">↓</div>
+      <div class="node lead"><b>Master has the same per-weight picture</b>: 46.5% of trit changes uphill, every step overshoots its own direction. It differs by no lag-3 reversal and 12% never-turning weights (ours 22%)</div><div class="down">↓</div>
+      <div class="node lead">Where the gap to master is: local context (positions 2–15: +0.5), not induction. Gate + Adam gets induction late (~180M) and it flickers on and off in every flip run</div>
+    </div></div>
   </div></div>
 </section>
 
@@ -241,6 +249,15 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <tr><td class="mono">rc_s0</td><td>plain momentum + learned row/column scales, from scratch</td><td class="num">300M</td><td class="num good">3.131</td><td>−0.027; best stateless run without look-ahead</td></tr>
     <tr><td class="mono">rc_b131</td><td>plain momentum + learned row/column scales (branch)</td><td class="num">300M</td><td class="num">3.148</td><td>−0.010</td></tr>
     <tr class="ref"><td class="mono">master_q4 / q3 / q2</td><td>master, latent stored at 4 / 3 / 2 bits (branch of master at 131M)</td><td class="num">300M</td><td class="num">2.923 / 3.122 / 3.469</td><td>2 bits = stateless master: worse than ours</td></tr>
+    <tr><td class="mono">gatevnorm_rc_s0 (+seed2)</td><td>Adam + gate + row/col scales, no look-ahead</td><td class="num">300M</td><td class="num good">3.077 / 3.070</td><td>best without look-ahead; 0.64× flips</td></tr>
+    <tr><td class="mono">rate064_rc_s0</td><td>plain at 0.64× flip rate (Adam + gate's rate control)</td><td class="num">300M</td><td class="num">3.129</td><td>= plain: flipping less doesn't explain it</td></tr>
+    <tr><td class="mono">vnorm_rc_s0 / vnorm064_rc_s0</td><td>Adam step alone, full rate / 0.64× rate</td><td class="num">300M</td><td class="num">3.106 / 3.122</td><td>real per-flip gain; needs the gate for more</td></tr>
+    <tr><td class="mono">gate_rc_s0 (+seed2) / rate085_rc_s0</td><td>sign gate / plain at 0.85× rate</td><td class="num">300M</td><td class="num">3.119, 3.114 / 3.121</td><td>gate alone = its rate</td></tr>
+    <tr><td class="mono">rc_s0_seed2</td><td>plain + scales, seed 2</td><td class="num">300M</td><td class="num">3.127</td><td>seed spread 0.003</td></tr>
+    <tr><td class="mono">speedref_rc_s0</td><td>per-layer slow speed reference</td><td class="num">300M</td><td class="num bad">3.1315</td><td>no effect</td></tr>
+    <tr><td class="mono">user_cap3_s0</td><td>your rule: no friction, velocity cap 3, fixed-scale tanh</td><td class="num">300M</td><td class="num bad">3.217</td><td>ahead to ~150M, then starves of flips</td></tr>
+    <tr><td class="mono">user_cap1_s0 / user_cap1_flip15_s0</td><td>your rule, cap 1 (flip scale 10 / 1.5)</td><td class="num">115M / 197M</td><td class="num bad">~3.83 / 3.635</td><td>stopped: loses unigram/bigram statistics</td></tr>
+    <tr><td class="mono">grav05_rc_s0 / grav05_gatevnorm_rc_s0</td><td>asymmetric gravity 0.5, alone / with Adam + gate</td><td class="num">300M</td><td class="num bad">3.501 / 3.497</td><td>failed</td></tr>
     <tr><td class="mono">nola_b48</td><td>no look-ahead, batch 48</td><td class="num">900M processed</td><td class="num">2.889</td><td>= batch 16 per token processed</td></tr>
     <tr><td class="mono">nola_add16</td><td>no look-ahead + additive r16</td><td class="num">112M</td><td class="num bad">~4.6</td><td>adapter takes over q/k; stopped</td></tr>
   </table></div>
@@ -318,31 +335,28 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <span class="eyebrow">Not tried yet</span>
       <h2>Proposed, not run</h2>
       <ul>
-        <li><span class="tag t-lead">next</span>Damping: Nesterov-style signal (βM + g, which reacts to the gradient turning), or M minus a multiple of its own recent change (PID derivative); both fit the low-rank state</li>
-        <li><span class="tag t-lead">next</span>Do not flip a weight back and forth within one swing (hold a flipped weight for ~4 steps; the older permanent lockout, without momentum, lost 102.66 vs 98.56), or flip only where the short memory (~3 steps) and the long one agree</li>
-        <li>Size-free flip rule (p = rate everywhere, direction sign(M)): the follow-up says our rule is already close to random, so low priority</li>
-        <li><span class="tag t-lead">next</span>Memory that adapts to the wave period, if the slow-wave test finds one</li>
-        <li><span class="tag t-lead">next</span>Adaptive flip rate + row/column scales from scratch (queued on the 4090)</li>
-        <li><span class="tag t-bad">parked</span>Online flip selector: labels too noisy (55% agreement); the offline one trained on true-gradient labels works (69% downhill)</li>
-        <li>Low-rank versions of V2 / your design (their state is still full-size)</li>
-        <li>Your design / V2 at ¼ rate with the look-ahead-free recipe plus the r16 adapter (weight decay + temperature)</li>
-        <li>Output bias so the unigram frequencies don't have to be built by the trits (the no-look-ahead plateau)</li>
-        <li>Copy-data curriculum</li>
-        <li>600M run; MLP width sweep (N+K scaling); multi-GPU trainer; FineWeb data</li>
-        <li>Never run from older plans: <code>all_fixes_full</code>, <code>mul60_heads</code>, <code>gate_full</code></li>
+        <li><span class="tag t-run">running</span>Adam + gate + undo; Adam + gate + sharp (no look-ahead)</li>
+        <li><span class="tag t-lead">next</span>A per-weight integrator within the memory rule: master's edge is sub-trit accumulation (latent at 2 bits 3.47, 3 bits 3.12, 4 bits 2.92, fp32 2.75); ideas: a shared low-bit counter per row block, hashing, or the r16 adapter as the integrator</li>
+        <li><span class="tag t-lead">next</span>Protect formed circuits: induction appears and breaks (copy gain 2.0 → 0.5 → 1.4 → 2.0) — lower flip rates on heads / rows that have converged</li>
+        <li><span class="tag t-lead">next</span>Stronger undo variants (batch-gradient only, or large |g| only) if the undo training run holds</li>
+        <li>Your rule with the flip scale tied to the momentum's typical size (it starved late with a fixed scale)</li>
+        <li>Nesterov / derivative term (untested)</li>
+        <li>Output bias for unigram frequencies (the no-look-ahead plateau)</li>
+        <li>600M run; MLP width sweep; multi-GPU trainer; FineWeb data</li>
+        <li><span class="tag t-bad">dropped</span>Look-ahead for new runs (pure momentum beats pure look-ahead per token); asymmetric gravity; per-layer speed reference; online selector</li>
       </ul>
     </div>
     <div class="list">
       <span class="eyebrow">Open questions</span>
       <h2>What we still can't explain</h2>
       <ul>
-        <li><span class="tag t-bad">open</span>Why flipping the largest entries of even the true gradient raises loss while random sign-aligned flips lower it: concentration in a few rows, or high curvature where the gradient is large? (follow-up running)</li>
-        <li><span class="tag t-good">found</span>The misalignment is an oscillation our flips create: momentum keeps pushing after the gradient has turned (underdamped, period ∝ 1/√rate). Lower rates only slow the swing. Open: how to damp it without state (shorter memory? a derivative term, as in Nesterov / PID? smaller steps only in stiff directions?)</li>
-        <li><span class="tag t-bad">open</span>How to cut the bad flips without cutting the good ones: lower rates give an offset but a shallower slope</li>
-        <li><span class="tag t-bad">open</span>Master's lead is broad (all token types), not one missing circuit: what does its latent integration buy that we still lack?</li>
-        <li><span class="tag t-lead">lead</span>Why the r16 adapter + weight decay + temperature pulls ahead after ~150M (2.9925), and whether it works without look-ahead once the adapter is kept in check</li>
-        <li><span class="tag t-lead">lead</span>Whether the ~12M bend gap closes with the step-size fix</li>
-        <li><span class="tag t-good">settled</span>Look-ahead is not needed for loss per token and blocks general induction; momentum compression loses nothing</li>
+        <li><span class="tag t-bad">open</span>What master's latent buys: its per-weight picture (46% uphill, one-step overshoot) is the same as ours; it has no lag-3 reversal and half our never-turning weights. Is the gap per-weight precision (the degraded-master series says yes)?</li>
+        <li><span class="tag t-bad">open</span>Why our runs lag master most on local context (positions 2–15, short-range statistics)</li>
+        <li><span class="tag t-bad">open</span>Why induction flickers in flip runs and forms late with the Adam step</li>
+        <li><span class="tag t-bad">open</span>Why 41-step swing tests don't predict training (gravity looked best, failed); what short test would</li>
+        <li><span class="tag t-good">found</span>The swing is made by our flips (none with frozen weights); the gate removes it; the Adam step moves flips out of steep rows (real per-flip gain, 3.106 at equal flips); the gate's own gain is its lower flip count</li>
+        <li><span class="tag t-good">found</span>Noise and lag conflict: averaging batch noise (~3.5× the true gradient) needs ~12+ steps of memory; following the swing needs ≤3. The gate escapes it by vetoing with the fresh gradient</li>
+        <li><span class="tag t-good">settled</span>Look-ahead is not needed; momentum compression (rank 256) loses nothing; flip-rate changes only shift offsets</li>
       </ul>
     </div>
   </div>

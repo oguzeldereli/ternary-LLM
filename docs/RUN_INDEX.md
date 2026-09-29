@@ -93,3 +93,19 @@ ones: [QUEUE.md](QUEUE.md).
 | `master_q3_b131` | master, latent at 3 bits | 300M | 3.1222 |
 | `master_q2_b131` | master, latent at 2 bits (3 levels: a stateless master) | 300M | 3.4686 |
 | `rc_s0` | plain momentum + learned row/column scales, from scratch (4090) | 300M | 3.1307 |
+| `rc_s0_seed2` | the same, seed 2 | 300M | 3.1273 |
+| `speedref_rc_s0` | + per-layer slow speed reference (`--speed_ref 0.995`) | 300M | 3.1315 |
+| `gate_rc_s0` / `gate_rc_s0_seed2` | + sign gate (`--lr_gate`, now also without look-ahead) | 300M | 3.1194 / 3.1138 |
+| `rate085_rc_s0` | plain at 0.85x peak flip rate (the gate's rate control) | 300M | 3.1208 |
+| `vnorm_rc_s0` | + factored Adam step (`--lr_vnorm 0.99`) | 300M | 3.1063 |
+| **`gatevnorm_rc_s0`** / `gatevnorm_rc_s0_seed2` | + gate + Adam step | 300M | **3.0773 / 3.0699** |
+| `rate064_rc_s0` | plain at 0.64x peak flip rate (gate + Adam step's rate control) | 300M | 3.1290 |
+| `vnorm064_rc_s0` | Adam step at 0.64x peak rate, no gate | 300M | 3.1224 |
+| `user_cap3_s0` | user's rule: `--lr_beta 1 --mom_ncap 3 --pfun_tanh 10` | 300M | 3.2168 |
+| `user_cap1_s0` | user's rule, cap 1 (stopped: too few flips, loses no-context statistics) | ~115M | ~3.83 |
+| `user_cap1_flip15_s0` | user's rule, cap 1, flip scale 1.5 (stopped) | 197M | 3.635 |
+| `usersweep_cap{1,2,3,10,30}` | user's rule, cap sweep, stop at step 1500 | 49M | 4.132 / - / 3.991 / 4.946 / 5.305 |
+| `grav05_rc_s0` | asymmetric gravity 0.5 (`--grav_up 0.5`) | 300M | 3.5014 |
+| `grav05_gatevnorm_rc_s0` | asymmetric gravity 0.5 + gate + Adam step | 300M | 3.4972 |
+| `gvundo_rc_s0` | gate + Adam step + undo (`--undo`) | running | - |
+| `gvsharp_rc_s0` | gate + Adam step + sharp (`--lowrank_mag add:16 --mag_wd 0.1 --qk_temp`) | running | - |
