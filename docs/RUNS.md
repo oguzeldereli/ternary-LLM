@@ -1547,3 +1547,16 @@ one fresh batch; each rule's expected flips (no sampling). Rows in fifths by ste
   ~20% per fifth. Its gain is placement (fewer flips where a trit overshoots), not alignment.
 - Together: flips in the right direction, placed away from the steep rows. The gate alone keeps the steep-row
   pile-up; the Adam step alone flips half its weights the wrong way.
+
+### 29 Sep 16:00: the user's rule in the swing test (nola_lab @4500, 41 steps, 25%)
+
+| arm | held-out | flips/step | lag 1 / 2 / 3 | momentum vs next gradient | uphill | never follows |
+|---|---|---|---|---|---|---|
+| old rule | -0.0116 | 165k | +0.66 / +0.12 / -0.25 | -0.17 | 45.4% | 21.7% |
+| no friction, norm cap 1x start, absolute tanh | -0.0308 | 154k | +0.68 / +0.17 / -0.22 | -0.17 | 45.3% | 21.1% |
+| no friction, norm cap 2x start, absolute tanh | +0.0613 | 204k (to 235k) | +0.71 / +0.21 / -0.19 | -0.16 | 46.9% | 28.3% |
+| friction 0.97, no cap, absolute tanh | -0.0252 | 159k | +0.68 / +0.16 / -0.23 | -0.17 | 45.4% | 21.7% |
+
+Most of the rule's per-step gain (-0.031) comes from the absolute tanh flip chance (-0.025 with the usual friction);
+no friction + cap adds a little at cap 1x and hurts at 2x (the velocity grows, flips rise). None of them damps the
+swing. Full runs and the cap sweep are training.
