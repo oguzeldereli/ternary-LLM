@@ -61,11 +61,13 @@ def keep(v):
     return v.half() if IDX is None else v[IDX].half().cpu()
 
 
-from bitnet.kernel import unpack_rows
+from bitnet.kernel import unpack_rows, pack_rows
 NORM = os.environ.get("WAVE_NORM", "own")
 SIG = os.environ.get("WAVE_SIG", "plain"); VN, RR = {}, {}
 GCAP = float(os.environ.get("WAVE_GCAP", "0"))   # cap ||M|| <= GCAP x (running mean of the batch gradient norm)
 GN = [0.0, 0]
+UNDO = os.environ.get("WAVE_UNDO", "0") == "1"   # flip back last step's moves that the batch gradient and M now call uphill
+PD = None                                          # last step's moves per layer (one step of temporary storage)
 NCAP = float(os.environ.get("WAVE_NCAP", "0"))   # cap on the whole momentum vector: ||M|| <= NCAP x ||M|| at step 0
 PFUN = os.environ.get("WAVE_PFUN", "clip")        # tanh: flip chance rate * tanh(|M_ij| / v0), v0 fixed at step 0
 CAP = float(os.environ.get("WAVE_CAP", "0"))     # per-weight velocity cap |M_ij| <= CAP x (mean |M| at step 0)
@@ -83,7 +85,7 @@ def held():
         return float(np.mean([B.m(x, y)[1].item() for x, y in B.VB]))
 
 
-L0 = held(); nflip, upshare, MV = [], [], []
+L0 = held(); nflip, upshare, MV, NU = [], [], [], []
 s = batches(5151); Ts, Ms = [], []
 for k in range(K):
     W0 = [unpack_rows(l.wpacked, l.K).to(torch.int8) for l in Ls]
@@ -102,6 +104,15 @@ for k in range(K):
         if nrm > NCAP * NORM0: F = [f * (NCAP * NORM0 / nrm) for f in F]
     if CAP:    # the user's rule with BETA=1: no decay, the loss slows the momentum uphill, the cap bounds its speed
         F = [f.clamp(-CAP * float(GM0[i]), CAP * float(GM0[i])) for i, f in enumerate(F)]
+    nundo = 0
+    if UNDO and PD is not None:   # corrective move: the last step climbed where both the fresh batch and M now say so
+        for i, (l, f) in enumerate(zip(Ls, F)):
+            d = PD[i].view(f.shape).float()
+            back = (d != 0) & (d * g[i] > 0) & (f.sign() == d)
+            if back.any():
+                w = unpack_rows(l.wpacked, l.K).to(torch.int8)
+                w = torch.where(back, (w.float() - d).clamp(-1, 1).to(torch.int8), w)
+                l.wpacked.copy_(pack_rows(w)); nundo += int(back.sum())
     for i, (l, f) in enumerate(zip(Ls, F)):
         gm = f.abs().mean().clamp_min(1e-12)
         if "vnorm:" in SIG:                    # factored second moment of g (N + K floats): smaller steps where steep
@@ -128,7 +139,9 @@ for k in range(K):
     for l, w in zip(Ls, W0):
         d = (unpack_rows(l.wpacked, l.K).to(torch.int8) - w).flatten(); t = Tf[off:off + d.numel()]; off += d.numel()
         nz = d != 0; mv += int(nz.sum()); up += int(((d.float() * t) > 0)[nz].sum()); ds.append(d)
-    nflip.append(mv); upshare.append(up / max(mv, 1)); MV.append(keep(torch.cat(ds).float())); del W0, Tf, ds
+    nflip.append(mv); upshare.append(up / max(mv, 1)); MV.append(keep(torch.cat(ds).float())); NU.append(nundo)
+    if UNDO: PD = [d.clone() for d in ds]
+    del W0, Tf, ds
     if k % 10 == 0: print(f"  step {k} measured", flush=True)
 # everything from dot products (stacking 41 full gradients does not fit on the GPU)
 def dots(A, Bs):
@@ -139,7 +152,8 @@ MT = MT / nM[:, None] / nT[None, :]
 L1 = held()
 print(f"\nheld-out loss {L0:.4f} -> {L1:.4f} ({L1 - L0:+.4f}) over {K} steps; flips per step: first 5 "
       f"{[round(n / 1e3) for n in nflip[:5]]}k, mean {np.mean(nflip) / 1e3:.0f}k, last 5 {[round(n / 1e3) for n in nflip[-5:]]}k")
-print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, gravity {GRAV}, cap {CAP}, norm cap {NCAP}, grad cap {GCAP}, pfun {PFUN}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
+if UNDO: print(f"undo: {np.mean(NU) / 1e3:.1f}k flips reversed per step ({100 * np.mean(NU) / max(np.mean(nflip), 1):.0f}% of all flips)")
+print(f"{RUN} @{ST}, norm {NORM}, undo {UNDO}, signal {SIG}, gravity {GRAV}, cap {CAP}, norm cap {NCAP}, grad cap {GCAP}, pfun {PFUN}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())
