@@ -6,21 +6,24 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-29 00:30
+Last updated: 2026-09-29 01:10
 
-## Now (29 Sep, 00:30)
+## Night 28-29 Sep (planned 01:10, runs to ~10:00)
 
-Speed follows velocity (`--speed_ref`): the flip rule divided the momentum by its own current mean size, so a fixed
-~165k weights flipped every step even when new gradients had cancelled the momentum (climbing a valley wall). The new
-rule divides by a slow EMA of that size (one float per layer), so fewer weights flip when the momentum shrinks.
+Swing test, fixed divisor (4090, 25%): flips did not drop (164k -> 178k per step), swing unchanged (lag 3 -0.241),
+held-out -0.0034 vs -0.0108 for the old rule. A per-layer divisor cannot see the swing (it lives in a few
+directions); per weight the flip chance already follows |M_ij|. Next: per-direction arms.
 
-| machine | run | what | status | expected |
-|---|---|---|---|---|
-| 4090 | `speedref_rc_s0` (`queue_4090_c.sh`) | as `rc_s0` (3.1307) with `--speed_ref 0.995` | started 00:05 | 131M ~01:10, 300M ~02:35 |
-| 4090 | swing test, fixed divisor (25% of coordinates) | does the swing damp when speed follows velocity | started 00:25 | ~00:45 |
-| laptop | swing test, `--speed_ref 0.995` rule (25%) | the trainer's exact rule | started 00:25 | ~01:20 |
-| pintail | `wave_full.sh`: swing test, all coordinates: old rule, fixed, slow EMA | full-size check | started 00:27 | ~00:45, ~01:05, ~01:25 |
-| shoveler | - | set up, idle (for the night) | - | - |
+Found: without look-ahead the trainer ignored `--lr_gate` and `--lr_vnorm` (wired only into the look-ahead path).
+Fixed; `--speed_row` added (per-row speed reference). Runs are list-driven (`scripts/night/*.list`, re-read before
+each run; edit the lists on the remote home, not by rsync from the laptop).
+
+| machine | now | next (list) | expected |
+|---|---|---|---|
+| 4090 | `speedref_rc_s0` (--speed_ref 0.995) | `gate_rc_s0`, `vnorm_rc_s0` | ~03:00, ~05:30, ~08:00 |
+| pintail | swing arms, all coordinates: gate, vnorm 0.99, row speed 0.995 | `rowspeed_rc_s0` | ~02:30, then ~06:10 |
+| shoveler | `rc_s0_seed2` (seed-to-seed spread) | `gatevnorm_rc_s0` | ~04:40, ~08:20 |
+| laptop | probes: swing test on rc_s0 / speedref_rc_s0 checkpoints @5000, @8000 | - | ~04:30 |
 
 Swing test, old rule (4090, 25%): held-out 3.5495 -> 3.5387 (-0.0108) over 41 steps, 165k flips every step, swing as
 before (lag 3 -0.252, momentum vs next gradient -0.172). Lab PCs rebooted (Mon/Thu) 20:00-00:07; `nola_lab`

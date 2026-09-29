@@ -5,6 +5,7 @@ no-look-ahead snapshot (saved momentum, float tail frozen, plain momentum with t
   momentum lag     cos(M_t, T_t+lag): how well the momentum held at step t predicts the gradient lag steps later
   main directions  the 3 principal directions of the 41 gradients and each one's sign over time (swinging back and
                    forth = oscillation along that direction; the number of sign changes gives a rough period)
+  WAVE_SIG=gate | vnorm:0.99 | rowema:0.995   flip signal variants (sign gate; factored-Adam step; per-row speed)
   WAVE_NORM=ema:0.995  the trainer's --speed_ref rule (slow EMA of mean |M|, started at its step-0 value)
   WAVE_NORM=fixed      divide the momentum by its size at step 0 instead of by its current size (the trainer's rule),
                        so fewer weights flip when the momentum shrinks (speed follows velocity, as for a real mass)
@@ -59,6 +60,7 @@ def keep(v):
 
 from bitnet.kernel import unpack_rows
 NORM = os.environ.get("WAVE_NORM", "own")
+SIG = os.environ.get("WAVE_SIG", "plain"); VN, RR = {}, {}
 GM0 = [f.abs().mean().clamp_min(1e-12) for f in F]
 
 
@@ -75,10 +77,23 @@ for k in range(K):
     g = grad(next(s)); F = [BETA * f + x for f, x in zip(F, g)]
     for i, (l, f) in enumerate(zip(Ls, F)):
         gm = f.abs().mean().clamp_min(1e-12)
+        if SIG == "gate":                     # flip only where this batch's gradient agrees in sign (reacts at once)
+            f = f * (f.sign() == g[i].sign())
+        elif SIG.startswith("vnorm:"):         # factored second moment of g (N + K floats): smaller steps where steep
+            d = float(SIG[6:]); g2 = g[i].pow(2); R, C = g2.mean(1), g2.mean(0)
+            if i in VN: R = d * VN[i][0] + (1 - d) * R; C = d * VN[i][1] + (1 - d) * C
+            VN[i] = (R, C)
+            f = f / (R[:, None] * C[None, :] / R.mean().clamp_min(1e-30)).sqrt().clamp_min(1e-30)
+            gm = f.abs().mean().clamp_min(1e-12)
+        elif SIG.startswith("rowema:"):        # per-row speed reference: slow EMA of each row's mean |M|
+            d = float(SIG[7:]); rm = f.abs().mean(1).clamp_min(1e-12)
+            RR[i] = rm if i not in RR else d * RR[i] + (1 - d) * rm
+            f = f * (gm / RR[i])[:, None]
         if NORM == "fixed": gm = GM0[i]
         elif NORM.startswith("ema:"):          # the trainer's --speed_ref: slow EMA of mean |M|
             GM0[i] = float(NORM[4:]) * GM0[i] + (1 - float(NORM[4:])) * gm; gm = GM0[i]
         fused_flip(l.wpacked, f.contiguous(), RATE, G_REF, 3000 + 131 * k + i, gmean=gm)
+        f = None
     nflip.append(sum(int((unpack_rows(l.wpacked, l.K).to(torch.int8) != w).sum()) for l, w in zip(Ls, W0))); del W0
     if k % 10 == 0: print(f"  step {k} measured", flush=True)
 # everything from dot products (stacking 41 full gradients does not fit on the GPU)
@@ -90,7 +105,7 @@ MT = MT / nM[:, None] / nT[None, :]
 L1 = held()
 print(f"\nheld-out loss {L0:.4f} -> {L1:.4f} ({L1 - L0:+.4f}) over {K} steps; flips per step: first 5 "
       f"{[round(n / 1e3) for n in nflip[:5]]}k, mean {np.mean(nflip) / 1e3:.0f}k, last 5 {[round(n / 1e3) for n in nflip[-5:]]}k")
-print(f"{RUN} @{ST}, norm {NORM}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
+print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())

@@ -202,7 +202,7 @@ def _diag_agg(name, vals, per_block=7):
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
-                 qk_protect=0.0, qk_map=None, speed_ref=0.0):
+                 qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -307,6 +307,12 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             Ms.append(M); state.setdefault("_gms", []).append(gm); continue
         before = l.wpacked.clone() if l.track else None
         gm = M.abs().mean().clamp_min(1e-12)
+        if gate:            # --lr_gate without look-ahead: flip only where the current batch gradient agrees in sign
+            M = M * (M.sign() == g.sign())
+        if speed_row:       # --speed_row B: per-row speed reference, slow EMA (decay B) of each row's mean |M|
+            rs = state.setdefault("_srow", {}); rm = M.abs().mean(1).clamp_min(1e-12)
+            rs[key] = rm if key not in rs else speed_row * rs[key] + (1 - speed_row) * rm
+            M = M * (gm / rs[key])[:, None]
         if speed_ref:
             sr = state.setdefault("_sref", {})
             sr[key] = gm if key not in sr else speed_ref * sr[key] + (1 - speed_ref) * gm
@@ -1018,6 +1024,9 @@ def main():
     ap.add_argument("--speed_ref", type=float, default=0.0,
                     help="momentum flips: divide M by a slow EMA (this decay, e.g. 0.995) of its mean |M| instead of "
                          "by its current mean, so the flip count follows the momentum's size (0 = off)")
+    ap.add_argument("--speed_row", type=float, default=0.0,
+                    help="momentum flips: per-row speed reference, divide each row of M by a slow EMA (this decay) of "
+                         "that row's mean |M| (0 = off; N floats per layer)")
     ap.add_argument("--adapt_rate", action="store_true",
                     help="flip-rate controller keeping the running cos(g_t, M_t-1) near adapt_rate_target")
     ap.add_argument("--adapt_rate_target", type=float, default=0.03)
@@ -1645,7 +1654,8 @@ def main():
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
-                                       args.flip_seed, args.lr_adapt, speed_ref=args.speed_ref)
+                                       args.flip_seed, args.lr_adapt, gate=args.lr_gate, vnorm=args.lr_vnorm,
+                                       speed_ref=args.speed_ref, speed_row=args.speed_row)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)

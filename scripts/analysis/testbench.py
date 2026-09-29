@@ -32,9 +32,13 @@ def load_model(ckpt):
     b = torch.load(ckpt, map_location="cpu", weights_only=False)
     m = build_kernel_transformer(b["cfg"], grad_checkpoint=True, beta=b.get("beta", True),
                                  int8=b.get("int8", True), dw_mode=b.get("dw_mode", "dense"), g_ref=G_REF)
+    if any(k.endswith("row_scale") for k in b["model"]):     # --rc_scale runs: learned row/column scales
+        from bitnet.flip import enable_rc_scales
+        enable_rc_scales(m)
     for p in m.float_tail_parameters():
         p.data = p.data.float()
-    m.load_state_dict(b["model"], strict=False)
+    missing, unexpected = m.load_state_dict(b["model"], strict=False)
+    assert not unexpected, f"checkpoint keys the model does not have: {unexpected[:5]}"
     m = m.to(dev).train()
     return b, m
 
