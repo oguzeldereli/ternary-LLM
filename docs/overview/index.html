@@ -141,7 +141,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <div class="ref"><span class="v">2.759</span><span class="l">master weights (ternary forward, fp32 latent copy)</span></div>
     <div class="best"><span class="v">2.9925</span><span class="l">ours, best: look-ahead + additive r16 + adapter weight decay + per-head temperature</span></div>
     <div><span class="v">3.082</span><span class="l">look-ahead + additive r4</span></div>
-    <div><span class="v">3.077</span><span class="l"><b>no look-ahead, sign gate + factored Adam step + row/column scales</b> (from scratch; stateless-sublinear; rate control running)</span></div>
+    <div><span class="v">3.074</span><span class="l"><b>no look-ahead, sign gate + Adam-style step + row/column scales</b> (from scratch, 2 seeds: 3.0773 / 3.0699; rate control running)</span></div>
     <div><span class="v">3.106</span><span class="l">no look-ahead, factored Adam step + row/column scales (same flip count as plain: a real per-flip gain)</span></div>
     <div><span class="v">3.117</span><span class="l">sign gate (2 seeds) = its rate control at 0.85× flips (3.121): the gate's gain is its lower flip count</span></div>
     <div><span class="v">3.111</span><span class="l">look-ahead on to 30M, off to 131M, on after</span></div>
@@ -157,7 +157,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090</td><td class="mono">gatevnorm_rc_s0_seed2</td><td>Adam step alone finished <b>3.1063</b> at 0.98× flips. Now gate + Adam step, seed 2 (3.489 vs 3.504 seed 0 at 82M)</td><td class="num">~12:30</td></tr>
+    <tr><td>4090</td><td class="mono">swing tests: your rule</td><td>gate + Adam step seed 2 finished <b>3.0699</b>. Now: momentum as one velocity vector, gravity = gradient (no friction), norm cap 1× / 2×, absolute tanh flip chance; and tanh-absolute with friction 0.97</td><td class="num">~13:40</td></tr>
     <tr><td>pintail</td><td class="mono">vnorm064_rc_s0</td><td>the Adam step at gate + Adam step's 0.64× flip count, without the gate: does the gate add anything?</td><td class="num">~14:20</td></tr>
     <tr><td>shoveler</td><td class="mono">rate064_rc_s0</td><td>gate + Adam step's rate control: plain at 0.64× flips</td><td class="num">~13:10</td></tr>
     <tr><td>laptop</td><td class="mono">-</td><td>probes done: the swing is inside rc_s0 and speedref_rc_s0 (45% of flips uphill); gone in the gate runs (momentum vs next gradient −0.04 to −0.08); per weight the momentum still lags (|M|/|T| 7–12 at a reversal)</td><td class="num">idle</td></tr>

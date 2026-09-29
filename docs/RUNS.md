@@ -1516,3 +1516,11 @@ Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 a
 - Gate + Adam step: -0.053. Running: its rate control `rate064_rc_s0` (shoveler, ~13:10), `vnorm064_rc_s0` = the
   Adam step at the same 0.64x flips without the gate (pintail, ~14:20), its seed 2 (4090, ~12:30; 3.4893 vs 3.5043
   seed 0 at step 2500).
+
+### 29 Sep 12:40
+
+- **`gatevnorm_rc_s0_seed2` final 3.0699** (seed 0: 3.0773; mean 3.074 vs `rc_s0` mean 3.129).
+- Swing test of the user's rule as the user means it (momentum = one velocity vector; gravity = the gradient added
+  every step, beta 1; cap on the whole vector's norm; flip chance rate * tanh(|M_ij| / v0) with v0 fixed, no division
+  by the current size), norm cap 1x and 2x the starting norm, plus tanh-absolute at beta 0.97: running on the 4090.
+  (A first version capped each weight separately: a misreading, stopped.)

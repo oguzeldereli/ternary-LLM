@@ -5,6 +5,7 @@ no-look-ahead snapshot (saved momentum, float tail frozen, plain momentum with t
   momentum lag     cos(M_t, T_t+lag): how well the momentum held at step t predicts the gradient lag steps later
   main directions  the 3 principal directions of the 41 gradients and each one's sign over time (swinging back and
                    forth = oscillation along that direction; the number of sign changes gives a rough period)
+  WAVE_BETA=1 WAVE_NCAP=1 WAVE_PFUN=tanh   the user's rule as one vector: pure sum, norm cap, absolute tanh flip chance
   WAVE_BETA=1 WAVE_CAP=3 WAVE_NORM=fixed   the user's rule: pure sum (no decay), per-weight cap, fixed divisor
   WAVE_GRAV=0.5        asymmetric gravity: momentum decays with 0.5 where the batch gradient opposes it, BETA elsewhere
   WAVE_SIG=gate | vnorm:0.99 | rowema:0.995   flip signal variants (sign gate; factored-Adam step; per-row speed)
@@ -63,9 +64,13 @@ def keep(v):
 from bitnet.kernel import unpack_rows
 NORM = os.environ.get("WAVE_NORM", "own")
 SIG = os.environ.get("WAVE_SIG", "plain"); VN, RR = {}, {}
+NCAP = float(os.environ.get("WAVE_NCAP", "0"))   # cap on the whole momentum vector: ||M|| <= NCAP x ||M|| at step 0
+PFUN = os.environ.get("WAVE_PFUN", "clip")        # tanh: flip chance rate * tanh(|M_ij| / v0), v0 fixed at step 0
 CAP = float(os.environ.get("WAVE_CAP", "0"))     # per-weight velocity cap |M_ij| <= CAP x (mean |M| at step 0)
 GRAV = float(os.environ.get("WAVE_GRAV", "0"))   # 0 = off; e.g. 0.5: strong pull-back when climbing
 GM0 = [f.abs().mean().clamp_min(1e-12) for f in F]
+NORM0 = sum(float(f.pow(2).sum()) for f in F) ** 0.5
+V0 = [float(x) for x in GM0]      # fixed absolute scale for WAVE_PFUN=tanh
 # WAVE_GM_BETA=0.97: the fixed divisor in gradient units taken from the 0.97 momentum (size ~ g / 0.03), so a shorter
 # memory (smaller M) flips fewer weights instead of the same number
 if os.environ.get("WAVE_GM_BETA"): GM0 = [x * (1 - BETA) / (1 - float(os.environ["WAVE_GM_BETA"])) for x in GM0]
@@ -86,6 +91,9 @@ for k in range(K):
         F = [torch.where(f.sign() * x.sign() < 0, GRAV * f, BETA * f) + x for f, x in zip(F, g)]
     else:
         F = [BETA * f + x for f, x in zip(F, g)]
+    if NCAP:   # the user's rule: cap the momentum as one vector (all layers together), not per weight
+        nrm = sum(float(f.pow(2).sum()) for f in F) ** 0.5
+        if nrm > NCAP * NORM0: F = [f * (NCAP * NORM0 / nrm) for f in F]
     if CAP:    # the user's rule with BETA=1: no decay, the loss slows the momentum uphill, the cap bounds its speed
         F = [f.clamp(-CAP * float(GM0[i]), CAP * float(GM0[i])) for i, f in enumerate(F)]
     for i, (l, f) in enumerate(zip(Ls, F)):
@@ -105,6 +113,8 @@ for k in range(K):
         if NORM == "fixed": gm = GM0[i]
         elif NORM.startswith("ema:"):          # the trainer's --speed_ref: slow EMA of mean |M|
             GM0[i] = float(NORM[4:]) * GM0[i] + (1 - float(NORM[4:])) * gm; gm = GM0[i]
+        if PFUN == "tanh":  # absolute units: p = RATE * tanh(|M_ij| / (G_REF v0)); no division by the current size
+            gm = V0[i]; f = f.sign() * (G_REF * gm) * torch.tanh(f.abs() / (G_REF * gm))
         fused_flip(l.wpacked, f.contiguous(), RATE, G_REF, 3000 + 131 * k + i, gmean=gm)
         f = None
     # flips made this step, and the share that moved uphill on the true gradient (move has the sign of T)
@@ -123,7 +133,7 @@ MT = MT / nM[:, None] / nT[None, :]
 L1 = held()
 print(f"\nheld-out loss {L0:.4f} -> {L1:.4f} ({L1 - L0:+.4f}) over {K} steps; flips per step: first 5 "
       f"{[round(n / 1e3) for n in nflip[:5]]}k, mean {np.mean(nflip) / 1e3:.0f}k, last 5 {[round(n / 1e3) for n in nflip[-5:]]}k")
-print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, gravity {GRAV}, cap {CAP}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
+print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, gravity {GRAV}, cap {CAP}, norm cap {NCAP}, pfun {PFUN}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())
