@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 04:35</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 05:35</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -155,8 +155,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
     <tr><td>4090</td><td class="mono">gatevnorm_rc_s0 → vnorm_rc_s0</td><td>from scratch + row/column scales (speed reference done: 3.1315 vs 3.1307, no effect); then sign gate + Adam-style step; then Adam-style step alone. Beside it: swing tests of asymmetric gravity 0.5 / 0.8, gradient-unit speed with memory 0.8, and the gate's rate control (old rule at ×0.62)</td><td class="num">~03:00, ~05:30, ~08:00</td></tr>
-    <tr><td>pintail</td><td class="mono">gate_rc_s0</td><td>sign gate from scratch: flip only where this batch's gradient agrees with the momentum. 3.401 vs 3.417 for rc_s0 at 172M (seed spread ~0.005)</td><td class="num">~06:00</td></tr>
-    <tr><td>shoveler</td><td class="mono">rc_s0_seed2 → gate_rc_s0_seed2</td><td>seed spread of rc_s0: ~0.003 (3.3225 vs 3.3237 at 205M); then the gate, seed 2</td><td class="num">~04:40, ~08:20</td></tr>
+    <tr><td>pintail</td><td class="mono">gate_rc_s0 → rate085_rc_s0</td><td>sign gate from scratch: 3.172 vs 3.185 for rc_s0 at 262M (seed spread 0.003); then its rate control (plain at 0.85× flip rate: the gate flips 0–30% fewer weights)</td><td class="num">~06:00, ~09:40</td></tr>
+    <tr><td>shoveler</td><td class="mono">gate_rc_s0_seed2</td><td>rc_s0 seed 2 done: <b>3.1273</b> vs 3.1307 (seed spread 0.003); now the gate, seed 2 (started 05:30 after a stuck runner)</td><td class="num">~09:10</td></tr>
     <tr><td>laptop</td><td class="mono">probes</td><td>swing test on the training runs' own checkpoints: rc_s0 and speedref_rc_s0 at steps 5000 and 8000</td><td class="num">to ~06:00</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
