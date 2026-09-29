@@ -16,7 +16,7 @@ RUNS = [  # (run, label, colour)
     ("rc_s0", "plain momentum + row/col scales", "#1565c0"),
     ("gatevnorm_rc_s0", "Adam + gate", "#2e7d32"),
     ("gatevnorm_rc_s0_seed2", "Adam + gate, seed 2", "#81c784"),
-    ("gvmag16_rc_s0", "Adam + gate + sharp (r16 + wd + head temperature)", "#c2185b"),
+    ("gvsharp_rc_s0", "Adam + gate + sharp (r16 + wd + head temperature)", "#c2185b"),
     ("gvundo_rc_s0", "Adam + gate + undo", "#7b1fa2"),
 ]
 
@@ -47,7 +47,7 @@ for d, lab, c in sorted(RUNS, key=lambda x: (load(x[0]) or (0, [9]))[1][-1]):
     t, v, done = r
     ls = "-" if done else "--"
     tag = f"{v[-1]:.3f}" + ("" if done else f" at {t[-1] / 1e6:.0f}M, running")
-    lw = 2.8 if d in ("gvmag16_rc_s0", "gvundo_rc_s0") else 1.8
+    lw = 2.8 if d in ("gvsharp_rc_s0", "gvundo_rc_s0") else 1.8
     a.plot(t, v, ls, color=c, lw=lw, label=f"{lab}  [{tag}]")
     m = t >= 9.5e7
     b.plot(t[m], v[m], ls, color=c, lw=lw)
