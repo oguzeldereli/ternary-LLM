@@ -13,7 +13,17 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (29 Sep, 22:05)
+## Now (29 Sep, 23:10)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| mallard | `gvundo_rc_s0` | Adam + gate + undo (restarted from scratch at 22:55; the 4090 is unbookable and eider's GPU dropped off the bus) | ~02:35 |
+| bufflehead | `gvsharp_rc_s0` | Adam + gate + sharp | ~01:45 |
+
+At step 3000 sharp is 3.409 vs Adam + gate 3.468 (master 3.186). Undo at step 500: 4.743 vs 4.670 (early).
+Down: eider (GPU gone, needs a reboot), 4090 (booking pending).
+
+## Earlier (29 Sep, 22:05)
 
 Only two runs, both no look-ahead, from scratch, row/column scales (all other runs and tests stopped at 21:40):
 
