@@ -88,7 +88,7 @@ def held():
         return float(np.mean([B.m(x, y)[1].item() for x, y in B.VB]))
 
 
-L0 = held(); nflip, upshare, MV, NU = [], [], [], []
+L0 = held(); nflip, upshare, MV, NU, GB = [], [], [], [], []
 s = batches(5151); Ts, Ms = [], []
 for k in range(K):
     W0 = [unpack_rows(l.wpacked, l.K).to(torch.int8) for l in Ls]
@@ -149,6 +149,7 @@ for k in range(K):
         d = (unpack_rows(l.wpacked, l.K).to(torch.int8) - w).flatten(); t = Tf[off:off + d.numel()]; off += d.numel()
         nz = d != 0; mv += int(nz.sum()); up += int(((d.float() * t) > 0)[nz].sum()); ds.append(d)
     nflip.append(mv); upshare.append(up / max(mv, 1)); MV.append(keep(torch.cat(ds).float())); NU.append(nundo)
+    GB.append(keep(torch.cat([x.flatten() for x in g])))
     if UNDO: PD = [d.clone() for d in ds]
     del W0, Tf, ds
     if k % 10 == 0: print(f"  step {k} measured", flush=True)
@@ -245,3 +246,59 @@ st = [(float(MV[t].float() @ Ts[t].float()), float(MV[t].float() @ Ts[t + 1].flo
 print(f"  the step as a whole (move . T): before {np.mean([x for x, _ in st]):+.3e}, one step later "
       f"{np.mean([y for _, y in st]):+.3e}; steps whose total move turns uphill one step later: "
       f"{100 * np.mean([(x < 0) and (y > 0) for x, y in st]):.0f}%")
+
+# ---- which flips are uphill: split by the size of the true gradient on the flipped weight (quartiles of |T_t|)
+qf = np.zeros(4); qu = np.zeros(4); wup = wall = 0.0
+for t in range(K):
+    D = MV[t].float(); Tt = Ts[t].float(); m = D != 0
+    a = D[m] * Tt[m]; mag = Tt.abs()
+    edges = mag.quantile(torch.tensor([.25, .5, .75])) if mag.numel() < 16_000_000 else mag[::8].quantile(torch.tensor([.25, .5, .75]))
+    q = torch.bucketize(mag[m], edges)
+    for j in range(4):
+        sel = q == j; qf[j] += float(sel.sum()); qu[j] += float((a[sel] > 0).sum())
+    wup += float(a.clamp_min(0).sum()); wall += float(a.abs().sum())
+print("\nuphill flips by the size of the true gradient on the weight (quartile of |T|: small -> large):")
+print("  " + "  ".join(f"Q{j + 1}: {100 * qf[j] / qf.sum():4.1f}% of flips, {100 * qu[j] / max(qf[j], 1):4.1f}% uphill" for j in range(4)))
+print(f"  weighted by |T| (the first-order cost): {100 * wup / max(wall, 1e-30):.1f}% of the flips' weight is uphill")
+# ---- the weights that never turn back: what they are
+never_r, never_t, fol_r, fol_t = [], [], [], []
+for t in range(1, K):
+    ev = (sT[t] != sT[t - 1]) & big[t] & big[t - 1]
+    idx = ev.nonzero().flatten()
+    if idx.numel() == 0: continue
+    d = torch.full((idx.numel(),), -1)
+    for dd in range(0, K - t):
+        hit = (sM[t + dd, idx] == sT[t, idx]) & (d < 0); d[hit] = dd
+    r = (Mc_[t, idx].abs() / Tc_[t, idx].abs()); tr = Tc_[t, idx].abs() / Tc_[t].abs().median()
+    # how often the true gradient flips back within the next 4 steps (a weight that swings faster than M can follow)
+    back = torch.zeros(idx.numel(), dtype=torch.bool)
+    for dd in range(1, min(5, K - t)): back |= sT[t + dd, idx] != sT[t, idx]
+    nv = d < 0
+    never_r.append(r[nv]); never_t.append(tr[nv]); fol_r.append(r[~nv]); fol_t.append(tr[~nv])
+    NB = globals().setdefault("NB", [0, 0, 0, 0]); NB[0] += int((back & nv).sum()); NB[1] += int(nv.sum())
+    NB[2] += int((back & ~nv).sum()); NB[3] += int((~nv).sum())
+cat = lambda L: torch.cat(L) if L else torch.zeros(1)
+print(f"never-turning weights vs the ones that follow: |M|/|T| median {float(cat(never_r).median()):.1f} vs "
+      f"{float(cat(fol_r).median()):.1f}; |T| (x median) {float(cat(never_t).median()):.2f} vs {float(cat(fol_t).median()):.2f}; "
+      f"true gradient flips back within 4 steps: {100 * NB[0] / max(NB[1], 1):.0f}% vs {100 * NB[2] / max(NB[3], 1):.0f}%")
+# ---- can the next true gradient be predicted from what training can see? least squares over weights and steps:
+#   T_t+1 ~ a M_t+1 + b g_t + c move_t + d move_t-1     (M_t+1 = momentum after step t's update; g_t = batch gradient)
+X, Y = [], []
+for t in range(1, K - 1):
+    X.append(torch.stack([Ms[t + 1].float().cpu()[ci], GB[t].float().cpu()[ci], MV[t].float().cpu()[ci],
+                          MV[t - 1].float().cpu()[ci]], 1)); Y.append(Ts[t + 1].float().cpu()[ci])
+X = torch.cat(X).double(); Y = torch.cat(Y).double()
+sc = X.std(0).clamp_min(1e-30); Xs = X / sc
+big_y = Y.abs() > Y.abs().median()
+def fit(cols, name):
+    A = Xs[:, cols]; coef = torch.linalg.lstsq(A, Y[:, None]).solution.flatten(); P = A @ coef
+    r2 = 1 - float(((Y - P) ** 2).sum() / (Y ** 2).sum())
+    acc = float((P.sign() == Y.sign())[big_y].float().mean())
+    print(f"  {name:38s} R^2 {r2:+.3f}   sign right on the larger half of |T|: {100 * acc:.1f}%   "
+          f"coefficients {[round(float(c), 3) for c in coef / sc[cols]]}")
+print("predicting the next true gradient per weight (sign accuracy: the momentum alone is what the rule uses now):")
+fit([0], "momentum only")
+fit([1], "batch gradient only")
+fit([0, 1], "momentum + batch gradient")
+fit([0, 1, 2], "+ this step's move")
+fit([0, 1, 2, 3], "+ last two moves")
