@@ -96,6 +96,19 @@ CATS = {
         ("rate064_rc_s0", "rate control for gate + Adam step: plain at 0.64x flip rate"),
         ("gatevnorm_rc_s0_seed2", "sign gate + factored Adam step, seed 2"),
         ("vnorm064_rc_s0", "factored Adam step at 0.64x flip rate (no gate)")]),
+    "user_rule_full": ("29 Sep: the user's rule (no friction, velocity cap, absolute flip chance) and asymmetric gravity, from scratch", 3e8, [
+        ("rc_s0", "plain momentum + row/col scales"),
+        ("gatevnorm_rc_s0", "gate + Adam step (best without look-ahead)"),
+        ("vnorm_rc_s0", "Adam step"),
+        ("user_cap3_s0", "user's rule, cap 3, flip scale 10"),
+        ("user_cap1_s0", "user's rule, cap 1, flip scale 10"),
+        ("user_cap1_flip15_s0", "user's rule, cap 1, flip scale 1.5 (flips ~ plain)"),
+        ("grav05_rc_s0", "asymmetric gravity 0.5"),
+        ("grav05_gatevnorm_rc_s0", "asymmetric gravity 0.5 + gate + Adam step")]),
+    "user_rule_sweep": ("29 Sep: the user's rule, short sweep of the velocity cap (x gradient norm), stop at step 1500", 5.2e7, [
+        ("rc_s0", "plain momentum + row/col scales"),
+        ("usersweep_cap1", "cap 1"), ("usersweep_cap2", "cap 2"), ("usersweep_cap3", "cap 3"),
+        ("usersweep_cap10", "cap 10"), ("usersweep_cap30", "cap 30")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),
