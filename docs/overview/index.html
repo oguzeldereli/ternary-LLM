@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 08:30</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 09:30</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -156,9 +156,9 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090</td><td class="mono">vnorm_rc_s0 → rate064_rc_s0 → gatevnorm_rc_s0_seed2</td><td>gate + Adam-style step finished: <b>3.0773</b> vs 3.1307 rc_s0 (flips 0.64× as many weights). Now the Adam-style step alone; then its rate control (plain at 0.64× rate) and its seed 2</td><td class="num">~09:50, ~12:15, ~14:40</td></tr>
-    <tr><td>pintail</td><td class="mono">rate085_rc_s0</td><td>the gate finished: <b>3.1194</b> vs 3.1307 rc_s0 / 3.1273 seed 2. Its rate control (plain at 0.85× flips) is <b>ahead of the gate mid-run</b> (3.303 vs 3.313 at 205M): the gate's gain may be a rate effect; the final decides</td><td class="num">~09:30</td></tr>
-    <tr><td>shoveler</td><td class="mono">gate_rc_s0_seed2</td><td>the gate, seed 2: 3.190 vs 3.193 (seed 0) at 254M</td><td class="num">~09:10</td></tr>
+    <tr><td>4090</td><td class="mono">vnorm_rc_s0 → gatevnorm_rc_s0_seed2</td><td>gate + Adam step finished <b>3.0773</b>. Adam step alone: 3.235 vs 3.268 for rc_s0 at 229M. Then gate + Adam step, seed 2</td><td class="num">~09:50, ~12:15</td></tr>
+    <tr><td>pintail</td><td class="mono">rate085_rc_s0</td><td>the gate's rate control (plain at 0.85× flips): <b>level with the gate</b> (3.1468 vs 3.1459 at 279M; rc_s0 3.1580). The gate's gain looks like its lower flip count</td><td class="num">~09:45</td></tr>
+    <tr><td>shoveler</td><td class="mono">rate064_rc_s0</td><td>gate seed 2 finished <b>3.1138</b> (seed 0 3.1194). Now gate + Adam step's rate control (plain at 0.64× flips)</td><td class="num">~13:10</td></tr>
     <tr><td>laptop</td><td class="mono">probes</td><td>gate run @5000: <b>no swing</b> inside training (lags all positive; momentum vs next gradient −0.04 to −0.07 vs −0.15 to −0.20 without the gate). Now rc_s0 @5000 and gate + Adam step @5000 with the per-weight analysis</td><td class="num">~09:10, ~10:30</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>

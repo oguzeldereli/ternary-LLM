@@ -1486,3 +1486,15 @@ Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 a
 - The factored Adam step alone (`vnorm_rc_s0`) is -0.043 at step 3500; with the gate -0.163.
 - Probe `rc_s0` @5000 with the per-weight analysis (the first one lacked it): 45.8% uphill, momentum sign right on
   44.0% of weights, |M|/|T| 10.2 at a reversal, never follows 22.4%; same swing as before (lag 5 -0.26).
+
+### 29 Sep 09:30
+
+- **`gate_rc_s0_seed2` final 3.1138** (seed 0: 3.1194). Gate mean 3.1166 vs `rc_s0` mean 3.1290 (seeds 3.1307 /
+  3.1273): -0.012.
+- But its rate control is level with it: `rate085_rc_s0` 3.1468 vs `gate_rc_s0` 3.1459 vs `rc_s0` 3.1580 at step
+  8500. Flipping 0.85x as many weights with the old rule gives the same loss: the gate's training gain is (so far)
+  explained by its lower flip count, although it removes the swing (probe @5000).
+- `vnorm_rc_s0` 3.2354 vs `rc_s0` 3.2682 at step 7000 (-0.033); `gatevnorm_rc_s0` 3.1781 there.
+- Probe `gatevnorm_rc_s0` @5000 (own rule): no swing (lags +0.31 / +0.15 / +0.13 / +0.08), momentum vs next gradient
+  -0.07 to -0.08, 43.0% uphill, |M|/|T| 7.5 at a reversal, never follows 22.9%; held-out -0.0107 at 95k flips/step.
+- `rate064_rc_s0` (gate + vnorm's rate control) moved from the 4090 list to shoveler (idle since 08:53), started 09:30.
