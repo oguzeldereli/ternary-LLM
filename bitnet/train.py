@@ -202,7 +202,7 @@ def _diag_agg(name, vals, per_block=7):
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
-                 qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0):
+                 qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -221,6 +221,9 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             ncap C caps the whole momentum (all layers as one vector) at C x a slow EMA of the total gradient norm;
             pfun_tanh S sets the flip chance to rate * tanh(|M_ij| / (g_ref v0)), v0 = S x a slow EMA of the layer's
             mean |g| (absolute gradient units, not the momentum's own size). Two floats + one per layer.
+
+    grav_up: (--grav_up D) asymmetric gravity: where this batch's gradient opposes a weight's momentum (climbing), that
+            weight's momentum decays with D instead of beta; on the full M, then one subspace step back to rank r.
 
     propose_only: update M but do not flip; leave l.gw and capture on and return the M's,
     so lookahead_step proposes from M and filters with the true gradients.
@@ -269,8 +272,14 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 D["d_insub"].append(((Qu.T @ g @ V).norm() / g.norm().clamp_min(1e-30)).item())
                 del Mo, a, ag
             b = beta * c if adapt else beta
-            Vn = torch.linalg.qr(b * V @ (U.T @ U) + g.T @ U)[0]
-            state[key] = (b * U @ (V.T @ Vn) + g @ Vn, Vn)
+            if grav_up:
+                Mf = U @ V.T
+                Mf = torch.where(Mf.sign() * g.sign() < 0, grav_up * Mf, b * Mf) + g
+                Vn = torch.linalg.qr(Mf.T @ U)[0]
+                state[key] = (Mf @ Vn, Vn); del Mf
+            else:
+                Vn = torch.linalg.qr(b * V @ (U.T @ U) + g.T @ U)[0]
+                state[key] = (b * U @ (V.T @ Vn) + g @ Vn, Vn)
         U, V = state[key]
         if refresh:
             # --lr_refresh: per direction, a moving average of the share of the gradient it catches;
@@ -1047,6 +1056,9 @@ def main():
     ap.add_argument("--speed_ref", type=float, default=0.0,
                     help="momentum flips: divide M by a slow EMA (this decay, e.g. 0.995) of its mean |M| instead of "
                          "by its current mean, so the flip count follows the momentum's size (0 = off)")
+    ap.add_argument("--grav_up", type=float, default=0.0,
+                    help="asymmetric gravity: where the batch gradient opposes a weight's momentum, decay it with this "
+                         "instead of --lr_beta (e.g. 0.5; 0 = off)")
     ap.add_argument("--mom_ncap", type=float, default=0.0,
                     help="cap the whole momentum (all layers as one vector) at this x a slow EMA of the total gradient "
                          "norm (0 = off); with --lr_beta 1: the user's frictionless velocity with a speed limit")
@@ -1685,7 +1697,7 @@ def main():
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                        args.flip_seed, args.lr_adapt, gate=args.lr_gate, vnorm=args.lr_vnorm,
                                        speed_ref=args.speed_ref, speed_row=args.speed_row,
-                                       ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh)
+                                       ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh, grav_up=args.grav_up)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)

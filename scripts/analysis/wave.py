@@ -83,7 +83,7 @@ def held():
         return float(np.mean([B.m(x, y)[1].item() for x, y in B.VB]))
 
 
-L0 = held(); nflip, upshare = [], []
+L0 = held(); nflip, upshare, MV = [], [], []
 s = batches(5151); Ts, Ms = [], []
 for k in range(K):
     W0 = [unpack_rows(l.wpacked, l.K).to(torch.int8) for l in Ls]
@@ -124,11 +124,11 @@ for k in range(K):
         fused_flip(l.wpacked, f.contiguous(), RATE, G_REF, 3000 + 131 * k + i, gmean=gm)
         f = None
     # flips made this step, and the share that moved uphill on the true gradient (move has the sign of T)
-    up = mv = off = 0
+    up = mv = off = 0; ds = []
     for l, w in zip(Ls, W0):
         d = (unpack_rows(l.wpacked, l.K).to(torch.int8) - w).flatten(); t = Tf[off:off + d.numel()]; off += d.numel()
-        nz = d != 0; mv += int(nz.sum()); up += int(((d.float() * t) > 0)[nz].sum())
-    nflip.append(mv); upshare.append(up / max(mv, 1)); del W0, Tf
+        nz = d != 0; mv += int(nz.sum()); up += int(((d.float() * t) > 0)[nz].sum()); ds.append(d)
+    nflip.append(mv); upshare.append(up / max(mv, 1)); MV.append(keep(torch.cat(ds).float())); del W0, Tf, ds
     if k % 10 == 0: print(f"  step {k} measured", flush=True)
 # everything from dot products (stacking 41 full gradients does not fit on the GPU)
 def dots(A, Bs):
@@ -205,3 +205,20 @@ print(f"true-gradient reversals (both sides above median size): {tot}; momentum 
       f"median delay of those that follow {float(D.median()):.0f} steps")
 print(f"at a reversal, |momentum| / |true gradient| on that weight: median {np.median(ratio):.1f} "
       f"(steps to cross zero if each step removes one true gradient's worth)")
+
+# ---- one-step overshoot: each flip made at step t, judged by the true gradient before it (T_t) and after it
+# (T_t+k, k = 1..3): wrong when made (uphill on T_t) vs right when made but uphill k steps later (overshoot)
+print("\nflips judged before and after (share of all flips made):")
+for k in (1, 2, 3):
+    A = B = C = 0.0; n = 0
+    for t in range(K - k):
+        D = MV[t].float(); m = D != 0
+        a = (D * Ts[t].float())[m]; b = (D * Ts[t + k].float())[m]
+        A += float((a > 0).float().mean()); B += float(((a < 0) & (b > 0)).float().mean())
+        C += float(((a < 0) & (b < 0)).float().mean()); n += 1
+    print(f"  after {k} step(s): uphill already when made {100 * A / n:.1f}%, downhill when made but uphill now "
+          f"{100 * B / n:.1f}% (overshoot), downhill both {100 * C / n:.1f}%")
+st = [(float(MV[t].float() @ Ts[t].float()), float(MV[t].float() @ Ts[t + 1].float())) for t in range(K - 1)]
+print(f"  the step as a whole (move . T): before {np.mean([x for x, _ in st]):+.3e}, one step later "
+      f"{np.mean([y for _, y in st]):+.3e}; steps whose total move turns uphill one step later: "
+      f"{100 * np.mean([(x < 0) and (y > 0) for x, y in st]):.0f}%")
