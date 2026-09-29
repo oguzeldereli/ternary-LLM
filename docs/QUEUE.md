@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-29 09:30
+Last updated: 2026-09-29 10:45
 
 ## Night 28-29 Sep (planned 01:10, runs to ~10:00)
 
@@ -20,8 +20,8 @@ each run; edit the lists on the remote home, not by rsync from the laptop).
 
 | machine | now | next (list) | expected |
 |---|---|---|---|
-| 4090 | `gatevnorm_rc_s0` done **3.0773**; `vnorm_rc_s0` running (3.2354 vs 3.2682 at step 7000) | `gatevnorm_rc_s0_seed2` | ~09:50, ~12:15 |
-| pintail | `rate085_rc_s0` (the gate's rate control): 3.1468 vs gate 3.1459 at step 8500 | - | ~09:45 |
+| 4090 | `vnorm_rc_s0` done **3.1063** (0.98x flips); `gatevnorm_rc_s0_seed2` running | - | ~12:30 |
+| pintail | `rate085_rc_s0` done **3.1208** (= the gate); `vnorm064_rc_s0` (Adam step at 0.64x flips, no gate) started 10:45 | - | ~14:20 |
 | shoveler | `gate_rc_s0_seed2` done **3.1138**; `rate064_rc_s0` (gate + vnorm's rate control) started 09:30 | - | ~13:10 |
 | laptop | probes done (rc_s0 / speedref_rc_s0 @5000, @8000); now gate_rc_s0 @5000 (gate rule) and rc_s0 @5000 with per-weight analysis | - | ~07:50, ~09:10 |
 | 4090 (next to training) | swing tests: gate rate control (old rule x0.62), gravity 0.5, gradient units beta 0.8, gravity 0.8 (relaunched 03:28: first launch died silently) | - | ~03:55, ~04:20, ~04:45, ~05:10 |

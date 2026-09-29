@@ -1498,3 +1498,21 @@ Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 a
 - Probe `gatevnorm_rc_s0` @5000 (own rule): no swing (lags +0.31 / +0.15 / +0.13 / +0.08), momentum vs next gradient
   -0.07 to -0.08, 43.0% uphill, |M|/|T| 7.5 at a reversal, never follows 22.9%; held-out -0.0107 at 95k flips/step.
 - `rate064_rc_s0` (gate + vnorm's rate control) moved from the 4090 list to shoveler (idle since 08:53), started 09:30.
+
+### 29 Sep 10:45: night summary (from scratch, row/column scales, no look-ahead, 300M)
+
+| run | rule | flips vs rc_s0 | val @300M |
+|---|---|---|---|
+| `rc_s0` / `rc_s0_seed2` | plain rank-256 momentum | 1 | 3.1307 / 3.1273 |
+| `speedref_rc_s0` | per-layer slow speed reference | ~1 | 3.1315 |
+| `rate085_rc_s0` | plain, 0.85x peak flip rate | 0.85 | 3.1208 |
+| `gate_rc_s0` / `_seed2` | sign gate | 0.91 | 3.1194 / 3.1138 |
+| `vnorm_rc_s0` | factored Adam step (N + K floats per layer) | **0.98** | **3.1063** |
+| `gatevnorm_rc_s0` | sign gate + factored Adam step | 0.64 | **3.0773** |
+
+- The gate's gain is its lower flip count: the 0.85x rate control lands on it (3.1208 vs 3.117 mean).
+- The factored Adam step gains 0.024 at the same flip count: a real per-flip improvement (smaller steps across
+  steep directions, what the swing test pointed to: -0.030 vs -0.012 in 41 steps, swing weakened).
+- Gate + Adam step: -0.053. Running: its rate control `rate064_rc_s0` (shoveler, ~13:10), `vnorm064_rc_s0` = the
+  Adam step at the same 0.64x flips without the gate (pintail, ~14:20), its seed 2 (4090, ~12:30; 3.4893 vs 3.5043
+  seed 0 at step 2500).

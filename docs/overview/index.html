@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 09:30</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 10:45</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -142,7 +142,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <div class="best"><span class="v">2.9925</span><span class="l">ours, best: look-ahead + additive r16 + adapter weight decay + per-head temperature</span></div>
     <div><span class="v">3.082</span><span class="l">look-ahead + additive r4</span></div>
     <div><span class="v">3.077</span><span class="l"><b>no look-ahead, sign gate + factored Adam step + row/column scales</b> (from scratch; stateless-sublinear; rate control running)</span></div>
-    <div><span class="v">3.119</span><span class="l">no look-ahead, sign gate + row/column scales (from scratch; plain + scales 3.131, seed 2 3.127)</span></div>
+    <div><span class="v">3.106</span><span class="l">no look-ahead, factored Adam step + row/column scales (same flip count as plain: a real per-flip gain)</span></div>
+    <div><span class="v">3.117</span><span class="l">sign gate (2 seeds) = its rate control at 0.85× flips (3.121): the gate's gain is its lower flip count</span></div>
     <div><span class="v">3.111</span><span class="l">look-ahead on to 30M, off to 131M, on after</span></div>
     <div><span class="v">3.120</span><span class="l">no look-ahead, your momentum design (branch from 131M)</span></div>
     <div><span class="v">3.127</span><span class="l">baseline: momentum + look-ahead</span></div>
@@ -156,10 +157,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090</td><td class="mono">vnorm_rc_s0 → gatevnorm_rc_s0_seed2</td><td>gate + Adam step finished <b>3.0773</b>. Adam step alone: 3.235 vs 3.268 for rc_s0 at 229M. Then gate + Adam step, seed 2</td><td class="num">~09:50, ~12:15</td></tr>
-    <tr><td>pintail</td><td class="mono">rate085_rc_s0</td><td>the gate's rate control (plain at 0.85× flips): <b>level with the gate</b> (3.1468 vs 3.1459 at 279M; rc_s0 3.1580). The gate's gain looks like its lower flip count</td><td class="num">~09:45</td></tr>
-    <tr><td>shoveler</td><td class="mono">rate064_rc_s0</td><td>gate seed 2 finished <b>3.1138</b> (seed 0 3.1194). Now gate + Adam step's rate control (plain at 0.64× flips)</td><td class="num">~13:10</td></tr>
-    <tr><td>laptop</td><td class="mono">probes</td><td>gate run @5000: <b>no swing</b> inside training (lags all positive; momentum vs next gradient −0.04 to −0.07 vs −0.15 to −0.20 without the gate). Now rc_s0 @5000 and gate + Adam step @5000 with the per-weight analysis</td><td class="num">~09:10, ~10:30</td></tr>
+    <tr><td>4090</td><td class="mono">gatevnorm_rc_s0_seed2</td><td>Adam step alone finished <b>3.1063</b> at 0.98× flips. Now gate + Adam step, seed 2 (3.489 vs 3.504 seed 0 at 82M)</td><td class="num">~12:30</td></tr>
+    <tr><td>pintail</td><td class="mono">vnorm064_rc_s0</td><td>the Adam step at gate + Adam step's 0.64× flip count, without the gate: does the gate add anything?</td><td class="num">~14:20</td></tr>
+    <tr><td>shoveler</td><td class="mono">rate064_rc_s0</td><td>gate + Adam step's rate control: plain at 0.64× flips</td><td class="num">~13:10</td></tr>
+    <tr><td>laptop</td><td class="mono">-</td><td>probes done: the swing is inside rc_s0 and speedref_rc_s0 (45% of flips uphill); gone in the gate runs (momentum vs next gradient −0.04 to −0.08); per weight the momentum still lags (|M|/|T| 7–12 at a reversal)</td><td class="num">idle</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
@@ -197,7 +198,9 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node bad">Per weight: 45% of flips go uphill; momentum's sign is right on only 42% of weights; at a reversal it is 7× the gradient (~7 steps to turn); 22% never turn within 41 steps; 75% of the momentum's size is batch noise</div><div class="down">↓</div>
       <div class="node good"><b>Sign gate</b> (flip only where this batch agrees with M) removes the swing: −0.085 in 41 steps vs −0.011; Adam-style step −0.030; per-row speed −0.016</div><div class="down">↓</div>
       <div class="node">The swing is also inside a from-scratch run (rc_s0 @5000: −0.27 at lag 5; momentum −0.15 to −0.20 vs the next gradients)</div><div class="down">↓</div>
-      <div class="node lead">Found: without look-ahead the gate and the Adam-style step were never applied (wired only into the look-ahead path). Training now, from scratch</div>
+      <div class="node">Found: without look-ahead the gate and the Adam-style step were never applied (wired only into the look-ahead path)</div><div class="down">↓</div>
+      <div class="node bad">Gate in training: 3.117 (2 seeds), but plain at the same lower flip count gives 3.121: its gain is the rate</div><div class="down">↓</div>
+      <div class="node good"><b>Adam-style step: 3.106 at the same flip count</b> (real per-flip gain); with the gate 3.077 (0.64× flips; rate control running)</div>
     </div></div>
     <div class="thread"><h3>4 · Step size</h3><div class="chain">
       <div class="node good">¼ flip rate (branch): 0.16 better right away</div><div class="down">↓</div>
