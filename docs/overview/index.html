@@ -200,6 +200,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node">The swing is also inside a from-scratch run (rc_s0 @5000: −0.27 at lag 5; momentum −0.15 to −0.20 vs the next gradients)</div><div class="down">↓</div>
       <div class="node">Found: without look-ahead the gate and the Adam-style step were never applied (wired only into the look-ahead path)</div><div class="down">↓</div>
       <div class="node bad">Gate in training: 3.117 (2 seeds), but plain at the same lower flip count gives 3.121: its gain is the rate</div><div class="down">↓</div>
+      <div class="node good">Why they combine: the gate fixes the direction (52% → 39–46% uphill), the Adam step moves flips out of the steepest rows (27–33% → 19%)</div><div class="down">↓</div>
       <div class="node good"><b>Adam-style step: 3.106 at the same flip count</b> (real per-flip gain); with the gate 3.077 (0.64× flips; rate control running)</div>
     </div></div>
     <div class="thread"><h3>4 · Step size</h3><div class="chain">
@@ -282,6 +283,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <tr><td>per-weight reversals (41 steps, old rule)</td><td>45.4% of flips move uphill on the true gradient; momentum sign = true sign on 41.7% of weights; at a reversal |M| / |T| = 6.9 (median); on the new side already 36%, in 1–3 steps 21%, 4+ steps 22%, never 22%; the momentum follows the main swing ~2 steps late; only 25% of its size lies in the span of the true gradients</td></tr>
     <tr><td>swing arms (41 steps, all weights)</td><td>held-out: old rule −0.0116 (165k flips/step, lag-3 −0.25); <b>sign gate −0.0851</b> (103k, lag-3 +0.18: no swing); Adam-style step −0.0303 (lag-3 −0.13); per-row speed −0.0157; fixed per-layer divisor −0.0034</td></tr>
     <tr><td>gate rate control, gravity (41 steps)</td><td>old rule at the gate's flip count (×0.62 rate): −0.060, swing kept: most of the gate's 41-step gain is fewer flips; the gate adds 0.026 at equal flips and removes the swing. Asymmetric gravity 0.5 (measurement): −0.062 at 172k flips, momentum turns in 1–3 steps at 52% of reversals (never 6% vs 22%), |M|/|T| 1.9 vs 6.9, uphill flips 39% vs 45%</td></tr>
+    <tr><td>where the flips land (3 checkpoints @5000)</td><td>the saved momentum pushes uphill: 51–53% of its flips are wrong, first-order change positive. <b>Gate fixes the direction</b> (uphill 39–46%, first-order negative, half the flips). <b>Adam step fixes the placement</b>: plain puts 27–33% of flips in the steepest fifth of rows and 11–14% in the flattest; the Adam step ~20% each, same uphill share. Together: right direction, away from steep rows</td></tr>
     <tr><td>no-look-ahead plateau</td><td>blocks write a fixed vector ~200,000× the embeddings; output independent of input; block 0 breaks out at ~5M</td></tr>
     <tr><td>copying on natural text</td><td>all runs gain ~1.9–2.0 nats on a repeated passage; master's lead is broad (0.25–0.5 on non-copyable text)</td></tr>
     <tr><td>adapter without look-ahead</td><td>adapter output 6× the trits in q/k: attention runs on a rank-16 float projection</td></tr>

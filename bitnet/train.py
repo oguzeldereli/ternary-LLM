@@ -202,7 +202,7 @@ def _diag_agg(name, vals, per_block=7):
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
-                 qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0):
+                 qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -217,6 +217,11 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             so the number of flips follows the momentum's size (it drops when the new gradients cancel it while
             climbing a wall) instead of staying fixed. One float per layer.
 
+    ncap / pfun_tanh (the user's rule, with beta = 1: momentum as one velocity vector, gravity = the gradient):
+            ncap C caps the whole momentum (all layers as one vector) at C x a slow EMA of the total gradient norm;
+            pfun_tanh S sets the flip chance to rate * tanh(|M_ij| / (g_ref v0)), v0 = S x a slow EMA of the layer's
+            mean |g| (absolute gradient units, not the momentum's own size). Two floats + one per layer.
+
     propose_only: update M but do not flip; leave l.gw and capture on and return the M's,
     so lookahead_step proposes from M and filters with the true gradients.
 
@@ -227,8 +232,13 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     cs, Ms = [], []
     state["_gms"] = []
     D = {k: [] for k in ("d_gabs", "d_mabs", "d_agree", "d_agree_top", "d_insub")}
+    gn2 = 0.0
     for i, l in enumerate(layers):
         g = l.gw.float()
+        if ncap: gn2 += float(g.pow(2).sum())
+        if pfun_tanh:
+            ga = state.setdefault("_gabs", {}); gam = g.abs().mean()
+            ga[id(l)] = gam if id(l) not in ga else 0.99 * ga[id(l)] + 0.01 * gam
         if not propose_only:
             l.gw = None; l.capture = False
         if mask_stuck:
@@ -317,9 +327,22 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             sr = state.setdefault("_sref", {})
             sr[key] = gm if key not in sr else speed_ref * sr[key] + (1 - speed_ref) * gm
             gm = sr[key]
+        if pfun_tanh:       # absolute units: p = rate * tanh(|M_ij| / (g_ref v0)), no division by the current size
+            gm = (pfun_tanh * state["_gabs"][key]).clamp_min(1e-12)
+            M = M.sign() * (l.g_ref * gm) * torch.tanh(M.abs() / (l.g_ref * gm))
         fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003, gmean=gm)
         if before is not None:
             l._record_flips(before, l.wpacked)
+    if ncap:                # cap the momentum as one vector: ||M||^2 = sum over layers of ||U||^2 (V orthonormal)
+        gn = gn2 ** 0.5
+        state["_gnorm"] = gn if "_gnorm" not in state else 0.99 * state["_gnorm"] + 0.01 * gn
+        keys = [id(l) for l in layers if id(l) in state]
+        tot = sum(float(state[k][0].pow(2).sum()) for k in keys) ** 0.5
+        lim = ncap * state["_gnorm"]
+        if tot > lim:
+            for k in keys:
+                U, V = state[k]; state[k] = (U * (lim / tot), V)
+        state["_ncap_frac"] = min(1.0, lim / max(tot, 1e-30))
     info = {"lr_cos": sum(cs) / len(cs), "lr_cos_layers": cs} if cs else {}
     if diag and cs:
         for k, v in D.items():
@@ -1024,6 +1047,12 @@ def main():
     ap.add_argument("--speed_ref", type=float, default=0.0,
                     help="momentum flips: divide M by a slow EMA (this decay, e.g. 0.995) of its mean |M| instead of "
                          "by its current mean, so the flip count follows the momentum's size (0 = off)")
+    ap.add_argument("--mom_ncap", type=float, default=0.0,
+                    help="cap the whole momentum (all layers as one vector) at this x a slow EMA of the total gradient "
+                         "norm (0 = off); with --lr_beta 1: the user's frictionless velocity with a speed limit")
+    ap.add_argument("--pfun_tanh", type=float, default=0.0,
+                    help="flip chance rate * tanh(|M| / (g_ref v0)), v0 = this x a slow EMA of the layer's mean |g| "
+                         "(absolute gradient units instead of dividing by the momentum's current size; 0 = off)")
     ap.add_argument("--speed_row", type=float, default=0.0,
                     help="momentum flips: per-row speed reference, divide each row of M by a slow EMA (this decay) of "
                          "that row's mean |M| (0 = off; N floats per layer)")
@@ -1655,7 +1684,8 @@ def main():
             else:
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                        args.flip_seed, args.lr_adapt, gate=args.lr_gate, vnorm=args.lr_vnorm,
-                                       speed_ref=args.speed_ref, speed_row=args.speed_row)
+                                       speed_ref=args.speed_ref, speed_row=args.speed_row,
+                                       ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)

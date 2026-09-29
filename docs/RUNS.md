@@ -1524,3 +1524,26 @@ Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 a
   every step, beta 1; cap on the whole vector's norm; flip chance rate * tanh(|M_ij| / v0) with v0 fixed, no division
   by the current size), norm cap 1x and 2x the starting norm, plus tanh-absolute at beta 0.97: running on the 4090.
   (A first version capped each weight separately: a misreading, stopped.)
+
+### 29 Sep 15:40: where the flips land (why gate + Adam step works together)
+
+`scripts/analysis/flip_where.py`: one checkpoint @5000, its saved rank-256 momentum, the true gradient (32 batches),
+one fresh batch; each rule's expected flips (no sampling). Rows in fifths by steepness (row mean of g^2).
+
+| checkpoint | rule | flips | uphill | first-order dL | flips in flattest / steepest fifth |
+|---|---|---|---|---|---|
+| rc_s0 | plain | 135k | 52.4% | +4.8e-3 | 14.0% / 27.4% |
+| rc_s0 | Adam step | 143k | 52.3% | +3.7e-3 | 21.3% / 18.3% |
+| rc_s0 | gate | 66k | 38.5% | -9.5e-3 | 14.2% / 27.1% |
+| rc_s0 | gate + Adam step | 70k | 39.4% | -7.2e-3 | 21.5% / 18.1% |
+| vnorm_rc_s0 | plain / Adam / gate / both | 128k / 126k / 63k / 62k | 51.2 / 51.0 / 41.0 / 41.7% | +4.5e-3 / +2.5e-3 / -9.4e-3 / -5.4e-3 | 10.7/32.9, 20.5/19.3, 10.7/32.8, 20.7/19.2 |
+| gatevnorm_rc_s0 | plain / Adam / gate / both | 139k / 151k / 68k / 74k | 53.0 / 52.7 / 45.5 / 45.8% | +8.5e-3 / +5.5e-3 / -4.8e-3 / -3.1e-3 | 12.4/30.2, 20.3/19.5, 12.5/30.0, 20.4/19.4 |
+
+- The saved momentum at a checkpoint pushes *uphill* on the true gradient: 51-53% of its flips are wrong and the
+  first-order change is positive, in every run (the swing: the momentum lags the gradient).
+- The gate fixes the direction: uphill 52% -> 39-46%, first-order change negative, half the flips.
+- The Adam step does not change the direction (same uphill share in every steepness fifth); it moves the flips:
+  plain puts 27-33% of its flips in the steepest fifth of rows and 11-14% in the flattest; the Adam step spreads them
+  ~20% per fifth. Its gain is placement (fewer flips where a trit overshoots), not alignment.
+- Together: flips in the right direction, placed away from the steep rows. The gate alone keeps the steep-row
+  pile-up; the Adam step alone flips half its weights the wrong way.
