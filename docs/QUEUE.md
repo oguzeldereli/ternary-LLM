@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-29 06:30
+Last updated: 2026-09-29 07:30
 
 ## Night 28-29 Sep (planned 01:10, runs to ~10:00)
 
@@ -20,7 +20,7 @@ each run; edit the lists on the remote home, not by rsync from the laptop).
 
 | machine | now | next (list) | expected |
 |---|---|---|---|
-| 4090 | `speedref_rc_s0` done 3.1315 (= rc_s0); runner stuck 03:37-04:30 (fixed); `gatevnorm_rc_s0` started 04:30 | `vnorm_rc_s0` | ~07:00, ~09:30 |
+| 4090 | `gatevnorm_rc_s0` done **3.0773**; `vnorm_rc_s0` started 07:25 | `rate064_rc_s0` (its rate control), `gatevnorm_rc_s0_seed2` | ~09:50, ~12:15, ~14:40 |
 | pintail | `gate_rc_s0` done **3.1194**; `rate085_rc_s0` (the gate's rate control) started 05:51 | - | ~09:30 |
 | shoveler | `rc_s0_seed2` done 3.1273; idle 04:30-05:30 (runner stuck), `gate_rc_s0_seed2` started 05:30 | - | ~09:10 |
 | laptop | probes done (rc_s0 / speedref_rc_s0 @5000, @8000); now gate_rc_s0 @5000 (gate rule) and rc_s0 @5000 with per-weight analysis | - | ~07:50, ~09:10 |

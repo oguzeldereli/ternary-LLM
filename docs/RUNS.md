@@ -1455,3 +1455,20 @@ Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 a
 - Probe `speedref_rc_s0` @8000: as `rc_s0` @8000 (lag 5 +0.21, momentum vs gradient -0.21 at lag 5, 45.6% uphill,
   |M|/|T| 13.9, never follows 24.6%).
 - Laptop now: swing test with the per-weight analysis on `gate_rc_s0` @5000 (gate rule) and `rc_s0` @5000.
+
+### 29 Sep 07:30: gate + factored Adam step 3.0773
+
+- **`gatevnorm_rc_s0` final 3.0773** (`--lr_gate --lr_vnorm 0.99 --rc_scale`, no look-ahead, from scratch) vs
+  `rc_s0` 3.1307 / `rc_s0_seed2` 3.1273 / `gate_rc_s0` 3.1194: -0.053, ~17x the seed spread; better than the
+  look-ahead baseline (3.127) and look-ahead + additive r4 (3.082). State: rank-256 momentum + N + K floats per
+  layer for the factored second moment. It flips 0.64x as many weights as `rc_s0` over the run (0.73x at 10%, 0.60x
+  at 50%, 0.29x at 90%), so its rate control `rate064_rc_s0` (`--rate_peak 0.0128`) is queued on the 4090, then
+  `gatevnorm_rc_s0_seed2`.
+- Gate's own rate control so far: `rate085_rc_s0` 3.5059 vs `gate_rc_s0` 3.5060 at step 4000 (rc_s0 3.5251): at
+  step 4000 the gate's gain equals that of flipping 0.85x as many weights. The finals decide.
+- Probe on `gate_rc_s0` @5000 (its own checkpoint, gate rule): **no swing** (cos(T_t, T_t+lag) +0.58 / +0.43 /
+  +0.33 / +0.22 at lags 1 / 2 / 3 / 5, never negative), momentum vs next gradients -0.04 to -0.07 (rc_s0: -0.15 to
+  -0.20), held-out -0.075 over 41 steps at 86k flips/step (rc_s0 @5000: -0.007 at 136k), 42.2% uphill (45%). Per
+  weight the momentum still lags (|M|/|T| 11.7 at a reversal, never follows 25%): the gate does not make the
+  momentum turn faster, it stops acting on it where the fresh gradient disagrees.
+- `gate_rc_s0_seed2` 3.4050 at step 5250 (gate seed 0: 3.4013, rc_s0 3.4174).

@@ -86,15 +86,15 @@ for k in range(K):
         F = [BETA * f + x for f, x in zip(F, g)]
     for i, (l, f) in enumerate(zip(Ls, F)):
         gm = f.abs().mean().clamp_min(1e-12)
-        if SIG == "gate":                     # flip only where this batch's gradient agrees in sign (reacts at once)
-            f = f * (f.sign() == g[i].sign())
-        elif SIG.startswith("vnorm:"):         # factored second moment of g (N + K floats): smaller steps where steep
-            d = float(SIG[6:]); g2 = g[i].pow(2); R, C = g2.mean(1), g2.mean(0)
+        if "vnorm:" in SIG:                    # factored second moment of g (N + K floats): smaller steps where steep
+            d = float(SIG.split("vnorm:")[1]); g2 = g[i].pow(2); R, C = g2.mean(1), g2.mean(0)
             if i in VN: R = d * VN[i][0] + (1 - d) * R; C = d * VN[i][1] + (1 - d) * C
             VN[i] = (R, C)
             f = f / (R[:, None] * C[None, :] / R.mean().clamp_min(1e-30)).sqrt().clamp_min(1e-30)
             gm = f.abs().mean().clamp_min(1e-12)
-        elif SIG.startswith("rowema:"):        # per-row speed reference: slow EMA of each row's mean |M|
+        if SIG.startswith("gate"):             # flip only where this batch's gradient agrees in sign (reacts at once)
+            f = f * (f.sign() == g[i].sign())  # (as the trainer: after vnorm; "gate+vnorm:0.99" = both)
+        if SIG.startswith("rowema:"):        # per-row speed reference: slow EMA of each row's mean |M|
             d = float(SIG[7:]); rm = f.abs().mean(1).clamp_min(1e-12)
             RR[i] = rm if i not in RR else d * RR[i] + (1 - d) * rm
             f = f * (gm / RR[i])[:, None]

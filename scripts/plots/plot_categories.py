@@ -92,7 +92,9 @@ CATS = {
         ("gate_rc_s0_seed2", "sign gate, seed 2"),
         ("gatevnorm_rc_s0", "sign gate + factored Adam step"),
         ("vnorm_rc_s0", "factored Adam step (smaller steps where steep)"),
-        ("rate085_rc_s0", "rate control for the gate: plain at 0.85x flip rate")]),
+        ("rate085_rc_s0", "rate control for the gate: plain at 0.85x flip rate"),
+        ("rate064_rc_s0", "rate control for gate + Adam step: plain at 0.64x flip rate"),
+        ("gatevnorm_rc_s0_seed2", "sign gate + factored Adam step, seed 2")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),
