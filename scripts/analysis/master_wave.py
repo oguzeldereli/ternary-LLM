@@ -59,18 +59,21 @@ def trits(): return torch.cat([l.ternary_weight()[0].flatten() for l in Ls])
 NTOT = sum(l.weight.numel() for l in Ls)
 IDX = torch.randperm(NTOT, device="cuda", generator=torch.Generator(device="cuda").manual_seed(1))[:int(SUB * NTOT)]
 keep = lambda v: v[IDX].half().cpu()
-L0 = held(); Ts, Ms, MV, nflip, upshare = [], [], [], [], []
+L0 = held(); Ts, Ms, MV, nflip, upshare, CMT, CLT = [], [], [], [], [], [], []
 gs = torch.Generator().manual_seed(5151)
 for k in range(K):
     Tf = truth(900 + k)
     Ts.append(keep(Tf)); Ms.append(keep(torch.cat([opt.state[l.weight]["exp_avg"].float().flatten() for l in Ls])))
-    w0 = trits()
+    w0 = trits(); lat0 = torch.cat([l.weight.detach().float().flatten() for l in Ls])
     opt.zero_grad(set_to_none=True); fwd_bwd(*get_batch(train, 16, 2048, "cuda", gs))
     for gr in opt.param_groups: gr["lr"] = lr_at(ST + k)
     opt.step(); opt.zero_grad(set_to_none=True)
     d = (trits() - w0).float(); nz = d != 0
     nflip.append(int(nz.sum())); upshare.append(float(((d * Tf) > 0)[nz].float().mean()) if nz.any() else 0.0)
-    MV.append(keep(d)); del Tf, w0, d
+    CMT.append(float(-(d @ Tf) / (d.norm() * Tf.norm()).clamp_min(1e-30)))
+    lat = torch.cat([l.weight.detach().float().flatten() for l in Ls]) - lat0
+    CLT.append(float(-(lat @ Tf) / (lat.norm() * Tf.norm()).clamp_min(1e-30)))
+    MV.append(keep(d)); del Tf, w0, d, lat, lat0
     if k % 10 == 0: print(f"  step {k} measured", flush=True)
 L1 = held()
 print(f"\nheld-out loss {L0:.4f} -> {L1:.4f} ({L1 - L0:+.4f}) over {K} steps; trit changes per step: mean "
@@ -88,7 +91,9 @@ MT = MT / nM[:, None].clamp_min(1e-30) / nT[None, :]
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)   (M = Adam's first moment)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20):
     if lag < K: print(f"{lag:3d}  {float(torch.diagonal(G, lag).mean()):+22.3f}   {float(torch.diagonal(MT, lag).mean()):+22.3f}")
-print(f"\ntrit changes that move uphill on the true gradient: mean {100 * np.mean(upshare):.1f}%")
+print(f"\nalignment with the true descent direction: trit changes cos(move, -T) {np.mean(CMT):+.4f}, latent (AdamW) step "
+      f"cos(step, -T) {np.mean(CLT):+.4f}")
+print(f"trit changes that move uphill on the true gradient: mean {100 * np.mean(upshare):.1f}%")
 qf = np.zeros(4); qu = np.zeros(4); wup = wall = 0.0
 for t in range(K):
     D = MV[t].float(); Tt = Ts[t].float(); m = D != 0

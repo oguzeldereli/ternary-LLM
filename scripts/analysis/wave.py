@@ -88,7 +88,7 @@ def held():
         return float(np.mean([B.m(x, y)[1].item() for x, y in B.VB]))
 
 
-L0 = held(); nflip, upshare, MV, NU, GB = [], [], [], [], []
+L0 = held(); nflip, upshare, MV, NU, GB, CMT = [], [], [], [], [], []
 s = batches(5151); Ts, Ms = [], []
 for k in range(K):
     W0 = [unpack_rows(l.wpacked, l.K).to(torch.int8) for l in Ls]
@@ -148,7 +148,8 @@ for k in range(K):
     for l, w in zip(Ls, W0):
         d = (unpack_rows(l.wpacked, l.K).to(torch.int8) - w).flatten(); t = Tf[off:off + d.numel()]; off += d.numel()
         nz = d != 0; mv += int(nz.sum()); up += int(((d.float() * t) > 0)[nz].sum()); ds.append(d)
-    nflip.append(mv); upshare.append(up / max(mv, 1)); MV.append(keep(torch.cat(ds).float())); NU.append(nundo)
+    dall = torch.cat(ds).float(); CMT.append(float(-(dall @ Tf) / (dall.norm() * Tf.norm()).clamp_min(1e-30)))
+    nflip.append(mv); upshare.append(up / max(mv, 1)); MV.append(keep(dall)); NU.append(nundo); del dall
     GB.append(keep(torch.cat([x.flatten() for x in g])))
     if UNDO: PD = [d.clone() for d in ds]
     del W0, Tf, ds
@@ -183,7 +184,9 @@ for j in range(3):
 
 # ---- along the swing: the gradient's and the momentum's component on each main direction, step by step
 # (u_j = sum_t c_tj (T_t - mean T), unit; T_s . u_j = (G c_j)_s / sqrt(w_j), M_s/|M_s| . u_j = (MT c_j)_s / sqrt(w_j))
-print(f"\nflips that move uphill on the true gradient: mean {100 * np.mean(upshare):.1f}%  "
+print(f"\nalignment of each step's move with the true descent direction, cos(move, -T): mean {np.mean(CMT):+.4f} "
+      f"(first 5 {[round(c, 4) for c in CMT[:5]]}, last 5 {[round(c, 4) for c in CMT[-5:]]})")
+print(f"flips that move uphill on the true gradient: mean {100 * np.mean(upshare):.1f}%  "
       f"(first 5 {[round(100 * u) for u in upshare[:5]]}%, last 5 {[round(100 * u) for u in upshare[-5:]]}%)")
 wv, Vv = torch.linalg.eigh(Gc)
 for j in range(2):
