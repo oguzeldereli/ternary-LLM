@@ -1397,3 +1397,14 @@ The gate removes the swing (no negative lag) and gains 7x more in 41 steps; cont
 the gate's flip count). Found while wiring it: without look-ahead the trainer had ignored `--lr_gate` and
 `--lr_vnorm` in every run since look-ahead was dropped. Now training: `gate_rc_s0` (pintail),
 `gatevnorm_rc_s0` then `vnorm_rc_s0` (4090), `gate_rc_s0_seed2` (shoveler, after `rc_s0_seed2`).
+
+### 29 Sep 03:30: the swing inside real training; speed reference fails; seed spread
+
+- Probe on `rc_s0` @5000 (its own checkpoint, from scratch with row/column scales, old rule, 41 steps, 25%):
+  cos(T_t, T_t+lag) +0.78 / +0.43 / +0.05 / **-0.27** at lags 1 / 2 / 3 / 5 (period ~10 steps at rate 0.0086);
+  momentum vs next gradients -0.15 / -0.20 / -0.19 at lags 1-3; held-out -0.0072 over 41 steps, 136k flips/step.
+  The swing is not an artefact of branching from `nola_lab`: it is there in a run trained from scratch.
+- `speedref_rc_s0` (per-layer slow speed reference) = `rc_s0`: 3.1458 vs 3.1454 at step 8750. As its swing test
+  predicted (a per-layer divisor cannot see the swing).
+- Seed spread: `rc_s0_seed2` 3.3225 vs `rc_s0` 3.3237 at step 6250, 3.578 vs 3.581 at 3500: ~0.003.
+- 4090 swing tests (gate rate control, gravity, gradient units) had died silently at their start; relaunched 03:28.
