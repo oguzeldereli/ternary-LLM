@@ -1472,3 +1472,17 @@ Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 a
   weight the momentum still lags (|M|/|T| 11.7 at a reversal, never follows 25%): the gate does not make the
   momentum turn faster, it stops acting on it where the fresh gradient disagrees.
 - `gate_rc_s0_seed2` 3.4050 at step 5250 (gate seed 0: 3.4013, rc_s0 3.4174).
+
+### 29 Sep 08:30
+
+| step | rc_s0 | gate | rate085 (gate's rate control) | gate seed 2 | vnorm alone | gate + vnorm |
+|---|---|---|---|---|---|---|
+| 3500 | 3.5815 | 3.5770 | - | - | 3.5390 | 3.4181 |
+| 6250 | 3.3237 | 3.3134 | **3.3026** | - | - | 3.2177 |
+| 7750 | 3.2028 | 3.1926 | - | 3.1903 | - | 3.1328 |
+
+- Mid-run, flipping 0.85x as many weights with the old rule is at least as good as the gate: the gate's gain so far is
+  a rate effect. Earlier rate-driven leads (1/4 rate, adaptive rate) faded by 300M; the finals decide.
+- The factored Adam step alone (`vnorm_rc_s0`) is -0.043 at step 3500; with the gate -0.163.
+- Probe `rc_s0` @5000 with the per-weight analysis (the first one lacked it): 45.8% uphill, momentum sign right on
+  44.0% of weights, |M|/|T| 10.2 at a reversal, never follows 22.4%; same swing as before (lag 5 -0.26).
