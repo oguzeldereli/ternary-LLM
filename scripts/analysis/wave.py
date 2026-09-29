@@ -64,6 +64,9 @@ def keep(v):
 from bitnet.kernel import unpack_rows, pack_rows
 NORM = os.environ.get("WAVE_NORM", "own")
 SIG = os.environ.get("WAVE_SIG", "plain"); VN, RR = {}, {}
+DRY = float(os.environ.get("WAVE_DRY", "0"))     # dry friction on the whole vector: ||M|| -= DRY x mean batch-gradient norm
+DRYW = float(os.environ.get("WAVE_DRYW", "0"))   # dry friction per weight: |M_ij| -= DRYW x the layer's mean |g| (to 0)
+GD = [0.0, 0]
 GCAP = float(os.environ.get("WAVE_GCAP", "0"))   # cap ||M|| <= GCAP x (running mean of the batch gradient norm)
 GN = [0.0, 0]
 UNDO = os.environ.get("WAVE_UNDO", "0") == "1"   # flip back last step's moves that the batch gradient and M now call uphill
@@ -95,6 +98,12 @@ for k in range(K):
         F = [torch.where(f.sign() * x.sign() < 0, GRAV * f, BETA * f) + x for f, x in zip(F, g)]
     else:
         F = [BETA * f + x for f, x in zip(F, g)]
+    if DRY:    # a fixed amount off the whole velocity each step, stopping at 0 (1/33: one gradient gone in 33 steps)
+        GD[0] += sum(float(x.pow(2).sum()) for x in g) ** 0.5; GD[1] += 1
+        nrm = sum(float(f.pow(2).sum()) for f in F) ** 0.5
+        F = [f * max(0.0, 1 - DRY * GD[0] / GD[1] / max(nrm, 1e-30)) for f in F]
+    if DRYW:   # the same per weight (soft threshold): small, noise-level components stop completely
+        F = [f.sign() * (f.abs() - DRYW * x.abs().mean()).clamp_min(0) for f, x in zip(F, g)]
     if GCAP:   # the cap in gradient units: a velocity of at most GCAP gradients (turns in ~GCAP steps)
         GN[0] += sum(float(x.pow(2).sum()) for x in g) ** 0.5; GN[1] += 1
         lim = GCAP * GN[0] / GN[1]; nrm = sum(float(f.pow(2).sum()) for f in F) ** 0.5
@@ -153,7 +162,7 @@ L1 = held()
 print(f"\nheld-out loss {L0:.4f} -> {L1:.4f} ({L1 - L0:+.4f}) over {K} steps; flips per step: first 5 "
       f"{[round(n / 1e3) for n in nflip[:5]]}k, mean {np.mean(nflip) / 1e3:.0f}k, last 5 {[round(n / 1e3) for n in nflip[-5:]]}k")
 if UNDO: print(f"undo: {np.mean(NU) / 1e3:.1f}k flips reversed per step ({100 * np.mean(NU) / max(np.mean(nflip), 1):.0f}% of all flips)")
-print(f"{RUN} @{ST}, norm {NORM}, undo {UNDO}, signal {SIG}, gravity {GRAV}, cap {CAP}, norm cap {NCAP}, grad cap {GCAP}, pfun {PFUN}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
+print(f"{RUN} @{ST}, norm {NORM}, undo {UNDO}, signal {SIG}, gravity {GRAV}, cap {CAP}, norm cap {NCAP}, grad cap {GCAP}, dry {DRY}, dry per weight {DRYW}, pfun {PFUN}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())

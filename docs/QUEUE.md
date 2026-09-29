@@ -6,24 +6,24 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-29 17:10
+Last updated: 2026-09-29 18:00
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (29 Sep, 17:10)
+## Now (29 Sep, 18:00)
 
-| machine | run | what | expected |
+| machine | now | then | expected |
 |---|---|---|---|
-| 4090 | `usersweep_cap1` -> `usersweep_cap2` | user's rule short sweep (done: cap 3 3.991, cap 10 4.946, cap 30 5.305 at step 1500; rc_s0 3.941) | ~17:00, ~17:30 |
-| pintail | `user_cap3_s0` | user's rule, full, cap 3 | ~19:50 |
-| mallard | `user_cap1_s0` | user's rule, full, cap 1 | ~20:00 |
-| cackling | `grav05_rc_s0` | asymmetric gravity 0.5 (`--grav_up 0.5`), plain | ~20:40 |
-| harlequin | `grav05_gatevnorm_rc_s0` | asymmetric gravity 0.5 + gate + Adam step | ~20:40 |
-| gressingham | `damping.sh` | swing tests with one-step overshoot: plain and gate+vnorm @nola 4500, gate / gate+vnorm @8000 | ~17:30-19:00 |
-| laptop | swing test, user's rule, cap 1 x gradient norm | - | ~17:10 |
+| 4090 | swing tests (nola_lab @4500): fu1 beta 0.97 + cap + tanh (done: -0.032, swing kept), fu2 + undo, fu3 beta 0.9 + undo, fu4 plain + undo, fu5 all + gate + vnorm | `user_cap1_flip15_s0` (cap 1, flip scale 1.5: flips ~ plain) | arms ~18:05-19:05; training ~20:20 |
+| pintail | `user_cap3_s0` (user's rule, cap 3) | - | ~19:50 |
+| mallard | swing tests: plain + undo, dry friction on the vector (1/33), dry friction per weight (1/33); `user_cap1_s0` stopped (flip scale 10: 5-7x too few flips) | - | ~18:25, ~18:50, ~19:15 |
+| cackling | `grav05_rc_s0` | - | ~20:40 |
+| harlequin | `grav05_gatevnorm_rc_s0` | - | ~20:40 |
+| gressingham | damping tests: plain (done: every step's whole move is uphill one step later), gate+vnorm @4500, gate / gate+vnorm @8000 | - | ~19:00 |
+| laptop | idle; next: dry friction per weight + undo once the undo code has run | - | - |
 
 ## Now (29 Sep, 15:45): the user's rule
 
