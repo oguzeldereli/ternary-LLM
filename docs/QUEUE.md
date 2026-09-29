@@ -24,6 +24,15 @@ each run; edit the lists on the remote home, not by rsync from the laptop).
 | pintail | swing arms, all coordinates: gate, vnorm 0.99, row speed 0.995 | `rowspeed_rc_s0` | ~02:30, then ~06:10 |
 | shoveler | `rc_s0_seed2` (seed-to-seed spread) | `gatevnorm_rc_s0` | ~04:40, ~08:20 |
 | laptop | probes: swing test on rc_s0 / speedref_rc_s0 checkpoints @5000, @8000 | - | ~04:30 |
+| 4090 (next to training) | swing test with per-weight reversal analysis (old rule), then asymmetric gravity 0.5 / 0.8 | - | ~01:50, ~02:15, ~02:40 |
+
+First per-weight answer (12-step check, old rule): 45% of flips move uphill on the true gradient; at a reversal a
+weight's momentum is ~7x its true gradient (~7 steps to cross zero); 40% of reversing weights never follow within
+the window; only 13.5% of the momentum's size lies in the span of the true gradients (the rest is batch noise).
+Asymmetric gravity (user's idea): where the batch gradient opposes a weight's momentum, decay it with 0.5 instead of
+0.97. **If its swing test damps the swing: add `--gravity` to lowrank_step (per-weight on the rebuilt M before the
+rank-r compression) and put `gravity_rc_s0` first on the 4090 list.**
+
 
 Swing test, old rule (4090, 25%): held-out 3.5495 -> 3.5387 (-0.0108) over 41 steps, 165k flips every step, swing as
 before (lag 3 -0.252, momentum vs next gradient -0.172). Lab PCs rebooted (Mon/Thu) 20:00-00:07; `nola_lab`

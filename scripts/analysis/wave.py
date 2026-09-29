@@ -5,6 +5,7 @@ no-look-ahead snapshot (saved momentum, float tail frozen, plain momentum with t
   momentum lag     cos(M_t, T_t+lag): how well the momentum held at step t predicts the gradient lag steps later
   main directions  the 3 principal directions of the 41 gradients and each one's sign over time (swinging back and
                    forth = oscillation along that direction; the number of sign changes gives a rough period)
+  WAVE_GRAV=0.5        asymmetric gravity: momentum decays with 0.5 where the batch gradient opposes it, BETA elsewhere
   WAVE_SIG=gate | vnorm:0.99 | rowema:0.995   flip signal variants (sign gate; factored-Adam step; per-row speed)
   WAVE_NORM=ema:0.995  the trainer's --speed_ref rule (slow EMA of mean |M|, started at its step-0 value)
   WAVE_NORM=fixed      divide the momentum by its size at step 0 instead of by its current size (the trainer's rule),
@@ -18,7 +19,7 @@ from bitnet.kernel import fused_flip
 from bitnet.train import get_batch
 
 RUN, ST = sys.argv[1], int(sys.argv[2])
-NT, K = 32, 41
+NT, K = 32, int(__import__("os").environ.get("WAVE_K", "41"))
 import os
 BETA = float(os.environ.get("WAVE_BETA", "0.97"))   # momentum memory; the saved momentum is rescaled to it
 train = np.memmap("data/wiki32k_train.bin", dtype=np.uint16, mode="r")
@@ -61,6 +62,7 @@ def keep(v):
 from bitnet.kernel import unpack_rows
 NORM = os.environ.get("WAVE_NORM", "own")
 SIG = os.environ.get("WAVE_SIG", "plain"); VN, RR = {}, {}
+GRAV = float(os.environ.get("WAVE_GRAV", "0"))   # 0 = off; e.g. 0.5: strong pull-back when climbing
 GM0 = [f.abs().mean().clamp_min(1e-12) for f in F]
 
 
@@ -69,12 +71,16 @@ def held():
         return float(np.mean([B.m(x, y)[1].item() for x, y in B.VB]))
 
 
-L0 = held(); nflip = []
+L0 = held(); nflip, upshare = [], []
 s = batches(5151); Ts, Ms = [], []
 for k in range(K):
     W0 = [unpack_rows(l.wpacked, l.K).to(torch.int8) for l in Ls]
-    Ts.append(keep(truth(900 + k))); Ms.append(keep(torch.cat([f.flatten() for f in F])))
-    g = grad(next(s)); F = [BETA * f + x for f, x in zip(F, g)]
+    Tf = truth(900 + k); Ts.append(keep(Tf)); Ms.append(keep(torch.cat([f.flatten() for f in F])))
+    g = grad(next(s))
+    if GRAV:   # asymmetric gravity: where this batch pushes against a weight's momentum, decay it with GRAV, not BETA
+        F = [torch.where(f.sign() * x.sign() < 0, GRAV * f, BETA * f) + x for f, x in zip(F, g)]
+    else:
+        F = [BETA * f + x for f, x in zip(F, g)]
     for i, (l, f) in enumerate(zip(Ls, F)):
         gm = f.abs().mean().clamp_min(1e-12)
         if SIG == "gate":                     # flip only where this batch's gradient agrees in sign (reacts at once)
@@ -94,7 +100,12 @@ for k in range(K):
             GM0[i] = float(NORM[4:]) * GM0[i] + (1 - float(NORM[4:])) * gm; gm = GM0[i]
         fused_flip(l.wpacked, f.contiguous(), RATE, G_REF, 3000 + 131 * k + i, gmean=gm)
         f = None
-    nflip.append(sum(int((unpack_rows(l.wpacked, l.K).to(torch.int8) != w).sum()) for l, w in zip(Ls, W0))); del W0
+    # flips made this step, and the share that moved uphill on the true gradient (move has the sign of T)
+    up = mv = off = 0
+    for l, w in zip(Ls, W0):
+        d = (unpack_rows(l.wpacked, l.K).to(torch.int8) - w).flatten(); t = Tf[off:off + d.numel()]; off += d.numel()
+        nz = d != 0; mv += int(nz.sum()); up += int(((d.float() * t) > 0)[nz].sum())
+    nflip.append(mv); upshare.append(up / max(mv, 1)); del W0, Tf
     if k % 10 == 0: print(f"  step {k} measured", flush=True)
 # everything from dot products (stacking 41 full gradients does not fit on the GPU)
 def dots(A, Bs):
@@ -105,7 +116,7 @@ MT = MT / nM[:, None] / nT[None, :]
 L1 = held()
 print(f"\nheld-out loss {L0:.4f} -> {L1:.4f} ({L1 - L0:+.4f}) over {K} steps; flips per step: first 5 "
       f"{[round(n / 1e3) for n in nflip[:5]]}k, mean {np.mean(nflip) / 1e3:.0f}k, last 5 {[round(n / 1e3) for n in nflip[-5:]]}k")
-print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
+print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, gravity {GRAV}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())
@@ -122,3 +133,52 @@ for j in range(3):
     changes = sum(1 for a, b in zip(signs, signs[1:]) if a != b)
     print(f"direction {j + 1}: {100 * float(share[j]):.1f}% of the varying part; sign over the 41 steps: {signs} "
           f"({changes} sign changes)")
+
+# ---- along the swing: the gradient's and the momentum's component on each main direction, step by step
+# (u_j = sum_t c_tj (T_t - mean T), unit; T_s . u_j = (G c_j)_s / sqrt(w_j), M_s/|M_s| . u_j = (MT c_j)_s / sqrt(w_j))
+print(f"\nflips that move uphill on the true gradient: mean {100 * np.mean(upshare):.1f}%  "
+      f"(first 5 {[round(100 * u) for u in upshare[:5]]}%, last 5 {[round(100 * u) for u in upshare[-5:]]}%)")
+wv, Vv = torch.linalg.eigh(Gc)
+for j in range(2):
+    c = Vv[:, -1 - j]; sw = float(wv[-1 - j]).__abs__() ** 0.5
+    tp = (G @ c) / sw; mp = (MT @ c) / sw
+    best = max(range(0, 8), key=lambda L: float(torch.corrcoef(torch.stack([tp[:K - L], mp[L:]]))[0, 1]))
+    cc = [float(torch.corrcoef(torch.stack([tp[:K - L], mp[L:]]))[0, 1]) for L in range(0, 8)]
+    print(f"direction {j + 1}: corr(gradient component at t, momentum component at t+L) for L = 0..7: "
+          + " ".join(f"{x:+.2f}" for x in cc) + f"  -> momentum follows ~{best} steps late")
+    print("  step:     " + " ".join(f"{t:4d}" for t in range(0, K, 2)))
+    print("  gradient: " + " ".join(f"{100 * float(tp[t]):+4.0f}" for t in range(0, K, 2)))
+    print("  momentum: " + " ".join(f"{100 * float(mp[t]):+4.0f}" for t in range(0, K, 2)) + "   (x100, cosine with the direction)")
+# how much of the momentum lies in the span of the 41 true gradients (the rest points nowhere the gradient goes)
+Gi = torch.linalg.pinv(G, rtol=1e-4)
+span = [float(MT[t] @ Gi @ MT[t]) for t in range(K)]
+print(f"share of the momentum's size (squared) inside the span of the 41 true gradients: mean {np.mean(span):.3f}, "
+      f"first {span[0]:.3f}, last {span[-1]:.3f}")
+# ---- per weight: when the true gradient on a weight reverses, how many steps until its momentum follows
+gsub = torch.Generator().manual_seed(7); n_all = Ts[0].numel()
+ci = torch.randperm(n_all, generator=gsub)[:200_000]
+Tc_ = torch.stack([t.float().cpu()[ci] for t in Ts]); Mc_ = torch.stack([m.float().cpu()[ci] for m in Ms])
+sT, sM = Tc_.sign(), Mc_.sign()
+agree = (sT == sM).float().mean(1)
+wagree = ((sT == sM).float() * Tc_.abs()).sum(1) / Tc_.abs().sum(1)
+print(f"per weight, momentum sign = true-gradient sign: mean {float(agree.mean()):.3f} of weights, "
+      f"{float(wagree.mean()):.3f} weighted by |T|")
+big = Tc_.abs() > Tc_.abs().median()
+delays, cens, ratio = [], 0, []
+for t in range(1, K):
+    ev = (sT[t] != sT[t - 1]) & big[t] & big[t - 1]            # a real reversal of the true gradient
+    idx = ev.nonzero().flatten()
+    if idx.numel() == 0: continue
+    ratio.append((Mc_[t, idx].abs() / Tc_[t, idx].abs()).median().item())
+    d = torch.full((idx.numel(),), -1)
+    for dd in range(0, K - t):
+        hit = (sM[t + dd, idx] == sT[t, idx]) & (d < 0); d[hit] = dd
+    cens += int((d < 0).sum()); delays.append(d[d >= 0])
+D = torch.cat(delays).float() if delays else torch.zeros(1)
+tot = D.numel() + cens
+print(f"true-gradient reversals (both sides above median size): {tot}; momentum already on the new side: "
+      f"{100 * float((D == 0).sum()) / tot:.1f}%, follows within 1-3 steps: {100 * float(((D >= 1) & (D <= 3)).sum()) / tot:.1f}%, "
+      f"4+ steps: {100 * float((D >= 4).sum()) / tot:.1f}%, never within the window: {100 * cens / tot:.1f}%; "
+      f"median delay of those that follow {float(D.median()):.0f} steps")
+print(f"at a reversal, |momentum| / |true gradient| on that weight: median {np.median(ratio):.1f} "
+      f"(steps to cross zero if each step removes one true gradient's worth)")
