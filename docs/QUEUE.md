@@ -13,7 +13,26 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (29 Sep, 23:10)
+## Night 29-30 Sep (started 23:57-00:08, all ~04:05-04:20)
+
+All from scratch, 300M, no look-ahead, base = Adam + gate + sharp (`--rc_scale --lr_gate --lr_vnorm 0.99 --lowrank_mag
+add:16 --mag_wd 0.1 --qk_temp`). Question: why pairs seen < 1e3 times learn at half master's rate (memory horizon?).
+
+| machine | run | change | tests |
+|---|---|---|---|
+| mallard | `gvsharp_b099_s0` | `--lr_beta 0.99` | memory ~100 steps instead of ~33 |
+| cackling | `gvsharp_b1_s0` | `--lr_beta 1` | no friction at all (relative flip rule, no cap) |
+| harlequin | `gvsharp_r512_s0` | `--lowrank 512` | control: rank is not the limit (predicted no change) |
+| gadwall | `gvsharp_slowgate_s0` | `--slow_gate 64 --slow_beta 0.999` | flip only where a slow momentum agrees |
+| shoveler | `gvsharp_dither_s0` | `--dither_ld` | low-discrepancy flip draw (fixed hash + step x golden ratio) |
+| pintail | `gvsharp_dry_s0` | `--lr_beta 1 --dry_vec 0.0303` | dry friction on the whole vector, 1/33 of the gradient norm per step |
+| mandarin | `gvsharp_b1spend_s0` | `--lr_beta 1 --spend 3` | no friction; a flip consumes the push that caused it (master's threshold crossing) |
+| bufflehead | `gvsharp_rc_s0` | the base | ~01:45 |
+
+Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
+A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
+
+## Earlier (29 Sep, 23:10)
 
 | machine | run | what | expected |
 |---|---|---|---|

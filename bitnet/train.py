@@ -203,7 +203,7 @@ def _diag_agg(name, vals, per_block=7):
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
-                 undo=False):
+                 undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -229,6 +229,16 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     grav_up: (--grav_up D) asymmetric gravity: where this batch's gradient opposes a weight's momentum (climbing), that
             weight's momentum decays with D instead of beta; on the full M, then one subspace step back to rank r.
 
+    slow_rank / slow_beta: (--slow_gate R) a second, slow momentum (rank R, decay slow_beta) kept like M; flip only
+            where the fast and the slow momentum agree in sign (a long-horizon consistency gate). R*(N+K) floats.
+    dither: (--dither_ld) the flip draw is a low-discrepancy sequence per weight, u_ij = frac(h_ij + step * phi) with
+            h_ij a fixed hash of the weight (regenerated each step from a seed, not stored), instead of a fresh random
+            number: each weight flips its expected number of times with little sampling noise. No state.
+    dry_vec: (--dry_vec D) dry friction on the whole momentum (all layers as one vector): after each step
+            ||M|| -= D x a slow EMA of the total gradient norm (to 0), use with beta 1. Two floats.
+    spend: (--spend c, plain path) a flip consumes the push that caused it: U += c * mean|M| * (D V), D = the trits'
+            change (-sign(M) where they flipped), so those entries of M shrink by c * mean|M| (kept low-rank).
+
     propose_only: update M but do not flip; leave l.gw and capture on and return the M's,
     so lookahead_step proposes from M and filters with the true gradients.
 
@@ -242,7 +252,7 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     gn2 = 0.0
     for i, l in enumerate(layers):
         g = l.gw.float()
-        if ncap: gn2 += float(g.pow(2).sum())
+        if ncap or dry_vec: gn2 += float(g.pow(2).sum())
         if pfun_tanh:
             ga = state.setdefault("_gabs", {}); gam = g.abs().mean()
             ga[id(l)] = gam if id(l) not in ga else 0.99 * ga[id(l)] + 0.01 * gam
@@ -285,6 +295,16 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 Vn = torch.linalg.qr(b * V @ (U.T @ U) + g.T @ U)[0]
                 state[key] = (b * U @ (V.T @ Vn) + g @ Vn, Vn)
         U, V = state[key]
+        if slow_rank:
+            sk = ("slow", key)
+            if sk not in state:
+                U0 = torch.linalg.qr(torch.randn(l.N, slow_rank, device=g.device))[0]
+                Vs0 = torch.linalg.qr(g.T @ U0)[0]
+                state[sk] = (g @ Vs0, Vs0)
+            else:
+                Us, Vs_ = state[sk]
+                Vn = torch.linalg.qr(slow_beta * Vs_ @ (Us.T @ Us) + g.T @ Us)[0]
+                state[sk] = (slow_beta * Us @ (Vs_.T @ Vn) + g @ Vn, Vn)
         if refresh:
             # --lr_refresh: per direction, a moving average of the share of the gradient it catches;
             # every refresh_every steps the `refresh` weakest directions are replaced by the top
@@ -342,6 +362,9 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
         gm = M.abs().mean().clamp_min(1e-12)
         if gate:            # --lr_gate without look-ahead: flip only where the current batch gradient agrees in sign
             M = M * (M.sign() == g.sign())
+        if slow_rank:       # --slow_gate: and only where the slow momentum agrees
+            Us, Vs_ = state[("slow", key)]
+            M = M * (M.sign() == (Us @ Vs_.T).sign())
         if speed_row:       # --speed_row B: per-row speed reference, slow EMA (decay B) of each row's mean |M|
             rs = state.setdefault("_srow", {}); rm = M.abs().mean(1).clamp_min(1e-12)
             rs[key] = rm if key not in rs else speed_row * rs[key] + (1 - speed_row) * rm
@@ -353,13 +376,40 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
         if pfun_tanh:       # absolute units: p = rate * tanh(|M_ij| / (g_ref v0)), no division by the current size
             gm = (pfun_tanh * state["_gabs"][key]).clamp_min(1e-12)
             M = M.sign() * (l.g_ref * gm) * torch.tanh(M.abs() / (l.g_ref * gm))
-        fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003, gmean=gm)
+        if dither or spend:
+            from .kernel import unpack_rows, pack_rows
+            w0 = unpack_rows(l.wpacked, l.K).to(torch.int8)
+        if dither:
+            p = l.rate * (M.abs() / (l.g_ref * gm)).clamp(max=1)
+            gen = torch.Generator(device=M.device).manual_seed(7_000_003 + i + flip_seed * 1_000_003)
+            u = (torch.rand(M.shape, generator=gen, device=M.device) + (step * 0.6180339887498949) % 1.0) % 1.0
+            d = -M.sign().to(torch.int8)
+            l.wpacked.copy_(pack_rows(torch.where(u < p, (w0 + d).clamp(-1, 1), w0).to(torch.int8)))
+            del p, u, d
+        else:
+            fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003, gmean=gm)
+        if spend:
+            D = (unpack_rows(l.wpacked, l.K).to(torch.int8) - w0).float()
+            U, V = state[key]
+            state[key] = (U + spend * state["_gm"][key] * (D @ V), V)
+            del D
+        if dither or spend:
+            del w0
         if undo:
             from .kernel import unpack_rows, pack_rows
             pm[key] = pack_rows((unpack_rows(l.wpacked, l.K).to(torch.int8) - w_start).clamp(-1, 1).to(torch.int8))
             del w_start
         if before is not None:
             l._record_flips(before, l.wpacked)
+    if dry_vec:             # dry friction on the momentum as one vector: ||M|| -= D x EMA of the gradient norm
+        gn = gn2 ** 0.5
+        state["_gnorm_d"] = gn if "_gnorm_d" not in state else 0.99 * state["_gnorm_d"] + 0.01 * gn
+        keys = [id(l) for l in layers if id(l) in state]
+        tot = sum(float(state[k][0].pow(2).sum()) for k in keys) ** 0.5
+        f = max(tot - dry_vec * state["_gnorm_d"], 0.0) / max(tot, 1e-30)
+        for k in keys:
+            U, V = state[k]; state[k] = (U * f, V)
+        state["_dry_f"] = f
     if ncap:                # cap the momentum as one vector: ||M||^2 = sum over layers of ||U||^2 (V orthonormal)
         gn = gn2 ** 0.5
         state["_gnorm"] = gn if "_gnorm" not in state else 0.99 * state["_gnorm"] + 0.01 * gn
@@ -1077,6 +1127,15 @@ def main():
     ap.add_argument("--undo", action="store_true",
                     help="momentum flips: flip back last step's moves that this batch's gradient and the updated "
                          "momentum both call uphill (one-step buffer of the moves)")
+    ap.add_argument("--slow_gate", type=int, default=0,
+                    help="momentum flips: rank of a second, slow momentum; flip only where it agrees in sign (0 = off)")
+    ap.add_argument("--slow_beta", type=float, default=0.999, help="decay of the --slow_gate momentum")
+    ap.add_argument("--dither_ld", action="store_true",
+                    help="momentum flips: low-discrepancy flip draw per weight (fixed hash + step * golden ratio)")
+    ap.add_argument("--dry_vec", type=float, default=0.0,
+                    help="momentum flips: dry friction on the whole momentum, ||M|| -= D x gradient norm per step")
+    ap.add_argument("--spend", type=float, default=0.0,
+                    help="momentum flips (no look-ahead): a flip consumes c * mean|M| of the momentum at its entry")
     ap.add_argument("--grav_up", type=float, default=0.0,
                     help="asymmetric gravity: where the batch gradient opposes a weight's momentum, decay it with this "
                          "instead of --lr_beta (e.g. 0.5; 0 = off)")
@@ -1719,7 +1778,8 @@ def main():
                                        args.flip_seed, args.lr_adapt, gate=args.lr_gate, vnorm=args.lr_vnorm,
                                        speed_ref=args.speed_ref, speed_row=args.speed_row,
                                        ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh, grav_up=args.grav_up,
-                                       undo=args.undo)
+                                       undo=args.undo, slow_rank=args.slow_gate, slow_beta=args.slow_beta,
+                                       dither=args.dither_ld, dry_vec=args.dry_vec, spend=args.spend)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
