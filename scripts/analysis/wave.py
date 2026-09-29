@@ -5,6 +5,7 @@ no-look-ahead snapshot (saved momentum, float tail frozen, plain momentum with t
   momentum lag     cos(M_t, T_t+lag): how well the momentum held at step t predicts the gradient lag steps later
   main directions  the 3 principal directions of the 41 gradients and each one's sign over time (swinging back and
                    forth = oscillation along that direction; the number of sign changes gives a rough period)
+  WAVE_BETA=1 WAVE_CAP=3 WAVE_NORM=fixed   the user's rule: pure sum (no decay), per-weight cap, fixed divisor
   WAVE_GRAV=0.5        asymmetric gravity: momentum decays with 0.5 where the batch gradient opposes it, BETA elsewhere
   WAVE_SIG=gate | vnorm:0.99 | rowema:0.995   flip signal variants (sign gate; factored-Adam step; per-row speed)
   WAVE_NORM=ema:0.995  the trainer's --speed_ref rule (slow EMA of mean |M|, started at its step-0 value)
@@ -48,7 +49,7 @@ def truth(seed):
 
 
 F = [(U.cuda().float() @ V.cuda().float().T) for U, V in B.b["lowrank"]]
-F = [f * (1 - 0.97) / (1 - BETA) for f in F]              # a sum of gradients has size ~ g / (1 - beta)
+if BETA < 1: F = [f * (1 - 0.97) / (1 - BETA) for f in F]   # a sum of gradients has size ~ g / (1 - beta)
 # WAVE_SUB < 1 keeps a fixed random share of the coordinates, on the CPU (small GPUs / little RAM)
 SUB = float(os.environ.get("WAVE_SUB", "1"))
 NTOT = sum(f.numel() for f in F)
@@ -62,6 +63,7 @@ def keep(v):
 from bitnet.kernel import unpack_rows
 NORM = os.environ.get("WAVE_NORM", "own")
 SIG = os.environ.get("WAVE_SIG", "plain"); VN, RR = {}, {}
+CAP = float(os.environ.get("WAVE_CAP", "0"))     # per-weight velocity cap |M_ij| <= CAP x (mean |M| at step 0)
 GRAV = float(os.environ.get("WAVE_GRAV", "0"))   # 0 = off; e.g. 0.5: strong pull-back when climbing
 GM0 = [f.abs().mean().clamp_min(1e-12) for f in F]
 # WAVE_GM_BETA=0.97: the fixed divisor in gradient units taken from the 0.97 momentum (size ~ g / 0.03), so a shorter
@@ -84,6 +86,8 @@ for k in range(K):
         F = [torch.where(f.sign() * x.sign() < 0, GRAV * f, BETA * f) + x for f, x in zip(F, g)]
     else:
         F = [BETA * f + x for f, x in zip(F, g)]
+    if CAP:    # the user's rule with BETA=1: no decay, the loss slows the momentum uphill, the cap bounds its speed
+        F = [f.clamp(-CAP * float(GM0[i]), CAP * float(GM0[i])) for i, f in enumerate(F)]
     for i, (l, f) in enumerate(zip(Ls, F)):
         gm = f.abs().mean().clamp_min(1e-12)
         if "vnorm:" in SIG:                    # factored second moment of g (N + K floats): smaller steps where steep
@@ -119,7 +123,7 @@ MT = MT / nM[:, None] / nT[None, :]
 L1 = held()
 print(f"\nheld-out loss {L0:.4f} -> {L1:.4f} ({L1 - L0:+.4f}) over {K} steps; flips per step: first 5 "
       f"{[round(n / 1e3) for n in nflip[:5]]}k, mean {np.mean(nflip) / 1e3:.0f}k, last 5 {[round(n / 1e3) for n in nflip[-5:]]}k")
-print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, gravity {GRAV}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
+print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, gravity {GRAV}, cap {CAP}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())

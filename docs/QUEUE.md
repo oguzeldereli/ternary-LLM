@@ -8,6 +8,11 @@ PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 p
 
 Last updated: 2026-09-29 10:45
 
+Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
+`gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
+(momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
+`speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
+
 ## Night 28-29 Sep (planned 01:10, runs to ~10:00)
 
 Swing test, fixed divisor (4090, 25%): flips did not drop (164k -> 178k per step), swing unchanged (lag 3 -0.241),
