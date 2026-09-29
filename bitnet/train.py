@@ -202,7 +202,8 @@ def _diag_agg(name, vals, per_block=7):
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
-                 qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0):
+                 qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
+                 undo=False):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -222,6 +223,9 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             pfun_tanh S sets the flip chance to rate * tanh(|M_ij| / (g_ref v0)), v0 = S x a slow EMA of the layer's
             mean |g| (absolute gradient units, not the momentum's own size). Two floats + one per layer.
 
+    undo: (--undo) a corrective move: last step's flips that this batch's gradient and the updated momentum now both
+            call uphill are flipped back before this step's flips (the last step's moves are kept for one step,
+            2 bits per weight packed, like the gradient itself a one-step buffer).
     grav_up: (--grav_up D) asymmetric gravity: where this batch's gradient opposes a weight's momentum (climbing), that
             weight's momentum decays with D instead of beta; on the full M, then one subspace step back to rank r.
 
@@ -325,6 +329,16 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 M = M * T.repeat_interleave(attn.head_dim).pow(-qk_protect)[:, None]
             Ms.append(M); state.setdefault("_gms", []).append(gm); continue
         before = l.wpacked.clone() if l.track else None
+        if undo:
+            from .kernel import unpack_rows, pack_rows
+            pm = state.setdefault("_pmove", {})
+            w_start = unpack_rows(l.wpacked, l.K).to(torch.int8)
+            if key in pm:
+                d = unpack_rows(pm[key], l.K).to(torch.int8).float()      # last step's move, -1 / 0 / +1
+                back = (d != 0) & (d * g > 0) & (M.sign() == d)
+                if back.any():
+                    l.wpacked.copy_(pack_rows(torch.where(back, (w_start.float() - d).clamp(-1, 1).to(torch.int8), w_start)))
+                state["_nundo"] = state.get("_nundo", 0) + int(back.sum())
         gm = M.abs().mean().clamp_min(1e-12)
         if gate:            # --lr_gate without look-ahead: flip only where the current batch gradient agrees in sign
             M = M * (M.sign() == g.sign())
@@ -340,6 +354,10 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             gm = (pfun_tanh * state["_gabs"][key]).clamp_min(1e-12)
             M = M.sign() * (l.g_ref * gm) * torch.tanh(M.abs() / (l.g_ref * gm))
         fused_flip(l.wpacked, M, l.rate, l.g_ref, 8_000_000 + step * 131 + i + flip_seed * 1_000_003, gmean=gm)
+        if undo:
+            from .kernel import unpack_rows, pack_rows
+            pm[key] = pack_rows((unpack_rows(l.wpacked, l.K).to(torch.int8) - w_start).clamp(-1, 1).to(torch.int8))
+            del w_start
         if before is not None:
             l._record_flips(before, l.wpacked)
     if ncap:                # cap the momentum as one vector: ||M||^2 = sum over layers of ||U||^2 (V orthonormal)
@@ -1056,6 +1074,9 @@ def main():
     ap.add_argument("--speed_ref", type=float, default=0.0,
                     help="momentum flips: divide M by a slow EMA (this decay, e.g. 0.995) of its mean |M| instead of "
                          "by its current mean, so the flip count follows the momentum's size (0 = off)")
+    ap.add_argument("--undo", action="store_true",
+                    help="momentum flips: flip back last step's moves that this batch's gradient and the updated "
+                         "momentum both call uphill (one-step buffer of the moves)")
     ap.add_argument("--grav_up", type=float, default=0.0,
                     help="asymmetric gravity: where the batch gradient opposes a weight's momentum, decay it with this "
                          "instead of --lr_beta (e.g. 0.5; 0 = off)")
@@ -1697,7 +1718,8 @@ def main():
                 rs_info = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
                                        args.flip_seed, args.lr_adapt, gate=args.lr_gate, vnorm=args.lr_vnorm,
                                        speed_ref=args.speed_ref, speed_row=args.speed_row,
-                                       ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh, grav_up=args.grav_up)
+                                       ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh, grav_up=args.grav_up,
+                                       undo=args.undo)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
