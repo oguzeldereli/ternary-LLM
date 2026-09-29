@@ -352,6 +352,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <span class="eyebrow">The figures worth looking at</span>
   <h2>Figures</h2>
   <div class="figs">
+    <figure><img src="best_runs.png" alt="Best run of each family"><figcaption><b>best runs</b>: the best run of each family, validation loss only; dashed = still running.</figcaption></figure>
     <figure><img src="speed_and_gate.png" alt="Speed and gate runs"><figcaption><b>speed and gate</b> (night 28–29 Sep): from-scratch runs with row/column scales: seed spread, per-layer speed reference, sign gate, Adam-style step.</figcaption></figure>
     <figure><img src="new_rules.png" alt="New flip rules"><figcaption><b>new rules</b>: adaptive flip rate (yellow) tracks the look-ahead baseline right after branching; the online selector (teal) spikes and stays behind; adaptive memory (red) led early, now falls back.</figcaption></figure>
     <figure><img src="memory_and_scales.png" alt="Memory and scales"><figcaption><b>memory and scales</b>: master with its latent at 4 / 3 / 2 bits (yellow / red / green): at 2 bits (a stateless master) it jumps above our momentum. The 3-bit evidence counter (teal) gains ~0.06 over plain.</figcaption></figure>
