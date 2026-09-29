@@ -64,6 +64,8 @@ def keep(v):
 from bitnet.kernel import unpack_rows
 NORM = os.environ.get("WAVE_NORM", "own")
 SIG = os.environ.get("WAVE_SIG", "plain"); VN, RR = {}, {}
+GCAP = float(os.environ.get("WAVE_GCAP", "0"))   # cap ||M|| <= GCAP x (running mean of the batch gradient norm)
+GN = [0.0, 0]
 NCAP = float(os.environ.get("WAVE_NCAP", "0"))   # cap on the whole momentum vector: ||M|| <= NCAP x ||M|| at step 0
 PFUN = os.environ.get("WAVE_PFUN", "clip")        # tanh: flip chance rate * tanh(|M_ij| / v0), v0 fixed at step 0
 CAP = float(os.environ.get("WAVE_CAP", "0"))     # per-weight velocity cap |M_ij| <= CAP x (mean |M| at step 0)
@@ -91,6 +93,10 @@ for k in range(K):
         F = [torch.where(f.sign() * x.sign() < 0, GRAV * f, BETA * f) + x for f, x in zip(F, g)]
     else:
         F = [BETA * f + x for f, x in zip(F, g)]
+    if GCAP:   # the cap in gradient units: a velocity of at most GCAP gradients (turns in ~GCAP steps)
+        GN[0] += sum(float(x.pow(2).sum()) for x in g) ** 0.5; GN[1] += 1
+        lim = GCAP * GN[0] / GN[1]; nrm = sum(float(f.pow(2).sum()) for f in F) ** 0.5
+        if nrm > lim: F = [f * (lim / nrm) for f in F]
     if NCAP:   # the user's rule: cap the momentum as one vector (all layers together), not per weight
         nrm = sum(float(f.pow(2).sum()) for f in F) ** 0.5
         if nrm > NCAP * NORM0: F = [f * (NCAP * NORM0 / nrm) for f in F]
@@ -133,7 +139,7 @@ MT = MT / nM[:, None] / nT[None, :]
 L1 = held()
 print(f"\nheld-out loss {L0:.4f} -> {L1:.4f} ({L1 - L0:+.4f}) over {K} steps; flips per step: first 5 "
       f"{[round(n / 1e3) for n in nflip[:5]]}k, mean {np.mean(nflip) / 1e3:.0f}k, last 5 {[round(n / 1e3) for n in nflip[-5:]]}k")
-print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, gravity {GRAV}, cap {CAP}, norm cap {NCAP}, pfun {PFUN}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
+print(f"{RUN} @{ST}, norm {NORM}, signal {SIG}, gravity {GRAV}, cap {CAP}, norm cap {NCAP}, grad cap {GCAP}, pfun {PFUN}, rate {RATE:.4f}, beta {BETA}, true gradient from {NT} batches at each of {K} steps")
 print("lag  mean cos(T_t, T_t+lag)   mean cos(M_t, T_t+lag)")
 for lag in (0, 1, 2, 3, 5, 8, 10, 13, 16, 20, 25, 30, 35, 40):
     c = float(torch.diagonal(G, lag).mean())
