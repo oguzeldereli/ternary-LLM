@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 05:35</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 06:30</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -141,6 +141,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <div class="ref"><span class="v">2.759</span><span class="l">master weights (ternary forward, fp32 latent copy)</span></div>
     <div class="best"><span class="v">2.9925</span><span class="l">ours, best: look-ahead + additive r16 + adapter weight decay + per-head temperature</span></div>
     <div><span class="v">3.082</span><span class="l">look-ahead + additive r4</span></div>
+    <div><span class="v">3.119</span><span class="l">no look-ahead, sign gate + row/column scales (from scratch; plain + scales 3.131, seed 2 3.127)</span></div>
     <div><span class="v">3.111</span><span class="l">look-ahead on to 30M, off to 131M, on after</span></div>
     <div><span class="v">3.120</span><span class="l">no look-ahead, your momentum design (branch from 131M)</span></div>
     <div><span class="v">3.127</span><span class="l">baseline: momentum + look-ahead</span></div>
@@ -154,10 +155,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090</td><td class="mono">gatevnorm_rc_s0 → vnorm_rc_s0</td><td>from scratch + row/column scales (speed reference done: 3.1315 vs 3.1307, no effect); then sign gate + Adam-style step; then Adam-style step alone. Beside it: swing tests of asymmetric gravity 0.5 / 0.8, gradient-unit speed with memory 0.8, and the gate's rate control (old rule at ×0.62)</td><td class="num">~03:00, ~05:30, ~08:00</td></tr>
-    <tr><td>pintail</td><td class="mono">gate_rc_s0 → rate085_rc_s0</td><td>sign gate from scratch: 3.172 vs 3.185 for rc_s0 at 262M (seed spread 0.003); then its rate control (plain at 0.85× flip rate: the gate flips 0–30% fewer weights)</td><td class="num">~06:00, ~09:40</td></tr>
+    <tr><td>4090</td><td class="mono">gatevnorm_rc_s0 → vnorm_rc_s0</td><td>from scratch + row/column scales (speed reference done: 3.1315 vs 3.1307, no effect). Gate + Adam-style step: 3.260 vs 3.388 for rc_s0 at 180M, flipping ~0.7× as many weights; then sign gate + Adam-style step; then Adam-style step alone. Beside it: swing tests of asymmetric gravity 0.5 / 0.8, gradient-unit speed with memory 0.8, and the gate's rate control (old rule at ×0.62)</td><td class="num">~03:00, ~05:30, ~08:00</td></tr>
+    <tr><td>pintail</td><td class="mono">rate085_rc_s0</td><td>the gate finished: <b>3.1194</b> vs 3.1307 rc_s0 / 3.1273 seed 2. Now its rate control: plain momentum at 0.85× flip rate</td><td class="num">~09:30</td></tr>
     <tr><td>shoveler</td><td class="mono">gate_rc_s0_seed2</td><td>rc_s0 seed 2 done: <b>3.1273</b> vs 3.1307 (seed spread 0.003); now the gate, seed 2 (started 05:30 after a stuck runner)</td><td class="num">~09:10</td></tr>
-    <tr><td>laptop</td><td class="mono">probes</td><td>swing test on the training runs' own checkpoints: rc_s0 and speedref_rc_s0 at steps 5000 and 8000</td><td class="num">to ~06:00</td></tr>
+    <tr><td>laptop</td><td class="mono">probes</td><td>done: rc_s0 and speedref_rc_s0 @5000 / @8000 (same swing in both). Now the gate run's own checkpoint (gate rule) vs rc_s0 @5000, with the per-weight analysis</td><td class="num">~07:50, ~09:10</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>

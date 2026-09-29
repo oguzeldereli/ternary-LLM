@@ -1445,3 +1445,13 @@ Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 a
 - Probe `rc_s0` @8000 (late, rate 14k flips/step): swing slow (lag 5 still +0.26) but momentum still anti-predicts
   (-0.19 at lag 5); 45.2% uphill; |M|/|T| at a reversal 13.7; never follows 24.7%.
 - Shoveler had idled 04:30-05:30 (its runner never saw `rc_s0_seed2` finish); restarted, `gate_rc_s0_seed2` running.
+
+### 29 Sep 06:30
+
+- **`gate_rc_s0` final 3.1194** vs `rc_s0` 3.1307 and `rc_s0_seed2` 3.1273 (seed spread 0.003): -0.008 to -0.011.
+  First stateless flip-rule change since row/column scales that holds to 300M. Rate control `rate085_rc_s0` running
+  (pintail), seed 2 of the gate running (shoveler).
+- `gatevnorm_rc_s0` 3.2602 vs `rc_s0` 3.3884 at step 5500 (-0.128), flipping ~0.7x as many weights.
+- Probe `speedref_rc_s0` @8000: as `rc_s0` @8000 (lag 5 +0.21, momentum vs gradient -0.21 at lag 5, 45.6% uphill,
+  |M|/|T| 13.9, never follows 24.6%).
+- Laptop now: swing test with the per-weight analysis on `gate_rc_s0` @5000 (gate rule) and `rc_s0` @5000.
