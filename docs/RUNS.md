@@ -1431,3 +1431,17 @@ Swing tests at nola_lab @4500 (41 steps, 25% of coordinates; old rule: -0.0116 a
   at 8750).
 - The 4090 list runner had waited on the tmux server's command line (it keeps the name `queue_4090_c.sh`), idle
   03:37-04:30; fixed, `gatevnorm_rc_s0` started 04:30.
+
+### 29 Sep 05:30
+
+- `rc_s0_seed2` final **3.1273** vs `rc_s0` 3.1307: seed spread at 300M ~0.003.
+- `gate_rc_s0` 3.1717 vs `rc_s0` 3.1850 at step 8000 (-0.013). In training the gate flips 0-30% fewer weights than
+  `rc_s0` (0.328 / 0.270 / 0.161 / 0.053% vs 0.329 / 0.287 / 0.189 / 0.076% at log lines 100 / 300 / 500 / 700), so its
+  rate control `rate085_rc_s0` (`--rate_peak 0.017`, ~the gate's average flip count) is queued on pintail.
+- `gatevnorm_rc_s0` 3.5788 vs `rc_s0` 3.7902 at step 2000 (-0.21), flipping ~0.7x as many weights early.
+- Swing tests (41 steps, 25%): the user's rule (flip chance in absolute gradient units, memory 0.8): -0.0901 at 77k
+  flips/step, lag 1-3 +0.52 / -0.02 / -0.21 (faster swing), momentum vs next gradient -0.17 / -0.11 / -0.00, 40.4%
+  uphill, never follows 9.1%, |M|/|T| 3.8. Gravity 0.8: -0.0559 at 170k, 42.6% uphill, never 10.3%, |M|/|T| 3.4.
+- Probe `rc_s0` @8000 (late, rate 14k flips/step): swing slow (lag 5 still +0.26) but momentum still anti-predicts
+  (-0.19 at lag 5); 45.2% uphill; |M|/|T| at a reversal 13.7; never follows 24.7%.
+- Shoveler had idled 04:30-05:30 (its runner never saw `rc_s0_seed2` finish); restarted, `gate_rc_s0_seed2` running.
