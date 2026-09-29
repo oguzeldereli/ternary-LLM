@@ -1370,3 +1370,16 @@ Main directions: 3-6 sign changes in 41 steps (period ~16-20 vs ~6-8 at full rat
 its period grows about as 1/sqrt(rate) while its depth stays, the signature of heavy-ball momentum underdamped in
 stiff directions (omega ~ sqrt(rate * curvature) ~ 0.9 per step at full rate, damping 1 - beta = 0.03). Lower rates
 slow the swing; they do not remove it.
+
+### 29 Sep 02:00: per weight, does the momentum reach zero and turn at a reversal? (nola_lab @4500, old rule, 41 steps, 25% of coordinates)
+
+- 45.4% of the flips made each step move uphill on the true gradient (44-46% in every step).
+- Momentum sign = true-gradient sign on only 41.7% of weights (46.6% weighted by |T|): more often wrong than a coin.
+- At a reversal of the true gradient on a weight (both sides above median size), the momentum is 6.9x the true
+  gradient (median): ~7 steps of pull to cross zero. Momentum already on the new side 35.6%, follows in 1-3 steps
+  21.1%, 4+ steps 21.6%, never within the window 21.7%.
+- Along the two main swing directions the momentum's component follows the gradient's ~2 steps late (correlation
+  +0.94 / +0.86 at lag 2) and is small: a few % of the momentum's direction.
+- Only 24.7% of the momentum's size (squared) lies in the span of the 41 true gradients; the rest points where the
+  true gradient never goes (accumulated batch noise). This, not the swing, sets |M| and the flip count, which is why
+  a per-layer divisor could not see the swing.
