@@ -84,6 +84,14 @@ CATS = {
         ("rc_s0", "plain momentum + row/column scales, from scratch (4090)"),
         ("la40rc_s0", "+ look-ahead first 40 steps only (no plateau), from scratch (4090)"),
         ("adaptrate_rc_s0", "adaptive flip rate + row/column scales, from scratch (4090)")]),
+    "speed_and_gate": ("Night 28-29 Sep: flip speed and the sign gate, from scratch with row/column scales", 3e8, [
+        ("rc_s0", "plain momentum + row/column scales (4090)"),
+        ("rc_s0_seed2", "the same, seed 2 (seed spread)"),
+        ("speedref_rc_s0", "speed reference: divide M by a slow EMA of its size"),
+        ("gate_rc_s0", "sign gate: flip only where this batch agrees with M"),
+        ("gate_rc_s0_seed2", "sign gate, seed 2"),
+        ("gatevnorm_rc_s0", "sign gate + factored Adam step"),
+        ("vnorm_rc_s0", "factored Adam step (smaller steps where steep)")]),
     "momentum_fixes_20M": ("Momentum fixes, 20M from-scratch screens", 2.2e7, [
         ("s20_base", "baseline seed 0"), ("s20_base_seed1", "baseline seed 1"), ("s20_base_seed2", "baseline seed 2"),
         ("s20_gate", "sign gate"), ("s20_vnorm99", "vnorm"), ("s20_gate_vnorm99", "gate + vnorm"),

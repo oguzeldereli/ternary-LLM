@@ -129,7 +129,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 28 Sep 2026, 22:15</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 02:30</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
@@ -154,8 +154,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090 (unattended queue)</td><td class="mono">rc_s0 → la40rc_s0 → adaptrate_rc_s0</td><td>from scratch, no look-ahead, learned row/column scales: plain momentum <b>done: 3.1307</b> (3.158 without scales); look-ahead for the first 40 steps only (no plateau); adaptive flip rate</td><td class="num">~18:30, ~21:00, ~23:30</td></tr>
-    <tr><td>laptop</td><td class="mono">wave, β 0.97 / 0.8 / 0.5 @4500</td><td>does a shorter momentum memory damp the swing our flips make? (gressingham went down mid-test; all lab PCs off for the night)</td><td class="num">~23:00, ~00:00, ~01:00</td></tr>
+    <tr><td>4090</td><td class="mono">speedref_rc_s0 → gatevnorm_rc_s0 → vnorm_rc_s0</td><td>from scratch + row/column scales: per-layer speed reference (3.437 at 172M vs 3.417 for rc_s0: early lead lost); then sign gate + Adam-style step; then Adam-style step alone. Beside it: swing tests of asymmetric gravity 0.5 / 0.8, gradient-unit speed with memory 0.8, and the gate's rate control (old rule at ×0.62)</td><td class="num">~03:00, ~05:30, ~08:00</td></tr>
+    <tr><td>pintail</td><td class="mono">gate_rc_s0</td><td>sign gate from scratch: flip only where this batch's gradient agrees with the momentum</td><td class="num">~06:00</td></tr>
+    <tr><td>shoveler</td><td class="mono">rc_s0_seed2 → gate_rc_s0_seed2</td><td>seed spread of rc_s0 (3.578 vs 3.581 at 115M); then the gate, seed 2</td><td class="num">~04:40, ~08:20</td></tr>
+    <tr><td>laptop</td><td class="mono">probes</td><td>swing test on the training runs' own checkpoints: rc_s0 and speedref_rc_s0 at steps 5000 and 8000</td><td class="num">to ~06:00</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
@@ -189,7 +191,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node good"><b>Wave found</b>: the true gradient swings with a ~6–8 step period (autocorrelation +0.69, +0.19, <b>−0.20</b> at lags 1–3); the steady part is only 4% of its energy</div><div class="down">↓</div>
       <div class="node bad">Momentum (memory ~33 steps) <b>anti-predicts</b> the next gradients: −0.17, −0.19, −0.14 at lags 1–3. It averages over 4–5 swings and lags half a swing behind</div><div class="down">↓</div>
       <div class="node good"><b>Our flips make the swing</b>: frozen weights, no swing (gradient cos 0.95 at every lag, momentum +0.81). At ¼ rate the swing is slower (period ~16–20) but as deep (−0.24)</div><div class="down">↓</div>
-      <div class="node lead">Period ∝ 1/√rate: an underdamped heavy-ball oscillation. Memory 0.97 damps far too little for the step. Running: β 0.8 / 0.5</div>
+      <div class="node">Period ∝ 1/√rate. Shorter memory (β 0.8) swings faster, not less; one speed divisor per layer changes nothing (flips 164k → 178k)</div><div class="down">↓</div>
+      <div class="node bad">Per weight: 45% of flips go uphill; momentum's sign is right on only 42% of weights; at a reversal it is 7× the gradient (~7 steps to turn); 22% never turn within 41 steps; 75% of the momentum's size is batch noise</div><div class="down">↓</div>
+      <div class="node good"><b>Sign gate</b> (flip only where this batch agrees with M) removes the swing: −0.085 in 41 steps vs −0.011; Adam-style step −0.030; per-row speed −0.016</div><div class="down">↓</div>
+      <div class="node lead">Found: without look-ahead the gate and the Adam-style step were never applied (wired only into the look-ahead path). Training now, from scratch</div>
     </div></div>
     <div class="thread"><h3>4 · Step size</h3><div class="chain">
       <div class="node good">¼ flip rate (branch): 0.16 better right away</div><div class="down">↓</div>
@@ -267,6 +272,8 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <tr><td>flip choice, follow-up</td><td>at 1 step: global size +1.75, size per row +0.21, per column +0.45, our proportional rule +0.016 (−0.022 at ½), random −0.024. Top-size flips land 36% in the busiest 1% of rows. The penalty is concentration; our training rule does not have it. Best amount for random ≈ ½–1 step</td></tr>
     <tr><td>wave test (41 steps of real flips)</td><td>true-gradient autocorrelation +0.69 / +0.19 / −0.20 at lags 1 / 2 / 3, then ±0.1 around 0; the main directions change sign every 3–4 steps (period ~6–8). Momentum vs the next gradients: −0.06 now, −0.17 / −0.19 / −0.14 at lags 1–3. The steady direction is 4.3% of the gradient's energy</td></tr>
     <tr><td>wave controls</td><td>frozen weights (rate 0): cos(T_t, T_t+lag) = 0.95 at every lag (the 32-batch noise floor), momentum +0.81 aligned: no swing without flips. ¼ rate: +0.84 / +0.71 / +0.53 / +0.12 at lags 1 / 2 / 3 / 5, −0.24 at 8, 3–6 sign changes in 41 steps (period ~16–20, vs ~6–8 at full rate); momentum −0.16 at lag 5. Period ×2.5 for rate ÷4 ≈ 1/√rate, as in heavy-ball momentum on a stiff valley: ω ≈ √(rate · curvature) ≈ 0.9 per step, damping 1 − β = 0.03</td></tr>
+    <tr><td>per-weight reversals (41 steps, old rule)</td><td>45.4% of flips move uphill on the true gradient; momentum sign = true sign on 41.7% of weights; at a reversal |M| / |T| = 6.9 (median); on the new side already 36%, in 1–3 steps 21%, 4+ steps 22%, never 22%; the momentum follows the main swing ~2 steps late; only 25% of its size lies in the span of the true gradients</td></tr>
+    <tr><td>swing arms (41 steps, all weights)</td><td>held-out: old rule −0.0116 (165k flips/step, lag-3 −0.25); <b>sign gate −0.0851</b> (103k, lag-3 +0.18: no swing); Adam-style step −0.0303 (lag-3 −0.13); per-row speed −0.0157; fixed per-layer divisor −0.0034</td></tr>
     <tr><td>no-look-ahead plateau</td><td>blocks write a fixed vector ~200,000× the embeddings; output independent of input; block 0 breaks out at ~5M</td></tr>
     <tr><td>copying on natural text</td><td>all runs gain ~1.9–2.0 nats on a repeated passage; master's lead is broad (0.25–0.5 on non-copyable text)</td></tr>
     <tr><td>adapter without look-ahead</td><td>adapter output 6× the trits in q/k: attention runs on a rank-16 float projection</td></tr>
@@ -335,6 +342,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <span class="eyebrow">The figures worth looking at</span>
   <h2>Figures</h2>
   <div class="figs">
+    <figure><img src="speed_and_gate.png" alt="Speed and gate runs"><figcaption><b>speed and gate</b> (night 28–29 Sep): from-scratch runs with row/column scales: seed spread, per-layer speed reference, sign gate, Adam-style step.</figcaption></figure>
     <figure><img src="new_rules.png" alt="New flip rules"><figcaption><b>new rules</b>: adaptive flip rate (yellow) tracks the look-ahead baseline right after branching; the online selector (teal) spikes and stays behind; adaptive memory (red) led early, now falls back.</figcaption></figure>
     <figure><img src="memory_and_scales.png" alt="Memory and scales"><figcaption><b>memory and scales</b>: master with its latent at 4 / 3 / 2 bits (yellow / red / green): at 2 bits (a stateless master) it jumps above our momentum. The 3-bit evidence counter (teal) gains ~0.06 over plain.</figcaption></figure>
     <figure><img src="step_size.png" alt="Step size runs"><figcaption><b>step_size</b>: ¼ rate (purple) and accumulate-then-flip (red) drop right after branching; the trained rate (blue) keeps a steeper slope and closes in.</figcaption></figure>
