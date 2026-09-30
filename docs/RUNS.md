@@ -1766,3 +1766,11 @@ swing keeps M small.)
 - What dry friction adds is that it sets the memory itself, in gradient units, and lengthens it over training (220 ->
   390 steps). Its cost is a slower start (the checkpoints do not show why: at step 1000 its memory is already ~220).
 - The earlier "dry + spend 2.8699 vs beta 0.99 + spend 2.9031" compared against beta 0.99 (100 steps), not the best decay.
+
+### 30 Sep 10:50: dry friction + rank 512 (`gvsharp_dry_r512_s0`): **2.8356** (ppl 17.0; master 2.751, ppl 15.7)
+
+-0.152 vs the base, gap to master **+0.084**. Rank 512 is worth -0.046 on top of dry friction (on the short-memory base
+only -0.025; rank 1024 is not ahead of 512 at 3000-6000). At 300M vs master: pairs 0 / 1-9 / 10-99 / 1e2-1e3 / 1e3-1e4 /
+>1e4 +0.06 / +0.07 / +0.15 / +0.12 / +0.05 / +0.02; positions 0-1 / 2-15 / 16-127 / 512+ +0.26 / +0.11 / +0.08 / +0.06;
+copy gain +4.31 (induction). Rank capture: 89-94% of each bucket's held-out gradient inside the rank-512 subspace (78-89%
+at rank 256); cos(M, G) rare pairs +0.081, frequent -0.086.

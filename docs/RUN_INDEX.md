@@ -124,7 +124,8 @@ ones: [QUEUE.md](QUEUE.md).
 | `gvsharp_b099spend_s0` | sharp base + beta 0.99 + spend 3 | 300M | 2.9031 |
 | `gvsharp_dryw_s0` | sharp base + beta 1 + `--dry_w 0.0303` (per weight) | 300M | 2.9409 |
 | `gvsharp_b099slow_s0` | sharp base + beta 0.99 + slow gate | 300M | 2.9441 |
-| `gvsharp_dry_r512_s0` | sharp base + beta 1 + dry 0.0303 + rank 512 | running | - |
+| **`gvsharp_dry_r512_s0`** | sharp base + beta 1 + dry 0.0303 + rank 512 | 300M | **2.8356** |
+| `gvsharp_b0995spend_r512_s0` | sharp base + beta 0.995 + spend 3 + rank 512 | running | - |
 | `gvsharp_dryspend_r512_s0` | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 512 | running | - |
 | `gvsharp_b0995_r512_s0` | sharp base + beta 0.995 + rank 512 | running | - |
 | `gvsharp_b0998_s0` | sharp base + beta 0.998 | running | - |

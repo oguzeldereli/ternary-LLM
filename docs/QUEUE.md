@@ -88,6 +88,10 @@ rank 512 -0.120; dry + rank 1024 -0.103 (3250, not ahead of rank 512); beta 0.99
 `gvsharp_b0995spend_r512_s0` = beta 0.995 + spend 3 + rank 512 (the decay form of the best combination, to pick between
 decay and dry friction for goldbug).
 
+10:50 check (last): dry + rank 512 finished 2.8356. Running (vs base): dry + spend + rank 512 -0.160 (7000); beta 0.995 +
+rank 512 -0.143; dry + rank 1024 -0.140 (6000); beta 0.995 + spend -0.100; dry 0.05 -0.096; beta 0.998 -0.090; dry 0.02
+-0.071 (6000); beta 0.995 + spend + rank 512 -0.111 (1750). Ends ~12:15-12:45 (bufflehead ~13:50). No more checks.
+
 Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
 A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
 
