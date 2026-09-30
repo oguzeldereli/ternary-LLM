@@ -37,6 +37,22 @@ long-memory runs start slower and overtake from ~66M. Base at 8500: 3.011 (maste
 Queued on bufflehead after the base (~01:45 -> ~05:40): `gvsharp_b1spend_slowgate_s0` = beta 1 + spend 3 + slow gate
 (r64, 0.999): the two best new mechanisms together.
 
+03:30 check (vs base at the latest step): beta 1 + dry -0.102 (7750); beta 0.99 -0.078 (8500); beta 1 + spend -0.061
+(8000, was -0.088); beta 1 + spend + slow gate -0.055 (4000); slow gate -0.034 (7750); rank 512 -0.024; dither +0.002;
+beta 1 +0.043. Memory length is the lever.
+
+Next wave, queued in each runner (starts when the current run ends, ~03:45-04:20, ends ~08:00-08:30):
+
+| machine | run | change |
+|---|---|---|
+| mallard | `gvsharp_b0995_s0` | `--lr_beta 0.995` (longer than 0.99) |
+| cackling | `gvsharp_dry01_s0` | beta 1 + `--dry_vec 0.01` (weaker friction: longer memory) |
+| gadwall | `gvsharp_dry1_s0` | beta 1 + `--dry_vec 0.1` (stronger friction: shorter memory) |
+| shoveler | `gvsharp_dryspend_s0` | beta 1 + dry 0.0303 + spend 3 |
+| mandarin | `gvsharp_b099spend_s0` | beta 0.99 + spend 3 |
+| harlequin | `gvsharp_dryw_s0` | beta 1 + `--dry_w 0.0303` (dry friction per weight, new flag) |
+| pintail | `gvsharp_b099slow_s0` | beta 0.99 + slow gate |
+
 Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
 A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
 

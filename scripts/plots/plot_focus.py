@@ -25,6 +25,7 @@ RUNS = [  # (run, label, colour)
     ("gvsharp_dither_s0", "sharp + low-discrepancy dither", "#bdbdbd"),
     ("gvsharp_dry_s0", "sharp + beta 1 + dry friction (vector)", "#f9a825"),
     ("gvsharp_b1spend_s0", "sharp + beta 1 + spend 3", "#212121"),
+    ("gvsharp_b1spend_slowgate_s0", "sharp + beta 1 + spend 3 + slow gate", "#26c6da"),
 ]
 
 

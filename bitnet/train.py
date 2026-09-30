@@ -203,7 +203,7 @@ def _diag_agg(name, vals, per_block=7):
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
-                 undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0):
+                 undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0, dry_w=0.0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -236,6 +236,8 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             number: each weight flips its expected number of times with little sampling noise. No state.
     dry_vec: (--dry_vec D) dry friction on the whole momentum (all layers as one vector): after each step
             ||M|| -= D x a slow EMA of the total gradient norm (to 0), use with beta 1. Two floats.
+    dry_w: (--dry_w D) dry friction per weight: |M_ij| -= D x the layer's mean |g| each step (to 0), on the full M,
+            then one subspace step back to rank r (like grav_up); use with beta 1.
     spend: (--spend c, plain path) a flip consumes the push that caused it: U += c * mean|M| * (D V), D = the trits'
             change (-sign(M) where they flipped), so those entries of M shrink by c * mean|M| (kept low-rank).
 
@@ -286,7 +288,12 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 D["d_insub"].append(((Qu.T @ g @ V).norm() / g.norm().clamp_min(1e-30)).item())
                 del Mo, a, ag
             b = beta * c if adapt else beta
-            if grav_up:
+            if dry_w:
+                Mf = b * (U @ V.T) + g
+                Mf = Mf.sign() * (Mf.abs() - dry_w * g.abs().mean()).clamp_min(0)
+                Vn = torch.linalg.qr(Mf.T @ U)[0]
+                state[key] = (Mf @ Vn, Vn); del Mf
+            elif grav_up:
                 Mf = U @ V.T
                 Mf = torch.where(Mf.sign() * g.sign() < 0, grav_up * Mf, b * Mf) + g
                 Vn = torch.linalg.qr(Mf.T @ U)[0]
@@ -1134,6 +1141,8 @@ def main():
                     help="momentum flips: low-discrepancy flip draw per weight (fixed hash + step * golden ratio)")
     ap.add_argument("--dry_vec", type=float, default=0.0,
                     help="momentum flips: dry friction on the whole momentum, ||M|| -= D x gradient norm per step")
+    ap.add_argument("--dry_w", type=float, default=0.0,
+                    help="momentum flips: dry friction per weight, |M_ij| -= D x mean|g| per step (full M, then rank r)")
     ap.add_argument("--spend", type=float, default=0.0,
                     help="momentum flips (no look-ahead): a flip consumes c * mean|M| of the momentum at its entry")
     ap.add_argument("--grav_up", type=float, default=0.0,
@@ -1779,7 +1788,8 @@ def main():
                                        speed_ref=args.speed_ref, speed_row=args.speed_row,
                                        ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh, grav_up=args.grav_up,
                                        undo=args.undo, slow_rank=args.slow_gate, slow_beta=args.slow_beta,
-                                       dither=args.dither_ld, dry_vec=args.dry_vec, spend=args.spend)
+                                       dither=args.dither_ld, dry_vec=args.dry_vec, spend=args.spend,
+                                       dry_w=args.dry_w)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
