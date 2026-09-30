@@ -1925,3 +1925,22 @@ Share of master's gain over the unigram guess, (U - ours) / (U - master): best r
   +0.245 -> +0.090, against >10k +0.026 -> +0.004. Memory length sets how long each rare fact is held; rank sets how
   many distinct facts the momentum can hold at once. The remaining gap is a capacity limit of the low-rank momentum for
   many sparse, specific facts.
+
+### 1 Oct 00:50: loss by context position, re-measured with error bars (`scripts/analysis/pos_gap.py`)
+
+192 held-out sequences (4x loss_by_pos, different sequences), paired bootstrap standard errors; loss minus master's:
+
+| run | 0-1 (384 tok) | 2-15 (2.7k) | 16-127 (21.5k) | 128-511 (73.7k) | 512+ (295k) |
+|---|---|---|---|---|---|
+| decay 0.995 | +0.106 ± 0.046 | +0.100 ± 0.019 | +0.139 ± 0.009 | +0.132 ± 0.006 | +0.121 ± 0.003 |
+| dry friction | +0.148 ± 0.058 | +0.143 ± 0.021 | +0.157 ± 0.010 | +0.134 ± 0.007 | +0.121 ± 0.003 |
+| dry + spend | +0.249 ± 0.054 | +0.163 ± 0.020 | +0.155 ± 0.009 | +0.125 ± 0.006 | +0.111 ± 0.003 |
+| dry + spend + rank 512 | +0.255 ± 0.054 | +0.153 ± 0.022 | +0.096 ± 0.008 | +0.073 ± 0.005 | +0.063 ± 0.003 |
+| dry + spend + rank 1024 | +0.122 ± 0.052 | +0.067 ± 0.020 | +0.062 ± 0.008 | +0.049 ± 0.005 | +0.043 ± 0.003 |
+
+- Long context is the same for dry friction and decay 0.995 (+0.121 each). The 48-sequence split in the old gaps.png
+  (dry friction best at 0-1, decay 0.995 worst) reverses on new sequences: it was noise.
+- Decay 0.995 may be slightly better than dry friction with 2-127 tokens of context (+0.100 vs +0.143 at 2-15, ~1.5 s.e.
+  apart): weak evidence only.
+- Spend without extra rank is worse with 0-1 tokens of context (+0.25 vs +0.15, ~1.5-2 s.e.); rank 1024 removes it.
+- Otherwise the runs differ by their overall level at every context length; gaps.png now draws this measurement.

@@ -54,15 +54,26 @@ a.set_title("by pair frequency: the gap is in pairs seen < 10k times; long memor
             loc="left")
 a.legend(loc="upper right", fontsize=9.5, frameon=False, labelcolor=INK)
 a = axs[1]
-for i, (r, lab, c) in enumerate(RUNS):
-    if r not in POS: continue
-    gap = np.array(POS[r][0]) - np.array(POS[M][0])
-    a.bar(np.arange(5) + (i - n / 2 + 0.5) * w, gap, w, color=c)
-NTOK = [48 * (b - a) for a, b in [(0, 2), (2, 16), (16, 128), (128, 512), (512, 2048)]]
+# by position: the 192-sequence measurement with bootstrap errors (scripts/analysis/pos_gap.py), 4x loss_by_pos
+PG = {}
+for l in open(f"{D}/pos_gap_laptop.txt"):
+    m = re.match(r"(gvsharp\S+)\s+(.*)$", l)
+    if m:
+        v = re.findall(r"([+-][\d.]+) ± ([\d.]+)", m.group(2))
+        if len(v) == 5: PG[m.group(1)] = [(float(x), float(e)) for x, e in v]
+PRUNS = [(r, lab, c) for r, lab, c in RUNS if r in PG] + [("gvsharp_dryspend_r1024_s0", "dry friction + spend + rank 1024", "#2b0000")]
+PRUNS = [x for x in PRUNS if x[0] in PG]
+npr = len(PRUNS); wp = 0.8 / npr
+for i, (r, lab, c) in enumerate(PRUNS):
+    xs = np.arange(5) + (i - npr / 2 + 0.5) * wp
+    a.bar(xs, [v for v, _ in PG[r]], wp, color=c, yerr=[e for _, e in PG[r]], ecolor=INK2, capsize=2, label=lab)
+NTOK = [192 * (b - a_) for a_, b in [(0, 2), (2, 16), (16, 128), (128, 512), (512, 2048)]]
 a.set_xticks(np.arange(5)); a.set_xticklabels([f"{q}\n{n / 1000:.1f}k tok" for q, n in zip(QB, NTOK)])
-a.set_xlabel("position in the 2048-token context (48 sequences; the first buckets are small and noisy)", color=INK2); a.axhline(0, color=INK2, lw=0.8)
+a.set_xlabel("position in the 2048-token context (192 sequences; bars = ±1 bootstrap s.e.)", color=INK2)
+a.axhline(0, color=INK2, lw=0.8)
 a.set_ylabel("held-out loss minus master's (nats)", color=INK2)
-a.set_title("by context position: largest with little context", color=INK, fontsize=11, loc="left")
+a.set_title("by context position: runs differ by overall level, not by context length", color=INK, fontsize=11, loc="left")
+a.legend(loc="upper right", fontsize=8.5, frameon=False, labelcolor=INK)
 a = axs[2]
 rows = [(lab, c, POS[r][1]) for r, lab, c in RUNS if r in POS] + [("master weights", "#eb6834", POS[M][1])]
 y = np.arange(len(rows))
