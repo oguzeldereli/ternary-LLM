@@ -1,0 +1,158 @@
+# Formulas
+
+Every update rule used in this project: the current recipe first, then each mechanism that was tried, with its flag
+and result. Flags are `bitnet/train.py` arguments; results are final validation loss at 300M tokens (110M model,
+from scratch) unless noted. Run details: [RUNS.md](RUNS.md), run list: [RUN_INDEX.md](RUN_INDEX.md).
+
+Notation, per ternary layer: trits $T\in\{-1,0,1\}^{N\times K}$; the batch gradient with respect to the trits
+$g=\partial L/\partial T$ ($N\times K$, one batch of $16\times2048$ tokens); the momentum $M$; step $t$ of $T_{\max}=9155$.
+
+## 1. The model
+
+**Ternary layer (kernel mode).** Weights stay packed at 5 trits per byte (1.6 bit). Forward:
+
+$$y = \beta\,(r\odot(T\,x))\odot c \;+\; A\,(B^\top x), \qquad \beta = \frac{1}{\sqrt{K\rho}},\ \rho=\text{share of nonzero trits}$$
+
+- $\beta$: variance-preserving scale computed from the trits themselves (no stored scale; the fix of 25 Sep).
+- $r\in\mathbb R^N,\ c\in\mathbb R^K$: learned row and column scales (`--rc_scale`; $N+K$ floats, AdamW, no decay).
+- $A\in\mathbb R^{N\times R},\ B\in\mathbb R^{K\times R}$: the additive low-rank float term ("sharp": `--lowrank_mag
+  add:16`, $R=16$, AdamW with weight decay 0.1 `--mag_wd 0.1`). The multiplicative form `mul:R`,
+  $W=\beta T\odot(1+AB^\top)$, was worse.
+- Attention: per-head temperature $s_h$ (`--qk_temp`): logits $\times\, e^{s_h}$.
+- Activations: 8-bit per-token absmax; int8 tensor-core forward (`--int8`).
+
+**Float tail** (embeddings, norm gains, $r, c, A, B, s_h$): fp32 + AdamW (`--tail_fp32`), LR cosine
+$1.5\cdot10^{-3}\to1.5\cdot10^{-4}$, 305 warmup steps.
+
+**Master weights (the reference, `--mode master`).** A float latent $W$ per weight, BitNet b1.58 absmean quantization in
+the forward, straight-through gradient, AdamW on $W$:
+
+$$\gamma=\operatorname{mean}|W|,\qquad W_q=\gamma\cdot\operatorname{clip}(\operatorname{round}(W/\gamma),-1,1),\qquad \partial L/\partial W := \partial L/\partial W_q$$
+
+16 bytes per weight in training (fp32 $W$ + two fp32 Adam moments + gradient). Result 2.751. Full precision
+(`fp32_baseline`): 2.683. Master with its latent stored on a $(2^k-1)$-level grid (`--master_bits k`): 4 bits 2.923,
+3 bits 3.122, 2 bits 3.469 (branches at 131M).
+
+## 2. The current recipe
+
+Best so far: `gvsharp_dryspend_r512_s0` **2.8215** (dry friction + spend, rank 512) and `gvsharp_dry_r1024_s0`
+**2.8198** (dry friction, rank 1024). Flags:
+`--lowrank 512 --lr_beta 1 --dry_vec 0.0303 --spend 3 --lr_gate --lr_vnorm 0.99 --rc_scale --lowrank_mag add:16
+--mag_wd 0.1 --qk_temp`.
+
+Per layer and step, in order:
+
+**2.1 Low-rank momentum** (`--lowrank r`, `--lr_beta b`). $M\approx UV^\top$, $U\in\mathbb R^{N\times r}$,
+$V\in\mathbb R^{K\times r}$ orthonormal. The target is $M\leftarrow bM+g$, kept at rank $r$ by one subspace-iteration
+step (two thin GEMMs and a QR, no SVD):
+
+$$V'=\operatorname{qr}\!\big(b\,V(U^\top U)+g^\top U\big),\qquad U'=b\,U(V^\top V')+g\,V'$$
+
+Start: $U_0$ random orthonormal, $V=\operatorname{qr}(g^\top U_0)$, $U=gV$. State $r(N+K)$ floats per layer. With the
+current recipe $b=1$ (no decay); the memory comes from dry friction (2.5).
+
+**2.2 Factored Adam step** (`--lr_vnorm 0.99`). Row and column EMAs of $g^2$ (Adafactor-style, $N+K$ floats):
+
+$$R_i\leftarrow0.99R_i+0.01\,\overline{g_{i\cdot}^2},\qquad C_j\leftarrow0.99C_j+0.01\,\overline{g_{\cdot j}^2},\qquad S_{ij}=\frac{M_{ij}}{\sqrt{R_iC_j/\overline R}}$$
+
+**2.3 Sign gate** (`--lr_gate`). Flip only where the momentum and this batch's gradient agree:
+
+$$S_{ij}\leftarrow S_{ij}\cdot\mathbb 1[\operatorname{sign}S_{ij}=\operatorname{sign}g_{ij}]$$
+
+**2.4 Flip.** With $m=\operatorname{mean}|S|$ taken before the gate, $g_{\text{ref}}=3$:
+
+$$p_{ij}=\rho_t\cdot\min\!\Big(\frac{|S_{ij}|}{g_{\text{ref}}\,m},1\Big),\qquad T_{ij}\leftarrow\operatorname{clip}\!\big(T_{ij}-\operatorname{sign}S_{ij},-1,1\big)\ \text{with probability }p_{ij}$$
+
+Flip rate: linear warmup to 0.02 over 30 steps, then cosine to 0:
+$\rho_t=0.02\cdot\tfrac12\big(1+\cos\pi\tfrac{t-30}{T_{\max}-30}\big)$ (`--rate_peak 0.02 --rate_warmup 30
+--rate_schedule cosine`). Because $p$ divides by the momentum's own mean size, a global rescale of $M$ changes no flip.
+
+**2.5 Dry friction on the whole momentum** (`--dry_vec D`, with `--lr_beta 1`). After all layers, with all layers as
+one vector ($\|M\|^2=\sum_\ell\|U_\ell\|^2$ since $V$ is orthonormal) and $G$ a slow EMA of the total gradient norm:
+
+$$G\leftarrow0.99\,G+0.01\,\|g\|,\qquad f=\frac{\max(\|M\|-D\,G,\ 0)}{\|M\|},\qquad U_\ell\leftarrow f\,U_\ell\ \ \forall\ell$$
+
+With the relative flip rule this is a global decay $b_{\text{eff}}=f=1-DG/\|M\|$ that sets its own memory:
+measured 0.9954 / 0.9965 / 0.9960 / 0.9974 (memory 219 / 283 / 251 / 388 steps) at steps 1000 / 3000 / 6000 / 9154 of
+`gvsharp_dry_s0` (`scripts/analysis/eff_beta.py`). $D=0.0303$ (1/33).
+
+**2.6 Spend** (`--spend c`). A flip consumes the push that caused it. With $\Delta=T_{\text{new}}-T_{\text{old}}$ (so
+$\Delta_{ij}=-\operatorname{sign}S_{ij}$ where a trit moved) and $m_0=\operatorname{mean}|M|$ before the Adam step:
+
+$$U\leftarrow U+c\,m_0\,(\Delta V)$$
+
+$c=3$ removes $g_{\text{ref}}$ times the mean momentum at each flipped entry (projected onto the momentum's column space).
+
+**Memory.** Per layer: $r(N+K)$ (momentum) + $N+K$ (second moments) + $N+K$ (row/column scales) + $R(N+K)$ (adapter,
+with AdamW states) floats, plus a few scalars. Sublinear in the $NK$ weights.
+
+## 3. Tried: mechanisms on the momentum rule (no look-ahead, from scratch unless "branch")
+
+Base for each row is noted. "sharp base" = gate + Adam step + sharp (2.9875).
+
+| mechanism | flag | formula | result |
+|---|---|---|---|
+| **decay** | `--lr_beta b` | $M\leftarrow bM+g$ | sharp base: 0.97 2.988, 0.99 2.911, **0.995 2.878**, 0.998 2.891, 1 3.047 |
+| dry friction strength | `--dry_vec D` | 2.5 | 0.01 2.956, 0.02 2.897, **0.0303 2.881**, 0.05 2.888, 0.1 3.003 |
+| rank | `--lowrank r` | 2.1 | sharp base: 256 2.988, 512 2.963; with dry friction: 256 2.881, 512 2.836, **1024 2.820**; dry + spend: 256 2.870, 512 2.822 |
+| spend | `--spend c` | 2.6 | on beta 1 2.943 (faded late); on dry 2.881 -> 2.870; on beta 0.99 2.911 -> 2.903; on beta 0.995 2.878 -> 2.881 |
+| sign gate | `--lr_gate` | 2.3 | row/col base 3.131 -> 3.119 / 3.114 (its effect is its lower flip count: rate control 3.121) |
+| factored Adam step | `--lr_vnorm 0.99` | 2.2 | 3.131 -> 3.106; with the gate **3.077 / 3.070** (the two need each other) |
+| row/column scales | `--rc_scale` | 1 | plain 3.158 -> 3.131 |
+| slow gate | `--slow_gate 64 --slow_beta 0.999` | flip only where $\operatorname{sign}M=\operatorname{sign}M_{\text{slow}}$, $M_{\text{slow}}$ rank 64, decay 0.999 | sharp base 2.962; + beta 0.99 2.944; + beta 1 + spend 2.971 |
+| dry friction per weight | `--dry_w D` | full $M$: $M_{ij}\leftarrow\operatorname{sign}M_{ij}\max(\lvert M_{ij}\rvert-D\,\overline{\lvert g\rvert},0)$, then back to rank $r$ | 2.941 |
+| low-discrepancy dither | `--dither_ld` | flip iff $\operatorname{frac}(h_{ij}+t\varphi)<p_{ij}$, $h_{ij}$ fixed hash, $\varphi=0.618$ | 2.991 (no change) |
+| undo | `--undo` | flip back last step's move $d$ where $d\ne0$, $d\,g>0$, $\operatorname{sign}M=d$ | inert with the gate (2% of flips); stopped |
+| speed reference | `--speed_ref 0.995` | $m\leftarrow$ slow EMA of mean$\lvert M\rvert$ | 3.1315 (no change) |
+| per-row speed reference | `--speed_row b` | $S_{i\cdot}\leftarrow S_{i\cdot}\,m/\text{EMA}(\overline{\lvert M_{i\cdot}\rvert})$ | swing test only |
+| the user's rule | `--lr_beta 1 --mom_ncap C --pfun_tanh 10` | cap $\|M\|\le C\,\text{EMA}\|g\|$; $p=\rho_t\tanh(\lvert M\rvert/(g_{\text{ref}}v_0))$, $v_0=10\,\text{EMA}(\overline{\lvert g\rvert})$ | cap 3 3.217; cap 1 ~3.83 (stopped) |
+| asymmetric gravity | `--grav_up D` | $M\leftarrow\text{where}(\operatorname{sign}M\operatorname{sign}g<0,\,DM,\,bM)+g$ | 3.501; with gate + Adam 3.497 |
+| angle-scaled decay | `--lr_adapt` | $b_t=b\cos(g,M)$ | 10M screen only |
+| several decays | `--multibeta 0.8,0.95,0.99` | per layer the momentum that best predicted $g_t$ proposes | 3.193 (branch) |
+| accumulate then flip | `--accum_flip 33` | no flips for $K$ steps, then flip $\lvert M_{ij}\rvert>z\,\text{rms}(M)$, restart | 3.280 (branch) |
+| adaptive flip rate | `--adapt_rate` | controller keeping $\cos(g_t,M_{t-1})\approx0.03$ | 3.160 (branch) |
+| 1/4 flip rate | peak rate x1/4 | | 3.155 (branch), 3.193 (scratch) |
+| online flip selector | `--select` | MLP keeps the proposals later gradients agree with | 3.366 (stopped) |
+| target-point mechanisms | `--mech v1`, `--mech user` | per-weight target displacement $D\leftarrow b_D(D-\text{move})+(1-b_D)(-g/h)$ | 3.12 (branch), 3.51-3.58 (scratch, 131M) |
+| evidence counter (not stateless) | `--evidence_bits 3` | $c\leftarrow\operatorname{clip}(c+\text{tick},\pm L)$, flip at $\lvert c\rvert=L$, reset | 3.097 (branch) |
+| stuck mask | `--lr_mask_stuck` | drop $g$ where the trit is already at the bound it pushes to | worse (+0.1 at 12M) |
+| subspace refresh | `--lr_refresh` | replace the weakest directions by the gradient's top directions outside the subspace | no gain (20M screen) |
+
+## 4. Tried: look-ahead (the 24-27 Sep phase)
+
+**Look-ahead filter** (`--lookahead k`, `--lookahead_xbatch`): propose flips $\Delta$, compute $g'$ at $T+\Delta$ (on a
+fresh batch with `xbatch`), keep flip $i$ iff the midpoint slope still descends, $\Delta_i(g_i+g'_i)<0$; $k$ re-check
+passes. Costs $k$ extra forward/backward passes. Best: look-ahead x2 + rank-256 momentum 3.127; + sharp 2.992. Dropped
+27 Sep: batch 48 without look-ahead (the same text read) matched it, and every rule since is without it.
+
+**Spend with look-ahead** (`--lr_spend c`): kept flips consume $c\,m$ of $M$, as 2.6. No gain in the 20M screen.
+
+## 5. Tried: stateless flips from the gradient (the first phase, before momentum)
+
+$$p_{ij}=\rho_t\cdot\min\!\Big(\frac{|g_{ij}|}{g_{\text{ref}}\,\overline{|g|}},1\Big)$$
+
+| variant | flag | result (val perplexity, 300M) |
+|---|---|---|
+| constant rate | `--rate 0.02` | 135.8 |
+| cosine-annealed rate | `--rate_schedule cosine` | 98.6 |
+| + look-ahead x1 | `--lookahead 1` | 65.3 (at 202M) |
+| per-row normalisation | `--norm row` | no gain (10M screen) |
+| reversed ramp (small gradients first) | `--inv_prob` | no gain (10M screen) |
+| hump-shaped probability | `--hump`: $p=\min\big(\tfrac{\lvert g\rvert}{g_{\text{ref}}}(1-(\lvert g\rvert/g_0)^\alpha),1\big)\rho$ | no gain (10M screen) |
+| frozen absolute threshold | `--abs_scale` | 160.7 |
+| flip lockout (1 bit/weight) | `--flip_lockout N` | 102.7 |
+| spatial error feedback | `--err_feedback` | 156.0 |
+| greedy rate line search | `--rate_search` | not pursued (5M smoke test) |
+
+For comparison, the current recipe is at perplexity 16.8 ($e^{2.8215}$) and master at 15.7.
+
+## 6. Measurements (analysis scripts)
+
+| quantity | formula | script |
+|---|---|---|
+| loss by pair frequency | held-out loss at positions whose (previous, target) pair occurs $n$ times in the training set, bucketed by $n$ | `loss_by_freq.py` |
+| loss by context position | held-out loss by position buckets 0-1 / 2-15 / 16-127 / 128-511 / 512+; copy gain = loss on a shuffled repeat minus on an exact repeat of random tokens | `loss_by_pos.py` |
+| rank capture | signal energy $\langle G_1,G_2\rangle$ of a bucket's held-out gradient from two disjoint halves; captured $\langle PG_1,PG_2\rangle$, $P$ = projection on $\operatorname{span}U\times\operatorname{span}V$; and $\cos(M,G)$ | `rank_capture.py` |
+| effective decay of dry friction | $b_{\text{eff}}=1-D\,\|g\|/\|M\|$, memory $1/(1-b_{\text{eff}})$ | `eff_beta.py` |
+| swing test (41 steps from one checkpoint) | true gradient $T_t$ from 32 batches; lag-$k$ autocorrelation $\cos(T_t,T_{t+k})$; uphill share $=\Pr[\text{move}\cdot T_t>0]$; never-turning = weights whose momentum does not follow a reversal of $T$ | `wave.py`, `master_wave.py` |
+| where the flips land | expected flips, uphill share and first-order $\Delta L=\sum p\cdot\text{move}\cdot T$ by row-steepness fifth | `flip_where.py` |

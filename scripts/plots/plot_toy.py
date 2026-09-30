@@ -1,5 +1,5 @@
 """Induction toy: induction score (shuffled - exact repeat loss) and val loss vs step for every arm.
-  python -m scripts.plots.plot_toy   -> docs/figures/toy_induction.png"""
+  python -m scripts.plots.plot_toy   -> docs/figures/archive/toy_induction.png"""
 import re, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -27,5 +27,5 @@ a.set(xlabel="step (32 x 256 tokens)", ylabel="induction: shuffled - exact loss 
 b.set(xlabel="step", ylabel="val loss", title="val loss (log 256 = 5.55 is chance)")
 a.legend(fontsize=8); b.legend(fontsize=8)
 for ax in (a, b): ax.grid(alpha=0.3)
-fig.tight_layout(); fig.savefig("docs/figures/toy_induction.png", dpi=130)
-print("saved docs/figures/toy_induction.png")
+fig.tight_layout(); fig.savefig("docs/figures/archive/toy_induction.png", dpi=130)
+print("saved docs/figures/archive/toy_induction.png")

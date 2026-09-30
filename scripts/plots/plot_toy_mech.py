@@ -1,6 +1,6 @@
 """Induction toy, momentum mechanisms without look-ahead (seed 1 solid, seed 2 dashed): induction score over steps
 and val loss. Plain momentum at the same flip rate as the control; master for reference.
-  python -m scripts.plots.plot_toy_mech   -> docs/figures/toy_mechanisms.png"""
+  python -m scripts.plots.plot_toy_mech   -> docs/figures/archive/toy_mechanisms.png"""
 import re, os, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -26,4 +26,4 @@ for s1, s2, lab, c in ARMS:
 a.set(xlabel="step", ylabel="induction: shuffled - exact loss (nats)", title="2-layer induction toy, no look-ahead"); a.axhline(0, color="gray", lw=0.5)
 b.set(xlabel="step", ylabel="val loss", title="val loss (log 256 = 5.55 is chance)")
 for ax in (a, b): ax.grid(alpha=0.3); ax.legend(fontsize=7)
-fig.tight_layout(); fig.savefig("docs/figures/toy_mechanisms.png", dpi=120); print("wrote docs/figures/toy_mechanisms.png")
+fig.tight_layout(); fig.savefig("docs/figures/archive/toy_mechanisms.png", dpi=120); print("wrote docs/figures/archive/toy_mechanisms.png")

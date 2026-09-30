@@ -7,15 +7,19 @@ keep the weights packed at **1.58 bit** (5 trits/byte) even during training.
 Two things live here:
 - **A systems result:** a 27B ternary model *trains* on a single 12 GB consumer
   GPU (172 tok/s, ~9.9 GiB) — weights never materialized dense.
-- **A study:** how far can you get *without* the master weights. Stateless flip
-  rules, a look-ahead flip filter, and what still separates them from a
-  latent-master ceiling. See **[docs/RUNS.md](docs/RUNS.md)** (every run, newest
-  findings at the bottom), **[docs/RESULTS.md](docs/RESULTS.md)** and
-  **[docs/NOTES.md](docs/NOTES.md)**.
+- **A study:** how far can you get *without* the master weights. Flip rules driven by a
+  low-rank momentum with a long memory: at 110M / 300M tokens, validation loss 2.820
+  (perplexity 16.8) against master weights 2.751 (15.7) and fp32 2.683 (14.6), with
+  optimizer state sublinear in the parameter count. See **[docs/RUNS.md](docs/RUNS.md)**
+  (headline at the top, every run, newest findings at the bottom),
+  **[docs/FORMULAS.md](docs/FORMULAS.md)** (every update rule),
+  **[docs/RUN_INDEX.md](docs/RUN_INDEX.md)** and the overview page
+  `docs/overview/index.html`. [docs/RESULTS.md](docs/RESULTS.md) and
+  [docs/NOTES.md](docs/NOTES.md) are historical (to 25 Sep).
 
 ## Headline numbers
 
-Current figures, one per category of what was tried (master and the baseline in each): [docs/figures/README.md](docs/figures/README.md)
+Current figures (best runs, the recipe's sweeps, where the gap to master is): [docs/figures/README.md](docs/figures/README.md)
 
 27B training on one 12 GB GPU (seq 512):
 
@@ -94,7 +98,9 @@ python -m bitnet.train --preset small --mode master --master_dtype fp32 \
 python -m bitnet.train <same flags> --out_dir checkpoints/<run> --resume
 
 # figures
-python -m scripts.plots.plot_categories   # one figure per category -> docs/figures/categories/
+python -m scripts.plots.plot_best     # best runs -> docs/figures/best_runs.png
+python -m scripts.plots.plot_sweeps   # decay / friction / rank sweeps -> docs/figures/sweeps.png
+python -m scripts.plots.plot_gaps     # gap to master by pair frequency and position -> docs/figures/gaps.png
 ```
 
 ## Training modes (`--mode`)

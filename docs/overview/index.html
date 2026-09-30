@@ -129,27 +129,27 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:10px">
-  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 29 Sep 2026, 22:05</span>
+  <span class="eyebrow">ternary-LLM · 110M model · wiki32k · updated 30 Sep 2026, 13:00</span>
   <h1>Ternary Training Map</h1>
   <p class="lede">Training a model whose weights are only <span class="trits">{−1, 0, +1}</span> with no full-precision copy of them (optimizer state at most sublinear in parameter count). What we tried, what it showed, what is running, what we have not tried and what is still open.</p>
 </header>
 
 <section>
-  <span class="eyebrow">Validation loss at 300M tokens (lower is better)</span>
+  <span class="eyebrow">Validation loss at 300M tokens (lower is better; perplexity = e^loss)</span>
   <div class="score">
-    <div class="ref"><span class="v">2.683</span><span class="l">full precision fp32 + AdamW</span></div>
-    <div class="ref"><span class="v">2.759</span><span class="l">master weights (ternary forward, fp32 latent copy)</span></div>
-    <div class="best"><span class="v">2.9925</span><span class="l">ours, best: look-ahead + additive r16 + adapter weight decay + per-head temperature</span></div>
-    <div><span class="v">3.082</span><span class="l">look-ahead + additive r4</span></div>
-    <div><span class="v">3.074</span><span class="l"><b>no look-ahead, sign gate + Adam-style step + row/column scales</b> (from scratch, 2 seeds: 3.0773 / 3.0699; rate control running)</span></div>
-    <div><span class="v">3.106</span><span class="l">no look-ahead, factored Adam step + row/column scales (same flip count as plain: a real per-flip gain)</span></div>
-    <div><span class="v">3.117</span><span class="l">sign gate (2 seeds) = its rate control at 0.85× flips (3.121): the gate's gain is its lower flip count</span></div>
-    <div><span class="v">3.111</span><span class="l">look-ahead on to 30M, off to 131M, on after</span></div>
-    <div><span class="v">3.120</span><span class="l">no look-ahead, your momentum design (branch from 131M)</span></div>
-    <div><span class="v">3.127</span><span class="l">baseline: momentum + look-ahead</span></div>
-    <div><span class="v">3.158</span><span class="l">momentum, no look-ahead</span></div>
+    <div class="ref"><span class="v">2.683</span><span class="l">full precision fp32 + AdamW (ppl 14.6)</span></div>
+    <div class="ref"><span class="v">2.751</span><span class="l">master weights: ternary forward, fp32 latent copy + AdamW (ppl 15.7)</span></div>
+    <div class="best"><span class="v">2.8198</span><span class="l"><b>ours, best: long memory (dry friction 1/33) + rank 1024</b> (ppl 16.8, gap 0.069)</span></div>
+    <div class="best"><span class="v">2.8215</span><span class="l"><b>long memory (dry friction) + spend + rank 512</b> (ppl 16.8, gap 0.070)</span></div>
+    <div><span class="v">2.834</span><span class="l">long memory (decay 0.995) + rank 512</span></div>
+    <div><span class="v">2.870</span><span class="l">long memory (dry friction) + spend, rank 256</span></div>
+    <div><span class="v">2.878</span><span class="l">long memory (decay 0.995), rank 256</span></div>
+    <div><span class="v">2.9875</span><span class="l">gate + Adam step + sharp, short memory (decay 0.97): the base of 29–30 Sep</span></div>
+    <div><span class="v">2.9925</span><span class="l">look-ahead + sharp (3 passes per step)</span></div>
+    <div><span class="v">3.077</span><span class="l">gate + Adam step + row/column scales (2 seeds 3.0773 / 3.0699)</span></div>
+    <div><span class="v">3.131</span><span class="l">rank-256 momentum + row/column scales</span></div>
   </div>
-  <p>Batch 48 without look-ahead (900M tokens processed, 3× the others) reached 2.889. Every flip-rate change (¼ rate 3.155, adaptive rate 3.160) leads mid-run and ends at plain's 3.158: the schedule anneals the rate anyway. Stateless gains that survived to 300M: row/column scales, 3.148 as a branch (−0.010) and <b>3.131 from scratch (−0.027)</b>. The 3-bit evidence counter (not stateless) 3.097. Master with its latent at 2 bits: 3.469, worse than our momentum.</p>
+  <p>All from scratch, no look-ahead, one seed unless noted. "Sharp" = additive rank-16 float term + its weight decay + per-head attention temperature. The lever of 29–30 Sep was the momentum's <b>memory length</b> (33 → ~200–400 steps): the gap to master fell from 0.33 to 0.07. Every formula: <code>docs/FORMULAS.md</code>.</p>
 </section>
 
 <section>
@@ -157,22 +157,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>done</td><td class="mono">gvsharp_dryspend_s0</td><td>β 1 + dry friction + spend: 2.8699 (gap to master 0.119)</td><td class="num">08:20</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_b0995_s0</td><td>β 0.995: 2.8783</td><td class="num">07:35</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_dry_s0</td><td>β 1 + dry friction (vector): 2.8812</td><td class="num">04:15</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_b099spend_s0 / gvsharp_b099_s0</td><td>β 0.99 + spend 2.9031; β 0.99 2.9108</td><td class="num">08:15</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_dryw_s0 / gvsharp_b099slow_s0</td><td>dry friction per weight 2.9409; β 0.99 + slow gate 2.9441</td><td class="num">08:30</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_dry01_s0 / gvsharp_dry1_s0</td><td>dry 0.01 2.9558 (too long); dry 0.1 3.0031 (too short)</td><td class="num">08:25</td></tr>
-    <tr><td>done</td><td class="mono">others</td><td>spend 2.9426, slow gate 2.9615, rank 512 2.9627, β1+spend+slow 2.9708, dither 2.9908, β 1 3.0466; base 2.9875</td><td class="num">-</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_dry_r512_s0</td><td><b>dry friction + rank 512: 2.8356</b> (ppl 17.0 vs master 15.7), best stateless run</td><td class="num">09:55</td></tr>
-    <tr><td>bufflehead</td><td class="mono">gvsharp_b0995spend_r512_s0</td><td>β 0.995 + spend + rank 512</td><td class="num">~13:50</td></tr>
-    <tr><td>mallard</td><td class="mono">gvsharp_dryspend_r512_s0</td><td>dry + spend + rank 512</td><td class="num">~12:15</td></tr>
-    <tr><td>cackling</td><td class="mono">gvsharp_b0995_r512_s0</td><td>β 0.995 + rank 512</td><td class="num">~12:15</td></tr>
-    <tr><td>gadwall</td><td class="mono">gvsharp_b0998_s0</td><td>β 0.998</td><td class="num">~12:25</td></tr>
-    <tr><td>harlequin</td><td class="mono">gvsharp_dry_r1024_s0</td><td>dry + rank 1024</td><td class="num">~12:40</td></tr>
-    <tr><td>shoveler</td><td class="mono">gvsharp_b0995spend_s0</td><td>β 0.995 + spend</td><td class="num">~12:25</td></tr>
-    <tr><td>mandarin</td><td class="mono">gvsharp_dry05_s0</td><td>β 1 + dry 0.05</td><td class="num">~12:20</td></tr>
-    <tr><td>pintail</td><td class="mono">gvsharp_dry02_s0</td><td>β 1 + dry 0.02</td><td class="num">~12:40</td></tr>
+    <tr><td>4090</td><td class="mono">big_dryspend_r512_s0 → big_master</td><td>340M model (d1024_l24): the recipe at rank 512, then master weights, 300M tokens each</td><td class="num">~19:45, then ~12–15 h</td></tr>
+    <tr><td>shoveler / mandarin</td><td class="mono">big_rk64_dryspend_s0 / big_rk128_dryspend_s0</td><td>340M, dry friction + spend at rank 64 / 128: does the rank needed grow with width?</td><td class="num">~01:00</td></tr>
+    <tr><td>mallard / cackling / gadwall</td><td class="mono">rk32 / rk64 / rk128_dryspend_s0</td><td>110M rank sweep of dry friction + spend (rank 64 ≈ 27B on 12 GB, ~256 ≈ 16 GB)</td><td class="num">~16:00</td></tr>
+    <tr><td>bufflehead</td><td class="mono">gvsharp_b0995spend_r512_s0</td><td>decay 0.995 + spend + rank 512 (the decay form of the best combination)</td><td class="num">~14:05</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
@@ -180,7 +168,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <section>
   <span class="eyebrow">What we asked and what each answer led to</span>
   <h2>The story so far</h2>
-  <div class="diagram"><div class="threads" style="grid-template-columns:repeat(5,minmax(230px,1fr))">
+  <div class="diagram"><div class="threads" style="grid-template-columns:repeat(6,minmax(230px,1fr))">
     <div class="thread"><h3>1 · Momentum fixes</h3><div class="chain">
       <div class="node">Momentum is noise-level (|M|/|g| ≈ 4.1); its flips are ~50% right</div><div class="down">↓</div>
       <div class="node good">20M screens: additive magnitude −0.052, sign gate −0.026</div><div class="down">↓</div>
@@ -228,9 +216,20 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node bad">In training: cap 3 ahead of plain to ~150M, then starves of flips late: 3.217. Cap 1 loses the unigram/bigram statistics (no-context loss rises 6.51 → 6.81): no dive</div><div class="down">↓</div>
       <div class="node bad">Asymmetric gravity (momentum decays 0.5 when climbing): best per-weight turning in tests, 3.50 in training (both alone and with gate + Adam)</div><div class="down">↓</div>
       <div class="node">Dry friction (fixed amount off per step), per vector or per weight: same as the tanh flip chance alone; swing unchanged</div><div class="down">↓</div>
-      <div class="node good">Undo (flip back last step's flips the fresh batch and the momentum call uphill): 3% of flips reversed, swing nearly gone, 41-step gain ×2. Training run on the 4090</div><div class="down">↓</div>
+      <div class="node bad">Undo (flip back last step's flips the fresh batch and the momentum call uphill): with the gate it reverses 2% of flips and changes nothing; training run stopped</div><div class="down">↓</div>
       <div class="node lead"><b>Master has the same per-weight picture</b>: 46.5% of trit changes uphill, every step overshoots its own direction. It differs by no lag-3 reversal and 12% never-turning weights (ours 22%)</div><div class="down">↓</div>
       <div class="node lead">Where the gap to master is: local context (positions 2–15: +0.5), not induction. Gate + Adam gets induction late (~180M) and it flickers on and off in every flip run</div>
+    </div></div>
+    <div class="thread"><h3>6 · Memory length (29–30 Sep)</h3><div class="chain">
+      <div class="node good">Sharp without look-ahead (gate + Adam step + additive r16 + weight decay + head temperature): <b>2.9875</b>, beats look-ahead + sharp</div><div class="down">↓</div>
+      <div class="node lead"><b>Where the gap is</b>: split by how often the (previous, target) pair occurs in training, the gap sits in pairs seen &lt; 10k times (+0.27 to +0.42); frequent pairs +0.07</div><div class="down">↓</div>
+      <div class="node">Why: a pair seen 100 times turns up once every ~120 steps; the momentum forgets in ~33. Not rank: 78–89% of those gradients lie in the rank-256 subspace</div><div class="down">↓</div>
+      <div class="node good"><b>Longer memory</b>: decay 0.995 2.878, dry friction (β 1, ‖M‖ −= ‖g‖/33 per step) 2.881. Both have an optimum; β 1 alone 3.047 (never forgets), dry 0.1 3.003</div><div class="down">↓</div>
+      <div class="node good">Rare-pair gap halved; long-memory runs form induction heads (copy gain +1.6 to +5.9; master +3.15)</div><div class="down">↓</div>
+      <div class="node">Dry friction = a decay that sets its own memory: 220 → 390 steps over the run; ties the best fixed decay</div><div class="down">↓</div>
+      <div class="node good">With a long memory rank matters: 256 → 512 −0.046, → 1024 −0.016. Spend adds −0.01</div><div class="down">↓</div>
+      <div class="node good"><b>2.8198</b> (dry + rank 1024), <b>2.8215</b> (dry + spend + rank 512): ppl 16.8 vs master 15.7</div><div class="down">↓</div>
+      <div class="node bad">No gain: dither, slow gate, dry friction per weight, undo</div>
     </div></div>
   </div></div>
 </section>
@@ -238,20 +237,43 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <section>
   <span class="eyebrow">Everything that ran, by what it tried</span>
   <h2>Tried</h2>
-  <p class="meh" style="font-size:13px">Run names: <code>rc</code> learned row/column scales · <code>s0</code> from scratch · <code>b131</code> branch at 131M · <code>gate</code> flip only where this batch agrees with the momentum · <code>vnorm</code> momentum divided by a row × column gradient size (Adam-style step) · <code>rateNNN</code> plain at 0.NN× flip rate · <code>speedref</code> per-layer speed reference · <code>seed2</code> second seed</p>
+  <p class="meh" style="font-size:13px">Run names: <code>gvsharp</code> gate + Adam step + sharp · <code>dry</code> dry friction on the whole momentum (β 1) · <code>b0995</code> decay 0.995 · <code>spend</code> a flip consumes its push · <code>r512</code> rank 512 · <code>rc</code> learned row/column scales · <code>s0</code> from scratch · <code>b131</code> branch at 131M · <code>gate</code> flip only where this batch agrees with the momentum · <code>vnorm</code> momentum divided by a row × column gradient size (Adam-style step) · <code>rateNNN</code> plain at 0.NN× flip rate · <code>speedref</code> per-layer speed reference · <code>seed2</code> second seed</p>
   <div class="tabs" role="tablist" aria-label="Tried">
-    <button role="tab" id="t1" aria-selected="true" aria-controls="p1">Long runs</button>
+    <button role="tab" id="t0" aria-selected="true" aria-controls="p0">Long memory (30 Sep)</button>
+    <button role="tab" id="t1" aria-selected="false" aria-controls="p1">Long runs to 29 Sep</button>
     <button role="tab" id="t2" aria-selected="false" aria-controls="p2">Momentum mechanisms</button>
     <button role="tab" id="t3" aria-selected="false" aria-controls="p3">Step size</button>
     <button role="tab" id="t4" aria-selected="false" aria-controls="p4">Diagnostics</button>
     <button role="tab" id="t5" aria-selected="false" aria-controls="p5">20M fix screens</button>
     <button role="tab" id="t6" aria-selected="false" aria-controls="p6">Induction toy</button>
   </div>
-  <div class="tbl" role="tabpanel" id="p1" aria-labelledby="t1"><table>
+  <div class="tbl" role="tabpanel" id="p0" aria-labelledby="t0"><table>
+    <tr><th>run</th><th>on the sharp base</th><th>val at 300M</th><th>note</th></tr>
+    <tr><td class="mono">gvsharp_dry_r1024_s0</td><td>dry friction 1/33 + rank 1024</td><td class="num good">2.8198</td><td>best</td></tr>
+    <tr><td class="mono">gvsharp_dryspend_r512_s0</td><td>dry friction + spend + rank 512</td><td class="num good">2.8215</td><td>best with spend</td></tr>
+    <tr><td class="mono">gvsharp_b0995_r512_s0</td><td>decay 0.995 + rank 512</td><td class="num ">2.8339</td><td></td></tr>
+    <tr><td class="mono">gvsharp_dry_r512_s0</td><td>dry friction + rank 512</td><td class="num ">2.8356</td><td></td></tr>
+    <tr><td class="mono">gvsharp_dryspend_s0</td><td>dry friction + spend</td><td class="num ">2.8699</td><td></td></tr>
+    <tr><td class="mono">gvsharp_b0995_s0</td><td>decay 0.995</td><td class="num ">2.8783</td><td>decay sweep optimum</td></tr>
+    <tr><td class="mono">gvsharp_b0995spend_s0</td><td>decay 0.995 + spend</td><td class="num ">2.8807</td><td>spend adds nothing here</td></tr>
+    <tr><td class="mono">gvsharp_dry_s0</td><td>dry friction 1/33 (β 1)</td><td class="num ">2.8812</td><td>friction sweep optimum</td></tr>
+    <tr><td class="mono">gvsharp_dry05_s0 / dry02 / dry01 / dry1</td><td>dry friction 0.05 / 0.02 / 0.01 / 0.1</td><td class="num ">2.888 / 2.897 / 2.956 / 3.003</td><td>too weak = too long a memory, too strong = too short</td></tr>
+    <tr><td class="mono">gvsharp_b0998_s0 / b099 / b1</td><td>decay 0.998 / 0.99 / 1</td><td class="num ">2.891 / 2.911 / 3.047</td><td>β 1 never forgets</td></tr>
+    <tr><td class="mono">gvsharp_b099spend_s0</td><td>decay 0.99 + spend</td><td class="num ">2.9031</td><td></td></tr>
+    <tr><td class="mono">gvsharp_dryw_s0</td><td>dry friction per weight</td><td class="num bad">2.9409</td><td></td></tr>
+    <tr><td class="mono">gvsharp_b1spend_s0</td><td>β 1 + spend</td><td class="num bad">2.9426</td><td>−0.089 at 197M, faded</td></tr>
+    <tr><td class="mono">gvsharp_b099slow_s0 / slowgate</td><td>slow gate (r64, 0.999) with decay 0.99 / 0.97</td><td class="num bad">2.944 / 2.962</td><td></td></tr>
+    <tr><td class="mono">gvsharp_r512_s0</td><td>rank 512, short memory</td><td class="num ">2.9627</td><td>rank helps little without a long memory</td></tr>
+    <tr><td class="mono">gvsharp_b1spend_slowgate_s0</td><td>β 1 + spend + slow gate</td><td class="num bad">2.9708</td><td></td></tr>
+    <tr><td class="mono">gvsharp_rc_s0</td><td>the base: gate + Adam step + sharp</td><td class="num ">2.9875</td><td></td></tr>
+    <tr><td class="mono">gvsharp_dither_s0</td><td>low-discrepancy flip draw</td><td class="num bad">2.9908</td><td>no effect</td></tr>
+    <tr><td class="mono">gvundo_rc_s0</td><td>gate + Adam step + undo</td><td class="num bad">stopped</td><td>undo reverses 2% of flips: inert</td></tr>
+  </table></div>
+  <div class="tbl" role="tabpanel" id="p1" aria-labelledby="t1" hidden><table>
     <tr><th>run</th><th>recipe</th><th>tokens</th><th>val</th><th>note</th></tr>
     <tr class="ref"><td class="mono">fp32_baseline</td><td>full precision, AdamW</td><td class="num">300M</td><td class="num">2.683</td><td></td></tr>
-    <tr class="ref"><td class="mono">master_tracked</td><td>master weights</td><td class="num">300M</td><td class="num">2.759</td><td>induction 3.17</td></tr>
-    <tr><td class="mono">magadd16_wd_qk_lab</td><td>look-ahead + additive r16 + adapter weight decay + temperature</td><td class="num">300M</td><td class="num good">2.9925</td><td>best of ours</td></tr>
+    <tr class="ref"><td class="mono">master_tracked</td><td>master weights</td><td class="num">300M</td><td class="num">2.751</td><td>induction 3.17</td></tr>
+    <tr><td class="mono">magadd16_wd_qk_lab</td><td>look-ahead + additive r16 + adapter weight decay + temperature</td><td class="num">300M</td><td class="num">2.9925</td><td>best with look-ahead</td></tr>
     <tr><td class="mono">magadd_full</td><td>look-ahead + additive r4</td><td class="num">300M</td><td class="num">3.082</td><td></td></tr>
     <tr><td class="mono">la_sched</td><td>look-ahead 0–30M, off to 131M, on after</td><td class="num">300M</td><td class="num">3.111</td><td></td></tr>
     <tr><td class="mono">la_sched98</td><td>the same, back on at 98M</td><td class="num">300M</td><td class="num">3.114</td><td></td></tr>
@@ -260,10 +282,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <tr><td class="mono">lm_lowrank256_xb2_100M</td><td>baseline: momentum + look-ahead</td><td class="num">300M</td><td class="num">3.127</td><td>no general induction</td></tr>
     <tr><td class="mono">nola_lab</td><td>momentum, no look-ahead</td><td class="num">300M</td><td class="num">3.158</td><td>plateau 2–5M; induction from ~98M</td></tr>
     <tr><td class="mono">evid3_b131</td><td>3-bit evidence counter per weight + row/column scales (branch; not stateless)</td><td class="num">300M</td><td class="num">3.097</td><td>reference</td></tr>
-    <tr><td class="mono">rc_s0</td><td>plain momentum + learned row/column scales, from scratch</td><td class="num">300M</td><td class="num good">3.131</td><td>−0.027; best stateless run without look-ahead</td></tr>
+    <tr><td class="mono">rc_s0</td><td>plain momentum + learned row/column scales, from scratch</td><td class="num">300M</td><td class="num">3.131</td><td>−0.027</td></tr>
     <tr><td class="mono">rc_b131</td><td>plain momentum + learned row/column scales (branch)</td><td class="num">300M</td><td class="num">3.148</td><td>−0.010</td></tr>
     <tr class="ref"><td class="mono">master_q4 / q3 / q2</td><td>master, latent stored at 4 / 3 / 2 bits (branch of master at 131M)</td><td class="num">300M</td><td class="num">2.923 / 3.122 / 3.469</td><td>2 bits = stateless master: worse than ours</td></tr>
-    <tr><td class="mono">gatevnorm_rc_s0 (+seed2)</td><td>Adam + gate + row/col scales, no look-ahead</td><td class="num">300M</td><td class="num good">3.077 / 3.070</td><td>best without look-ahead; 0.64× flips</td></tr>
+    <tr><td class="mono">gatevnorm_rc_s0 (+seed2)</td><td>Adam + gate + row/col scales, no look-ahead</td><td class="num">300M</td><td class="num">3.077 / 3.070</td><td>0.64× flips</td></tr>
     <tr><td class="mono">rate064_rc_s0</td><td>plain at 0.64× flip rate (Adam + gate's rate control)</td><td class="num">300M</td><td class="num">3.129</td><td>= plain: flipping less doesn't explain it</td></tr>
     <tr><td class="mono">vnorm_rc_s0 / vnorm064_rc_s0</td><td>Adam step alone, full rate / 0.64× rate</td><td class="num">300M</td><td class="num">3.106 / 3.122</td><td>real per-flip gain; needs the gate for more</td></tr>
     <tr><td class="mono">gate_rc_s0 (+seed2) / rate085_rc_s0</td><td>sign gate / plain at 0.85× rate</td><td class="num">300M</td><td class="num">3.119, 3.114 / 3.121</td><td>gate alone = its rate</td></tr>
@@ -349,28 +371,28 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <span class="eyebrow">Not tried yet</span>
       <h2>Proposed, not run</h2>
       <ul>
-        <li><span class="tag t-run">running</span>Adam + gate + undo; Adam + gate + sharp (no look-ahead)</li>
-        <li><span class="tag t-lead">next</span>A per-weight integrator within the memory rule: master's edge is sub-trit accumulation (latent at 2 bits 3.47, 3 bits 3.12, 4 bits 2.92, fp32 2.75); ideas: a shared low-bit counter per row block, hashing, or the r16 adapter as the integrator</li>
-        <li><span class="tag t-lead">next</span>Protect formed circuits: induction appears and breaks (copy gain 2.0 → 0.5 → 1.4 → 2.0) — lower flip rates on heads / rows that have converged</li>
-        <li><span class="tag t-lead">next</span>Stronger undo variants (batch-gradient only, or large |g| only) if the undo training run holds</li>
-        <li>Your rule with the flip scale tied to the momentum's typical size (it starved late with a fixed scale)</li>
-        <li>Nesterov / derivative term (untested)</li>
-        <li>Output bias for unigram frequencies (the no-look-ahead plateau)</li>
-        <li>600M run; MLP width sweep; multi-GPU trainer; FineWeb data</li>
-        <li><span class="tag t-bad">dropped</span>Look-ahead for new runs (pure momentum beats pure look-ahead per token); asymmetric gravity; per-layer speed reference; online selector</li>
+        <li><span class="tag t-run">running</span>Rank sweep 32 / 64 / 128 at 110M and 64 / 128 at 340M (can the recipe fit 27B in 12–16 GB?); 340M recipe vs master (4090); decay 0.995 + spend + rank 512</li>
+        <li><span class="tag t-lead">next</span>A second seed of the best run (seed runs on hold)</li>
+        <li><span class="tag t-lead">next</span>Goldbug, 8–10 Oct (2 × RTX PRO 6000): the recipe vs master at ~1B parameters on ~2B tokens (FineWeb), plus a 27B memory and speed test</li>
+        <li><span class="tag t-lead">next</span>Trainer for 27B: update each layer during the backward pass, fold micro-batches into the momentum, flip from U, V without materialising M, bf16 momentum</li>
+        <li>Dry friction + spend + rank 1024; friction between 1/33 and 0.05; a friction schedule for longer runs</li>
+        <li>Master-to-our-rule branch test: does our rule forget master's rare pairs or only fail to learn them? (needs a master-to-ternary converter)</li>
+        <li>Protect formed circuits (induction heads); an output bias for unigram frequencies</li>
+        <li><span class="tag t-bad">dropped</span>Look-ahead; asymmetric gravity; speed references; online selector; undo; dither; slow gate</li>
       </ul>
     </div>
     <div class="list">
       <span class="eyebrow">Open questions</span>
       <h2>What we still can't explain</h2>
       <ul>
-        <li><span class="tag t-bad">open</span>What master's latent buys: its per-weight picture (46% uphill, one-step overshoot) is the same as ours; it has no lag-3 reversal and half our never-turning weights. Is the gap per-weight precision (the degraded-master series says yes)?</li>
-        <li><span class="tag t-bad">open</span>Why our runs lag master most on local context (positions 2–15, short-range statistics)</li>
-        <li><span class="tag t-bad">open</span>Why induction flickers in flip runs and forms late with the Adam step</li>
-        <li><span class="tag t-bad">open</span>Why 41-step swing tests don't predict training (gravity looked best, failed); what short test would</li>
-        <li><span class="tag t-good">found</span>The swing is made by our flips (none with frozen weights); the gate removes it; the Adam step moves flips out of steep rows (real per-flip gain, 3.106 at equal flips); the gate's own gain is its lower flip count</li>
-        <li><span class="tag t-good">found</span>Noise and lag conflict: averaging batch noise (~3.5× the true gradient) needs ~12+ steps of memory; following the swing needs ≤3. The gate escapes it by vetoing with the fresh gradient</li>
-        <li><span class="tag t-good">settled</span>Look-ahead is not needed; momentum compression (rank 256) loses nothing; flip-rate changes only shift offsets</li>
+        <li><span class="tag t-bad">open</span>The last 0.07: pairs seen 10–999 times are still +0.10–0.12 behind master; is it memory, rank, or per-weight precision?</li>
+        <li><span class="tag t-bad">open</span>Does the rank needed grow with model width (340M runs), and does the recipe hold at 1B?</li>
+        <li><span class="tag t-bad">open</span>Why dry friction starts slowly (+0.14 at 33M vs decay 0.995) although its memory at step 1000 is already ~220 steps</li>
+        <li><span class="tag t-bad">open</span>Why the copy gain varies so much between runs of similar loss (+1.6 to +5.9)</li>
+        <li><span class="tag t-bad">open</span>Why 41-step swing tests don't predict training</li>
+        <li><span class="tag t-good">found</span>The gap to master was rare-pair statistics, and the cause the momentum's short memory; lengthening it halves that gap and brings induction heads</li>
+        <li><span class="tag t-good">found</span>The swing is made by our flips; the gate removes it; the Adam step moves flips out of steep rows</li>
+        <li><span class="tag t-good">settled</span>Look-ahead is not needed; rank 256 is not the limit at a short memory; dry friction ≈ the best fixed decay</li>
       </ul>
     </div>
   </div>
@@ -380,22 +402,13 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <span class="eyebrow">The figures worth looking at</span>
   <h2>Figures</h2>
   <div class="figs">
-    <figure><img src="today_runs.png" alt="29 Sep runs"><figcaption><b>29 Sep runs</b>, linear token axis 0–300M: gate + Adam step (2 seeds) best; your rule cap 3 ahead until ~150M then falls behind; gravity and cap 1 far behind.</figcaption></figure>
-    <figure><img src="swing_tests.png" alt="Swing tests"><figcaption><b>swing tests</b>: every rule's 41-step test, master as reference (dashed): loss vs flips, the lag-3 reversal, uphill share, weights that never turn back.</figcaption></figure>
-    <figure><img src="user_rule_full.png" alt="User rule full runs"><figcaption><b>user's rule, full runs</b>: no friction + velocity cap + absolute flip chance, and asymmetric gravity, against plain, Adam step and gate + Adam step.</figcaption></figure>
-    <figure><img src="user_rule_sweep.png" alt="User rule cap sweep"><figcaption><b>user's rule, cap sweep</b> (to 50M): tighter caps leave the early plateau sooner (cap 1 at ~4M vs ~10M).</figcaption></figure>
-    <figure><img src="best_runs.png" alt="Best run of each family"><figcaption><b>best runs</b>: the best run of each family, validation loss only; dashed = still running.</figcaption></figure>
-    <figure><img src="speed_and_gate.png" alt="Speed and gate runs"><figcaption><b>speed and gate</b> (night 28–29 Sep): from-scratch runs with row/column scales: seed spread, per-layer speed reference, sign gate, Adam-style step.</figcaption></figure>
-    <figure><img src="new_rules.png" alt="New flip rules"><figcaption><b>new rules</b>: adaptive flip rate (yellow) tracks the look-ahead baseline right after branching; the online selector (teal) spikes and stays behind; adaptive memory (red) led early, now falls back.</figcaption></figure>
-    <figure><img src="memory_and_scales.png" alt="Memory and scales"><figcaption><b>memory and scales</b>: master with its latent at 4 / 3 / 2 bits (yellow / red / green): at 2 bits (a stateless master) it jumps above our momentum. The 3-bit evidence counter (teal) gains ~0.06 over plain.</figcaption></figure>
-    <figure><img src="step_size.png" alt="Step size runs"><figcaption><b>step_size</b>: ¼ rate (purple) and accumulate-then-flip (red) drop right after branching; the trained rate (blue) keeps a steeper slope and closes in.</figcaption></figure>
-    <figure><img src="mechanisms.png" alt="Momentum mechanisms"><figcaption><b>mechanisms</b>: V1 and your design as branches and from scratch against plain momentum.</figcaption></figure>
-    <figure><img src="bench_mechanisms.png" alt="Mechanism bench"><figcaption><b>bench</b>: held-out loss over 66 steps per mechanism; V2 at gain 1 best, every gain 3 / 33 variant diverges.</figcaption></figure>
-    <figure><img src="look_ahead_schedules.png" alt="Look-ahead schedules"><figcaption><b>look-ahead schedules</b>: switching on after the no-look-ahead phase lands on the baseline curve.</figcaption></figure>
-    <figure><img src="magnitude.png" alt="Magnitude runs"><figcaption><b>magnitude</b>: the r16 + weight decay + temperature run (yellow) pulls ahead after ~150M.</figcaption></figure>
-    <figure><img src="induction_text.png" alt="Induction on text"><figcaption><b>induction</b>: general induction forms only without look-ahead (purple) and in master.</figcaption></figure>
+    <figure><img src="../figures/best_runs.png" alt="Best runs"><figcaption><b>best runs</b>: the best run at each step of progress with fp32 and master (dashed); right: 100M–300M with final loss and perplexity.</figcaption></figure>
+    <figure><img src="../figures/sweeps.png" alt="Sweeps"><figcaption><b>the recipe's knobs</b>: decay (as memory), dry friction strength, rank. Memory has an optimum at ~200–400 steps; rank helps once the memory is long.</figcaption></figure>
+    <figure><img src="../figures/gaps.png" alt="Gaps to master"><figcaption><b>where the gap is</b>: by how often the word pair occurs in training, by context position (first buckets small and noisy), and the copy (induction) gain.</figcaption></figure>
+    <figure><img src="../figures/night_runs.png" alt="Night runs"><figcaption><b>night 29–30 Sep</b>: every run on the sharp base, final loss as the gap to master.</figcaption></figure>
+    <figure><img src="../figures/swing_tests.png" alt="Swing tests"><figcaption><b>swing tests</b>: every rule's 41-step test against master (dashed): loss vs flips, the lag-3 reversal, uphill share, weights that never turn back.</figcaption></figure>
   </div>
-  <p>All figures and their scripts: <code>docs/figures/README.md</code>. Run tables: <code>docs/RUN_INDEX.md</code>; findings: <code>docs/RUNS.md</code>.</p>
+  <p>Older figures (categories, induction probes, the mechanism bench) are in <code>docs/figures/archive/</code>; the list is in <code>docs/figures/README.md</code>. Run tables: <code>docs/RUN_INDEX.md</code>; findings: <code>docs/RUNS.md</code>; formulas: <code>docs/FORMULAS.md</code>.</p>
 </section>
 
 </div>

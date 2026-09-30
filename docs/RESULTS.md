@@ -1,3 +1,5 @@
+> **Historical (to 25 Sep).** The current state is in [RUNS.md](RUNS.md) (headline), [RUN_INDEX.md](RUN_INDEX.md) and [FORMULAS.md](FORMULAS.md); this file keeps the systems result and the 25 Sep audit.
+
 # Results
 
 Two lines of work: a **systems** result (training a 27B native-ternary model on one

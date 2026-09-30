@@ -63,7 +63,9 @@ a = axs[0, 0]
 for lab, c, r in rows:
     a.scatter(r["flips"], r["dL"], s=90 if lab.startswith("master") else 55, color=c, zorder=3,
               edgecolor=INK if lab.startswith("master") else "none")
-    a.annotate(lab, (r["flips"], r["dL"]), xytext=(5, 3), textcoords="offset points", fontsize=8.5, color=c)
+    k = [x for x, _, _ in rows].index(lab)      # alternate label sides so the cluster near 150-170k stays readable
+    a.annotate(lab, (r["flips"], r["dL"]), xytext=(6, 3) if k % 2 else (-6, -9), textcoords="offset points",
+               ha="left" if k % 2 else "right", fontsize=8.5, color=c)
 a.axhline(0, color=INK2, lw=0.8)
 a.set_xlabel("flips (trit changes) per step, thousands", color=INK2); a.set_ylabel("held-out loss change over 41 steps", color=INK2)
 a.set_title("loss gained against how much it moved (fewer flips favour the 41-step number)", color=INK, fontsize=11, loc="left")
@@ -74,8 +76,11 @@ def bars(ax, key, title, ref=None, fmt="{:+.2f}"):
     y = np.arange(len(rr))
     ax.barh(y, [v for *_, v in rr], color=[c for _, c, _ in rr])
     ax.set_yticks(y); ax.set_yticklabels([lab for lab, *_ in rr], fontsize=9); ax.invert_yaxis()
-    for i, (_, _, v) in enumerate(rr): ax.annotate(fmt.format(v), (v, i), xytext=(3, 0), textcoords="offset points",
-                                                   va="center", fontsize=8.5, color=INK2)
+    for i, (_, _, v) in enumerate(rr):   # labels outside the bar end (left of negative bars)
+        ax.annotate(fmt.format(v), (v, i), xytext=(3 if v >= 0 else -3, 0), textcoords="offset points",
+                    ha="left" if v >= 0 else "right", va="center", fontsize=8.5, color=INK2)
+    lo, hi = min(0, min(v for *_, v in rr)), max(0, max(v for *_, v in rr))
+    ax.set_xlim(lo - 0.12 * (hi - lo) if lo < 0 else 0, hi + 0.12 * (hi - lo))
     if ref is not None: ax.axvline(ref, color="#eb6834", lw=1.4, ls="--")
     ax.set_title(title, color=INK, fontsize=11, loc="left")
 

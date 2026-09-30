@@ -1,10 +1,35 @@
 # Runs
 
-![every run, grouped](figures/archive/all_runs.png)
+![best runs so far](figures/best_runs.png)
 
-*(regenerate with `python -m scripts.plots.plot_all`; run directories are listed in [RUN_INDEX.md](RUN_INDEX.md))*
+*(regenerate with `python -m scripts.plots.plot_best`; every rule's formula: [FORMULAS.md](FORMULAS.md); run
+directories: [RUN_INDEX.md](RUN_INDEX.md); what is running: [QUEUE.md](QUEUE.md))*
 
-## Headline
+## Headline (30 Sep)
+
+110M ternary model, 300M tokens of Wikipedia (Llama 32k), seq 2048, 32,768 tokens/step, from scratch, one seed.
+No full-precision copy of the ternary weights; optimizer state sublinear in the parameter count.
+
+| training rule | per-weight state | val loss | ppl |
+|---|---|---|---|
+| full precision (fp32 + AdamW) | 16 B | 2.683 | 14.6 |
+| master weights (fp32 latent + STE + AdamW, BitNet b1.58) | 16 B | **2.751** | **15.7** |
+| **long memory (dry friction 1/33) + rank 1024** (`gvsharp_dry_r1024_s0`) | trit only (+ 1024 (N+K) per layer) | **2.8198** | **16.8** |
+| **long memory (dry friction 1/33) + spend + rank 512** (`gvsharp_dryspend_r512_s0`) | trit only (+ 512 (N+K)) | **2.8215** | **16.8** |
+| long memory (decay 0.995) + rank 512 | trit only | 2.8339 | 17.0 |
+| long memory (dry friction), rank 256 | trit only | 2.8812 | 17.8 |
+| gate + Adam step + sharp, short memory (decay 0.97) | trit only | 2.9875 | 19.8 |
+| look-ahead x2 + sharp (3 passes per step) | trit only | 2.9925 | 19.9 |
+| gate + Adam step + row/col scales | trit only | 3.0773 | 21.7 |
+| rank-256 momentum + row/col scales | trit only | 3.1307 | 22.9 |
+| stateless flips from the gradient, cosine rate (26 Sep) | trit only | 4.591 | 98.6 |
+
+All "trit only" rows share the sharp base where noted: sign gate, factored Adam step, row/column scales, additive
+rank-16 float term with weight decay, per-head attention temperature ([FORMULAS.md](FORMULAS.md) section 2). The gap to
+master fell from 0.33 (29 Sep morning) to **0.069**. What closed it: the momentum's memory (33 -> ~200-400 steps), then
+rank 512-1024. Summary of what was tried, what failed and what is open: the "30 Sep summary" at the end.
+
+## Phase 1 headline (26 Sep): stateless flips from the gradient
 
 110M params, seq 2048, 32,768 tokens/step, 300M tokens, Wikipedia (Llama 32k), all
 identical except the weight-update rule:
@@ -34,7 +59,7 @@ array, no latent/master weights). Perplexity = exp(per-token mean cross-entropy)
 | data | `data/wiki32k_{train,val}.bin` — Wikipedia 20231101.en, Llama 32k BPE, 398.5M train / 2.0M val tokens, **article-level split** |
 | micro-batch | 16 × seq 2048 = 32,768 tokens per micro-step |
 | budget | 300M tokens |
-| schedule | cosine, lr 3e-4 → 3e-5, warmup = steps/30, flip rate 2e-2, g_ref 3 |
+| schedule | phase 1: cosine, lr 3e-4 → 3e-5, warmup = steps/30, flip rate 2e-2, g_ref 3. **Since 24 Sep**: float tail fp32 + AdamW lr 1.5e-3 → 1.5e-4, warmup 305 steps; flip rate warmup 30 steps to 0.02, then cosine to 0; g_ref 3 |
 | seed | 1337; data order from a dedicated RNG, identical across runs |
 | eval | 30 fixed val windows × 16 × 2048 = 1.0M tokens, same windows every run |
 | kernels | int8 forward + bf16 dx + dense dw, β = 1/√(K·ρ) |
@@ -1325,8 +1350,8 @@ Decision: no look-ahead in new runs unless a new reason appears.
 
 **Step size.** Plain momentum at 1/4 of the flip rate (branch at 131M) is 0.155 better than the trained rate
 after 25M tokens (3.342 vs 3.497 at step 4750). Running: 1/4 from scratch, 1/8, your design at 1/4, and
-accumulate-then-flip (see QUEUE.md). Figures: `categories/step_size.png`, `categories/mechanisms.png`,
-`bench_mechanisms.png`, `toy_mechanisms.png`, `induction_text.png`.
+accumulate-then-flip (see QUEUE.md). Figures: `archive/categories/step_size.png`, `archive/categories/mechanisms.png`,
+`archive/bench_mechanisms.png`, `archive/toy_mechanisms.png`, `archive/induction_text.png`.
 
 ### 28 Sep evening: flip choice and the wave (nola_lab @ step 5000, 164M)
 
@@ -1781,3 +1806,51 @@ at rank 256); cos(M, G) rare pairs +0.081, frequent -0.086.
 14.6): gap to master **+0.070**, -0.166 vs the base. Others: beta 0.995 + rank 512 2.8339 (17.0); beta 0.995 + spend
 2.8807; dry 0.05 2.8875; beta 0.998 2.8910 (too long: 0.995 2.8783). Decay sweep 0.97 / 0.99 / 0.995 / 0.998 / 1:
 2.988 / 2.911 / 2.878 / 2.891 / 3.047. Friction sweep 0.01 / 0.0303 / 0.05 / 0.1: 2.956 / 2.881 / 2.888 / 3.003.
+
+### 30 Sep 12:50: rank 1024 and friction 0.02 finished
+
+`gvsharp_dry_r1024_s0` (dry friction, rank 1024) **2.8198** (ppl 16.8): rank 256 / 512 / 1024 with dry friction = 2.8812 /
+2.8356 / 2.8198 (-0.046, then -0.016). `gvsharp_dry02_s0` (dry 0.02) 2.8970: friction sweep 0.01 / 0.02 / 0.0303 / 0.05 /
+0.1 = 2.956 / 2.897 / 2.881 / 2.888 / 3.003. `gvsharp_dryspend_r512_s0` at 300M vs master: pairs 0 / 1-9 / 10-99 /
+1e2-1e3 / 1e3-1e4 / >1e4 +0.02 / +0.07 / +0.12 / +0.10 / +0.04 / +0.01; copy gain +1.63. `gvsharp_b0995_r512_s0`: +0.04
+/ +0.09 / +0.14 / +0.12 / +0.06 / +0.02, copy gain +3.47.
+
+Caveat on loss by context position (`loss_by_pos.py`): its buckets hold 48 sequences x (2, 14, 112, 384, 1536)
+positions = 96 / 672 / 5.4k / 18k / 74k tokens. The 0-1 and 2-15 buckets are too small to rank runs (e.g. the best run
+reads +0.41 at 0-1 but +0.02 on never-seen pairs); the pair-frequency split, which uses all 98k positions, is the
+reliable one.
+
+## 30 Sep summary: what was tried, what worked, what failed, what is open
+
+**Worked** (from scratch, 300M, no look-ahead; formulas in [FORMULAS.md](FORMULAS.md)):
+1. Row/column scales (3.158 -> 3.131), factored Adam step + sign gate (3.077 / 3.070, 2 seeds), sharp = additive r16 +
+   adapter weight decay + head temperature (2.9875): the base of 29-30 Sep.
+2. **Memory length of the momentum** (the lever): decay 0.97 -> 0.995 (2.878), or dry friction on the whole vector with
+   decay 1 (2.881). Both have an optimum (~200-400 steps). Dry friction is a decay that sets its own memory (220 -> 390
+   steps over the run).
+3. **Rank, once the memory is long**: 256 -> 512 -0.046, -> 1024 -0.016 (with a short memory 512 gives -0.025).
+4. **Spend** on top of a well-set memory: dry 2.881 -> 2.870; with rank 512 2.836 -> 2.822.
+5. Best: **2.8198** (dry + rank 1024) and **2.8215** (dry + spend + rank 512). Gap to master 0.069 / 0.070.
+
+**Failed or no gain**: look-ahead (matched by batch 48 without it; dropped 27 Sep); speed reference; the user's rule
+(beta 1 + velocity cap + absolute tanh chance: 3.217); asymmetric gravity (3.50); undo (inert with the gate); dither
+(2.991); slow gate (2.962, +beta 0.99 2.944); dry friction per weight (2.941); pure beta 1 (3.047: never forgets the
+early gradients); dry 0.1 (3.003: too short); multibeta, accumulate-then-flip, adaptive rate, online selector,
+target-point mechanisms (branches, 3.12-3.37); earlier the stateless-flip variants (lockout, error feedback, frozen
+threshold, hump, per-row).
+
+**Measured** (why): the gap to master sat in (previous, target) pairs seen fewer than ~10k times in training; a pair
+seen 100 times turns up once every ~120 steps, longer than a 33-step memory. The rank-256 subspace already held 78-89%
+of those gradients (not a rank limit); the long memory raises cos(M, G) on rare pairs from +0.015 to +0.06-0.08 and
+halves their gap. Long-memory runs form induction heads (copy gain +1.6 to +5.9 vs master +3.15; short memory +0.23).
+Master and ours share the per-weight picture (46% of trit changes uphill; every step overshoots within one step).
+
+**Open**:
+- Seeds: every number since 29 Sep is one seed (the two Adam + gate seeds differ by 0.007).
+- Scale: 340M (rank 512 and master, 4090; ranks 64 / 128, lab) running; 1B on goldbug (8-10 Oct).
+- Rank at large width: 27B on 12 GB leaves ~rank 64, on 16 GB ~rank 256; the 110M rank sweep 32 / 64 / 128 is running.
+- The last 0.07: where it sits now (pairs 10-999 still +0.10-0.12); whether spend + rank 1024 + tuned friction adds up.
+- Dry friction's slow start (+0.14 at 33M vs decay 0.995) is unexplained.
+- Trainer for 27B: per-layer update in the backward pass, micro-batches folded into the momentum, flip from U, V without
+  materialising M.
+- The master-to-our-rule branch test (forgetting vs failing to learn rare pairs) needs a master-to-ternary converter.

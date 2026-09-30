@@ -13,7 +13,13 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (30 Sep, 12:05): rank sweep and model width (can the recipe fit 27B in 12-16 GB?)
+## Now (30 Sep, 13:00)
+
+Best so far: `gvsharp_dry_r1024_s0` 2.8198, `gvsharp_dryspend_r512_s0` 2.8215 (master 2.751). Finished since 11:40:
+dry + rank 1024 2.8198, dry 0.02 2.8970, beta 0.995 + rank 512 2.8339, dry + spend + rank 512 2.8215. Free: harlequin,
+pintail. Down: eider (GPU), gressingham (too hot).
+
+### Started 30 Sep, 12:05: rank sweep and model width (can the recipe fit 27B in 12-16 GB?)
 
 Recipe = sharp base + beta 1 + dry 0.0303 + spend 3 (current best at rank 512: 2.8215). At 27B, rank 64 bf16 momentum
 is ~0.95 GB (12 GB card), rank ~256 bf16 ~3.8 GB (16 GB card).

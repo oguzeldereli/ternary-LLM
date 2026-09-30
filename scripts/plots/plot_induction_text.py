@@ -1,6 +1,6 @@
 """Induction on text vs validation loss, per run (from checkpoints/induction_track.json and metrics.jsonl):
 val loss, ordered copying (exact - shuffled repeat gain) and seen-token boost (shuffled gain) over tokens.
-  python -m scripts.plots.plot_induction_text   -> docs/figures/induction_text.png"""
+  python -m scripts.plots.plot_induction_text   -> docs/figures/archive/induction_text.png"""
 import json, os, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -38,4 +38,4 @@ b.set(xlabel="tokens (M)", ylabel="nats", title="Seen-token boost: gain on a shu
 for ax in (v, a, b): ax.grid(alpha=0.3)
 for ax in (a, b): ax.axhline(0, color="gray", lw=0.5)
 v.legend(fontsize=8)
-fig.tight_layout(); fig.savefig("docs/figures/induction_text.png", dpi=120); print("wrote docs/figures/induction_text.png")
+fig.tight_layout(); fig.savefig("docs/figures/archive/induction_text.png", dpi=120); print("wrote docs/figures/archive/induction_text.png")

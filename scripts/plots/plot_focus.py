@@ -1,7 +1,7 @@
 """Today's runs (29 Sep) on a linear token axis, 0-300M: validation loss. Left: the whole run; right: 100M-300M.
 Running runs are dashed.
 
-  python -m scripts.plots.plot_focus      -> docs/figures/focus_runs.png
+  python -m scripts.plots.plot_focus      -> docs/figures/archive/focus_runs.png
 """
 import json, os
 import numpy as np
@@ -91,5 +91,5 @@ a.legend(loc="upper right", fontsize=9, frameon=False, labelcolor=INK)
 fig.suptitle("Focus: Adam + gate + sharp and the night 29-30 Sep variants (validation loss, linear tokens; dashed = still running)", color=INK, fontsize=14, x=0.02,
              ha="left")
 fig.tight_layout()
-fig.savefig("docs/figures/focus_runs.png", dpi=110, facecolor=SURFACE)
-print("wrote docs/figures/focus_runs.png")
+fig.savefig("docs/figures/archive/focus_runs.png", dpi=110, facecolor=SURFACE)
+print("wrote docs/figures/archive/focus_runs.png")

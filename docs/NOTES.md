@@ -1,3 +1,5 @@
+> **Historical (the stateless-flip phase, to 25 Sep).** The current explanation of the gap (the momentum's memory length and rare word pairs) is in [RUNS.md](RUNS.md), "30 Sep summary"; formulas in [FORMULAS.md](FORMULAS.md).
+
 # Notes: why master-free ternary training plateaus, and what actually fixes it
 
 **This file was rewritten after the Phase 0 audit.** The earlier version explained

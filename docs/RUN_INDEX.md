@@ -1,6 +1,22 @@
 # Run index
 
-Running, queued, unfinished and never-run runs: [QUEUE.md](QUEUE.md) (kept current).
+Running, queued, unfinished and never-run runs: [QUEUE.md](QUEUE.md) (kept current). Formulas of every flag:
+[FORMULAS.md](FORMULAS.md). Figure of the best runs: [figures/best_runs.png](figures/best_runs.png).
+
+## Best so far (110M, 300M tokens, from scratch, final validation loss / perplexity)
+
+| run | what | val loss | ppl |
+|---|---|---|---|
+| `fp32_baseline` | full precision, fp32 + AdamW (reference) | 2.683 | 14.6 |
+| `master_tracked` | master weights: fp32 latent + STE + AdamW (reference) | 2.751 | 15.7 |
+| **`gvsharp_dry_r1024_s0`** | sharp base + beta 1 + dry friction 1/33 + rank 1024 | **2.8198** | **16.8** |
+| **`gvsharp_dryspend_r512_s0`** | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 512 | **2.8215** | **16.8** |
+| `gvsharp_b0995_r512_s0` | sharp base + decay 0.995 + rank 512 | 2.8339 | 17.0 |
+| `gvsharp_dry_r512_s0` | sharp base + dry friction + rank 512 | 2.8356 | 17.0 |
+| `gvsharp_dryspend_s0` | sharp base + dry friction + spend (rank 256) | 2.8699 | 17.6 |
+| `gvsharp_rc_s0` | sharp base: gate + Adam step + row/col scales + additive r16 + adapter wd + head temperature | 2.9875 | 19.8 |
+
+The sections below keep each phase's own unit: the first phases report perplexity, from 27 Sep on validation loss.
 
 Every directory under `checkpoints/` (gitignored). Unless noted: 110M (`small`), wiki32k,
 seq 2048, 16 x 2048 = 32,768 tokens/step, same seed and batch order, kernel mode with
@@ -14,6 +30,9 @@ Each dir has `metrics.jsonl` (+ `ckpt.pt`); logs are `train.log` in the dir, or
 |---|---|---|---|
 | `p2_baseline` | **master weights** (fp32 latent + STE + AdamW, LR 1.5e-3) | 300M | **15.8** |
 | `probe_master` | master, 161 steps with probes (`--probe`) | 5M | 326.9 |
+| `master_tracked` | master weights, the reference of every later section (val loss 2.751) | 300M | 15.7 |
+| `curve_master` | master with window-curve tracking and snapshots every 1000 steps (stopped at 6350) | 208M | - |
+| `fp32_baseline` | full precision fp32 + AdamW (val loss 2.683) | 300M | 14.6 |
 
 ## Stateless flips, full length (all bf16 float tail = frozen norm gains)
 
@@ -57,6 +76,24 @@ Each dir has `metrics.jsonl` (+ `ckpt.pt`); logs are `train.log` in the dir, or
 `la_r0ramp_lr15` (stopped at step 20), `p3b_acc16`, `p3b_acc64` (never ran),
 `wiki_ev`, `wiki_ev3`, `wiki_mf` (early 51M/GPT-2-vocab runs from RESULTS.md, checkpoint only).
 
+
+## Low-rank momentum and cross-batch look-ahead (24-27 Sep)
+
+Screens at 10M tokens report val loss; the MLP testbed is a ternary MLP language model (`scripts/mlp/mlp_lab.py`).
+
+| run | what | tokens | val (loss) |
+|---|---|---|---|
+| `lm_frozen` | ternary layers frozen at their random init (flip rate 0) | 10M | 5.698 |
+| `lm_plain` | stateless flips from the gradient | 10M | 5.684 |
+| `la_xb2` | cross-batch look-ahead x2 (proposals from g) | 10M | 5.002 |
+| `la_xb2_rc` | + row/column scales | 10M | 4.974 |
+| `lm_lowrank256` | rank-256 momentum, no look-ahead (stalls at the unigram level) | 10M | 6.047 |
+| `lm_lowrank256_r04` / `_adapt` | rate 0.04 / angle-scaled decay | 10M | 6.072 / 6.293 |
+| `lm_lowrank256_xb2` | rank-256 momentum proposes, look-ahead x2 keeps | 10M | 4.892 |
+| **`lm_lowrank256_xb2_100M`** | the same, full 300M schedule | 300M | **3.127** |
+| `overnight_full` | `la_xb2` full schedule (stopped) | 130M | - |
+| `magadd_full` | look-ahead + momentum + additive r4 float term | 300M | 3.082 |
+| `mlp/mlp_master` / `mlp_lowrank64` / `mlp_lowrank256` / `mlp_sketch64` / `mlp_frozen` | MLP testbed (`checkpoints/mlp/`): master / rank-64 momentum / rank 256 / count sketch / frozen | 6000 steps | 4.351 / 4.670 / 4.577 / 4.804 / 5.066 |
 
 ## No look-ahead, momentum mechanisms, step size (27-28 Sep)
 
@@ -125,11 +162,23 @@ ones: [QUEUE.md](QUEUE.md).
 | `gvsharp_dryw_s0` | sharp base + beta 1 + `--dry_w 0.0303` (per weight) | 300M | 2.9409 |
 | `gvsharp_b099slow_s0` | sharp base + beta 0.99 + slow gate | 300M | 2.9441 |
 | **`gvsharp_dry_r512_s0`** | sharp base + beta 1 + dry 0.0303 + rank 512 | 300M | **2.8356** |
-| `gvsharp_b0995spend_r512_s0` | sharp base + beta 0.995 + spend 3 + rank 512 | running | - |
+| `gvsharp_b0995spend_r512_s0` | sharp base + beta 0.995 + spend 3 + rank 512 | running (bufflehead) | - |
 | **`gvsharp_dryspend_r512_s0`** | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 512 | 300M | **2.8215** |
 | `gvsharp_b0995_r512_s0` | sharp base + beta 0.995 + rank 512 | 300M | 2.8339 |
 | `gvsharp_b0998_s0` | sharp base + beta 0.998 | 300M | 2.8910 |
-| `gvsharp_dry_r1024_s0` | sharp base + beta 1 + dry 0.0303 + rank 1024 | running | - |
+| **`gvsharp_dry_r1024_s0`** | sharp base + beta 1 + dry 0.0303 + rank 1024 | 300M | **2.8198** |
 | `gvsharp_b0995spend_s0` | sharp base + beta 0.995 + spend 3 | 300M | 2.8807 |
 | `gvsharp_dry05_s0` | sharp base + beta 1 + dry 0.05 | 300M | 2.8875 |
-| `gvsharp_dry02_s0` | sharp base + beta 1 + dry 0.02 | running | - |
+| `gvsharp_dry02_s0` | sharp base + beta 1 + dry 0.02 | 300M | 2.8970 |
+
+## Rank sweep and model width (30 Sep, running)
+
+Recipe = sharp base + beta 1 + dry 0.0303 + spend 3. Does it survive a rank that fits 27B in 12-16 GB, and does the
+rank needed grow with width? 340M = `--preset d1024_l24`.
+
+| run | what | tokens | val |
+|---|---|---|---|
+| `rk32_dryspend_s0` / `rk64_dryspend_s0` / `rk128_dryspend_s0` | 110M, rank 32 / 64 / 128 | running | - |
+| `big_rk64_dryspend_s0` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 (lab) | running | - |
+| `big_dryspend_r512_s0` | 340M, rank 512 (4090) | running | - |
+| `big_master` | 340M master weights (4090, after the above) | queued | - |

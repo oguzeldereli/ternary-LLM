@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from scripts.plots.plot_focus import load, SURFACE, INK, INK2, GRID  # noqa: E402  (also redraws focus_runs.png)
+from scripts.plots.plot_focus import load, SURFACE, INK, INK2, GRID  # noqa: E402  (also redraws archive/focus_runs.png)
 
 REF = [("master_tracked", "master weights (reference)", "#eb6834"),
        ("magadd16_wd_qk_lab", "look-ahead + sharp", "#9e9e9e"),

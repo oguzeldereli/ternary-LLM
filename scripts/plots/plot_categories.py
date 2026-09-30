@@ -4,7 +4,7 @@ baseline (rank-256 momentum + cross-batch look-ahead x2), then only that categor
 baseline); right: validation loss. A run continued on another machine (NAME_lab) is drawn from its
 continuation, whose metrics include the earlier part.
 
-  python -m scripts.plots.plot_categories      -> docs/figures/categories/*.png
+  python -m scripts.plots.plot_categories      -> docs/figures/archive/categories/*.png
 """
 import json, os
 import numpy as np
@@ -141,7 +141,7 @@ def smooth(L, k=100):
     return np.array([(c[i + 1] - c[i + 1 - w[i]]) / w[i] for i in range(len(L))])
 
 
-os.makedirs("docs/figures/categories", exist_ok=True)
+os.makedirs("docs/figures/archive/categories", exist_ok=True)
 XMULT = {"text_read": {"lm_lowrank256_xb2_100M": 3.0}}   # per figure: tokens read per logged token
 
 
@@ -178,6 +178,6 @@ for key, (title, tmax, runs) in CATS.items():
     a.legend(fontsize=9, frameon=False, loc="lower left")
     fig.suptitle(title, fontsize=14, color=INK, x=0.01, ha="left")
     fig.tight_layout()
-    fig.savefig(f"docs/figures/categories/{key}.png", dpi=110, facecolor=SURFACE)
+    fig.savefig(f"docs/figures/archive/categories/{key}.png", dpi=110, facecolor=SURFACE)
     plt.close(fig)
-    print("wrote", f"docs/figures/categories/{key}.png")
+    print("wrote", f"docs/figures/archive/categories/{key}.png")

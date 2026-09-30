@@ -1,6 +1,6 @@
 """Momentum-mechanism bench (no-look-ahead checkpoint nola_lab @131M, warm momentum, 66 steps of flips, float tail
 frozen): held-out loss change and the flip signal's agreement with the true gradient at that moment, per arm.
-  python -m scripts.plots.plot_mech_bench     -> docs/figures/bench_mechanisms.png"""
+  python -m scripts.plots.plot_mech_bench     -> docs/figures/archive/bench_mechanisms.png"""
 import re, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -33,4 +33,4 @@ c.set(xlabel="steps of flips", ylabel="share", title="Sign right on the signal's
 for ax in (a, b, c): ax.grid(alpha=0.3); ax.axhline(0 if ax is not c else 0.5, color="gray", lw=0.6)
 a.legend(fontsize=8)
 fig.suptitle("Momentum mechanisms on the no-look-ahead bench (nola_lab @131M, warm momentum, 66 steps, float tail frozen)", x=0.01, ha="left")
-fig.tight_layout(); fig.savefig("docs/figures/bench_mechanisms.png", dpi=120); print("wrote docs/figures/bench_mechanisms.png")
+fig.tight_layout(); fig.savefig("docs/figures/archive/bench_mechanisms.png", dpi=120); print("wrote docs/figures/archive/bench_mechanisms.png")
