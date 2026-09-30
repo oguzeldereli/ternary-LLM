@@ -13,7 +13,23 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (30 Sep, 11:40)
+## Now (30 Sep, 12:05): rank sweep and model width (can the recipe fit 27B in 12-16 GB?)
+
+Recipe = sharp base + beta 1 + dry 0.0303 + spend 3 (current best at rank 512: 2.8215). At 27B, rank 64 bf16 momentum
+is ~0.95 GB (12 GB card), rank ~256 bf16 ~3.8 GB (16 GB card).
+
+| machine | run | what | expected |
+|---|---|---|---|
+| mallard | `rk32_dryspend_s0` | 110M, rank 32 | ~16:00 |
+| cackling | `rk64_dryspend_s0` | 110M, rank 64 | ~16:00 |
+| gadwall | `rk128_dryspend_s0` | 110M, rank 128 | ~16:00 |
+| shoveler | `big_rk64_dryspend_s0` | 340M (d1024_l24), rank 64 | ~01:00 |
+| mandarin | `big_rk128_dryspend_s0` | 340M, rank 128 | ~01:00 |
+| 4090 | `big_dryspend_r512_s0` then `big_master` | 340M, rank 512, then master | ~19:45, then ~12-15 h |
+
+110M reference points: rank 256 2.8699, rank 512 2.8215.
+
+## Earlier (30 Sep, 11:40)
 
 | machine | run | what | expected |
 |---|---|---|---|
