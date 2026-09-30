@@ -8,6 +8,7 @@ noted. Validation loss is in nats per token; perplexity = e^loss. Formulas behin
 | figure | shows | script |
 |---|---|---|
 | `best_runs.png` | the best run at each step of progress, with the fp32 and master-weights references; whole run (log tokens) and 100M-300M with final loss and perplexity | `python -m scripts.plots.plot_best` |
+| `scale.png` | the recipe at 110M and 340M: the 110M rank sweep (32-1024, int8, refresh), 340M runs against 110M with master at both sizes, final loss against rank | `python -m scripts.plots.plot_scale` |
 | `sweeps.png` | the recipe's three knobs, final loss: momentum decay (as memory 1/(1-b)), dry friction strength, momentum rank | `python -m scripts.plots.plot_sweeps` |
 | `gaps.png` | where the gap to master is at 300M: by training-set count of the (previous, target) pair, by context position (small buckets are noisy: 96 and 672 tokens), and the copy (induction) gain | `python -m scripts.plots.plot_gaps` (data: `scripts/analysis/loss_by_freq.py`, `loss_by_pos.py`) |
 | `night_runs.png` | every run of the night of 29-30 Sep on the sharp base, final loss as the gap to master | `python -m scripts.plots.plot_night` |

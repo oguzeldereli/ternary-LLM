@@ -15,16 +15,18 @@ REFS = {"fp32_baseline", "master_tracked"}
 RUNS = [  # (run, label, colour)
     ("fp32_baseline", "full precision (fp32 + AdamW), reference", "#757575"),
     ("master_tracked", "master weights (ternary forward, fp32 latent), reference", "#eb6834"),
-    ("gvsharp_dry_r1024_s0", "long memory (dry friction) + rank 1024", "#7f0000"),
-    ("gvsharp_dryspend_r512_s0", "long memory (dry friction) + spend + rank 512", "#b71c1c"),
+    ("gvsharp_dryspend_r1024_s0", "long memory (dry friction) + spend + rank 1024", "#4a0000"),
+    ("gvsharp_dry_r1024_seed2", "long memory (dry friction) + rank 1024, seed 2", "#8d1c1c"),
+    ("gvsharp_dry_r1024_s0", "long memory (dry friction) + rank 1024", "#b3261e"),
+    ("gvsharp_dryspend_r512_s0", "long memory (dry friction) + spend + rank 512", "#d84315"),
     ("gvsharp_b0995_r512_s0", "long memory (decay 0.995) + rank 512", "#0d47a1"),
-    ("gvsharp_dryspend_s0", "long memory (dry friction) + spend", "#e53935"),
-    ("gvsharp_b0995_s0", "long memory (decay 0.995)", "#1e88e5"),
-    ("gvsharp_dry_s0", "long memory (dry friction 1/33)", "#ef6c00"),
+    ("gvsharp_dryspend_s0", "long memory (dry friction) + spend, rank 256", "#ef6c00"),
+
+
     ("gvsharp_rc_s0", "gate + Adam step + sharp (short memory, decay 0.97)", "#c2185b"),
     ("magadd16_wd_qk_lab", "look-ahead + sharp (3 passes per step)", "#9e9e9e"),
     ("gatevnorm_rc_s0", "gate + Adam step + row/col scales", "#2e7d32"),
-    ("lm_lowrank256_xb2_100M", "rank-256 momentum + look-ahead x2", "#212121"),
+
     ("rc_s0", "rank-256 momentum + row/col scales", "#7b1fa2"),
 ]
 
