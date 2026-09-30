@@ -82,6 +82,12 @@ Third wave, queued in each runner (starts ~07:35-08:30 as the second wave ends, 
 dry + spend + rank 512 -0.123 at 1750; dry 0.05 -0.074; beta 0.995 + rank 512 -0.045; beta 0.995 + spend -0.036.
 dry + rank 512 (bufflehead) -0.131 at 6000.
 
+09:30 check: dry + rank 512 -0.151 at 8000 (2.8808, ends ~09:55); dry + spend + rank 512 -0.158 at 4000; beta 0.995 +
+rank 512 -0.120; dry + rank 1024 -0.103 (3250, not ahead of rank 512); beta 0.995 + spend -0.097; dry 0.05 -0.082; beta
+0.998 -0.076; dry 0.02 -0.027 (3000). Queued on bufflehead after dry + rank 512 (~09:55 -> ~13:50):
+`gvsharp_b0995spend_r512_s0` = beta 0.995 + spend 3 + rank 512 (the decay form of the best combination, to pick between
+decay and dry friction for goldbug).
+
 Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
 A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
 

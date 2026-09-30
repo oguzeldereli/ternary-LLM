@@ -41,6 +41,7 @@ RUNS = [  # (run, label, colour)
     ("gvsharp_b0995spend_s0", "sharp + beta 0.995 + spend", "#2e7d32"),
     ("gvsharp_dry05_s0", "sharp + beta 1 + dry 0.05", "#ff7043"),
     ("gvsharp_dry02_s0", "sharp + beta 1 + dry 0.02", "#fdd835"),
+    ("gvsharp_b0995spend_r512_s0", "sharp + beta 0.995 + spend + rank 512", "#7e57c2"),
 ]
 
 
