@@ -117,11 +117,18 @@ ones: [QUEUE.md](QUEUE.md).
 | **`gvsharp_dry_s0`** | sharp base + `--lr_beta 1 --dry_vec 0.0303` | 300M | **2.8812** |
 | `gvsharp_b1spend_s0` | sharp base + `--lr_beta 1 --spend 3` | 300M | 2.9426 |
 | `gvsharp_b1spend_slowgate_s0` | sharp base + beta 1 + spend 3 + slow gate | 300M | 2.9708 |
-| `gvsharp_b0995_s0` | sharp base + `--lr_beta 0.995` | running | - |
-| `gvsharp_dry01_s0` | sharp base + beta 1 + `--dry_vec 0.01` | running | - |
-| `gvsharp_dry1_s0` | sharp base + beta 1 + `--dry_vec 0.1` | running | - |
-| `gvsharp_dryspend_s0` | sharp base + beta 1 + dry 0.0303 + spend 3 | running | - |
-| `gvsharp_b099spend_s0` | sharp base + beta 0.99 + spend 3 | running | - |
-| `gvsharp_dryw_s0` | sharp base + beta 1 + `--dry_w 0.0303` (per weight) | running | - |
-| `gvsharp_b099slow_s0` | sharp base + beta 0.99 + slow gate | running | - |
+| `gvsharp_b0995_s0` | sharp base + `--lr_beta 0.995` | 300M | 2.8783 |
+| `gvsharp_dry01_s0` | sharp base + beta 1 + `--dry_vec 0.01` | 300M | 2.9558 |
+| `gvsharp_dry1_s0` | sharp base + beta 1 + `--dry_vec 0.1` | 300M | 3.0031 |
+| **`gvsharp_dryspend_s0`** | sharp base + beta 1 + dry 0.0303 + spend 3 | 300M | **2.8699** |
+| `gvsharp_b099spend_s0` | sharp base + beta 0.99 + spend 3 | 300M | 2.9031 |
+| `gvsharp_dryw_s0` | sharp base + beta 1 + `--dry_w 0.0303` (per weight) | 300M | 2.9409 |
+| `gvsharp_b099slow_s0` | sharp base + beta 0.99 + slow gate | 300M | 2.9441 |
 | `gvsharp_dry_r512_s0` | sharp base + beta 1 + dry 0.0303 + rank 512 | running | - |
+| `gvsharp_dryspend_r512_s0` | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 512 | running | - |
+| `gvsharp_b0995_r512_s0` | sharp base + beta 0.995 + rank 512 | running | - |
+| `gvsharp_b0998_s0` | sharp base + beta 0.998 | running | - |
+| `gvsharp_dry_r1024_s0` | sharp base + beta 1 + dry 0.0303 + rank 1024 | running | - |
+| `gvsharp_b0995spend_s0` | sharp base + beta 0.995 + spend 3 | running | - |
+| `gvsharp_dry05_s0` | sharp base + beta 1 + dry 0.05 | running | - |
+| `gvsharp_dry02_s0` | sharp base + beta 1 + dry 0.02 | running | - |

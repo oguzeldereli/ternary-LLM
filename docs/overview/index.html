@@ -157,21 +157,21 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>done</td><td class="mono">gvsharp_dry_s0</td><td><b>sharp + β 1 + dry friction on the vector: 2.8812</b>, best stateless run (base 2.9875, master 2.751: gap 0.236 → 0.130)</td><td class="num">04:15</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_b099_s0</td><td>sharp + β 0.99: 2.9108</td><td class="num">04:05</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_b1spend_s0</td><td>sharp + β 1 + spend 3: 2.9426 (−0.089 at 197M, faded)</td><td class="num">04:10</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_slowgate_s0 / gvsharp_r512_s0</td><td>slow gate 2.9615; rank 512 2.9627 (small)</td><td class="num">04:20</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_dither_s0 / gvsharp_b1_s0</td><td>dither 2.9908 (nothing); β 1 alone 3.0466 (worse)</td><td class="num">04:10</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_rc_s0</td><td>Adam + gate + sharp (the base): 2.9875</td><td class="num">01:45</td></tr>
-    <tr><td>done</td><td class="mono">gvsharp_b1spend_slowgate_s0</td><td>β 1 + spend + slow gate: 2.9708</td><td class="num">05:45</td></tr>
-    <tr><td>bufflehead</td><td class="mono">gvsharp_dry_r512_s0</td><td>β 1 + dry friction + rank 512</td><td class="num">~09:40</td></tr>
-    <tr><td>mallard</td><td class="mono">gvsharp_b0995_s0</td><td>β 0.995</td><td class="num">~08:05</td></tr>
-    <tr><td>cackling</td><td class="mono">gvsharp_dry01_s0</td><td>β 1 + dry 0.01 (weaker friction)</td><td class="num">~08:05</td></tr>
-    <tr><td>gadwall</td><td class="mono">gvsharp_dry1_s0</td><td>β 1 + dry 0.1 (stronger friction)</td><td class="num">~08:25</td></tr>
-    <tr><td>shoveler</td><td class="mono">gvsharp_dryspend_s0</td><td>β 1 + dry + spend</td><td class="num">~08:15</td></tr>
-    <tr><td>mandarin</td><td class="mono">gvsharp_b099spend_s0</td><td>β 0.99 + spend</td><td class="num">~08:15</td></tr>
-    <tr><td>harlequin</td><td class="mono">gvsharp_dryw_s0</td><td>β 1 + dry friction per weight</td><td class="num">~08:30</td></tr>
-    <tr><td>pintail</td><td class="mono">gvsharp_b099slow_s0</td><td>β 0.99 + slow gate</td><td class="num">~08:30</td></tr>
+    <tr><td>done</td><td class="mono">gvsharp_dryspend_s0</td><td><b>β 1 + dry friction + spend: 2.8699</b>, best stateless run (gap to master 0.119)</td><td class="num">08:20</td></tr>
+    <tr><td>done</td><td class="mono">gvsharp_b0995_s0</td><td>β 0.995: 2.8783</td><td class="num">07:35</td></tr>
+    <tr><td>done</td><td class="mono">gvsharp_dry_s0</td><td>β 1 + dry friction (vector): 2.8812</td><td class="num">04:15</td></tr>
+    <tr><td>done</td><td class="mono">gvsharp_b099spend_s0 / gvsharp_b099_s0</td><td>β 0.99 + spend 2.9031; β 0.99 2.9108</td><td class="num">08:15</td></tr>
+    <tr><td>done</td><td class="mono">gvsharp_dryw_s0 / gvsharp_b099slow_s0</td><td>dry friction per weight 2.9409; β 0.99 + slow gate 2.9441</td><td class="num">08:30</td></tr>
+    <tr><td>done</td><td class="mono">gvsharp_dry01_s0 / gvsharp_dry1_s0</td><td>dry 0.01 2.9558 (too long); dry 0.1 3.0031 (too short)</td><td class="num">08:25</td></tr>
+    <tr><td>done</td><td class="mono">others</td><td>spend 2.9426, slow gate 2.9615, rank 512 2.9627, β1+spend+slow 2.9708, dither 2.9908, β 1 3.0466; base 2.9875</td><td class="num">-</td></tr>
+    <tr><td>bufflehead</td><td class="mono">gvsharp_dry_r512_s0</td><td>dry friction + rank 512 (−0.131 at 197M)</td><td class="num">~09:40</td></tr>
+    <tr><td>mallard</td><td class="mono">gvsharp_dryspend_r512_s0</td><td>dry + spend + rank 512</td><td class="num">~12:15</td></tr>
+    <tr><td>cackling</td><td class="mono">gvsharp_b0995_r512_s0</td><td>β 0.995 + rank 512</td><td class="num">~12:15</td></tr>
+    <tr><td>gadwall</td><td class="mono">gvsharp_b0998_s0</td><td>β 0.998</td><td class="num">~12:25</td></tr>
+    <tr><td>harlequin</td><td class="mono">gvsharp_dry_r1024_s0</td><td>dry + rank 1024</td><td class="num">~12:40</td></tr>
+    <tr><td>shoveler</td><td class="mono">gvsharp_b0995spend_s0</td><td>β 0.995 + spend</td><td class="num">~12:25</td></tr>
+    <tr><td>mandarin</td><td class="mono">gvsharp_dry05_s0</td><td>β 1 + dry 0.05</td><td class="num">~12:20</td></tr>
+    <tr><td>pintail</td><td class="mono">gvsharp_dry02_s0</td><td>β 1 + dry 0.02</td><td class="num">~12:40</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
