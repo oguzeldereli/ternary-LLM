@@ -185,7 +185,7 @@ rank needed grow with width? 340M = `--preset d1024_l24`.
 
 | run | what | tokens | val |
 |---|---|---|---|
-| `rk32_dryspend_s0` / `rk64_dryspend_s0` / `rk128_dryspend_s0` | 110M, rank 32 / 64 / 128 | running | - |
+| `rk32_dryspend_s0` / `rk64_dryspend_s0` / `rk128_dryspend_s0` | 110M, rank 32 / 64 / 128 (rank 256: 2.8699, 512: 2.8215) | 300M | 3.1369 / 3.0401 / 2.9501 |
 | `big_rk64_dryspend_s0` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 (lab) | running | - |
 | `big_dryspend_r512_s0` | 340M, rank 512 (4090) | running | - |
 | `big_master` | 340M master weights (4090, after the above) | queued | - |

@@ -1854,3 +1854,22 @@ Master and ours share the per-weight picture (46% of trit changes uphill; every 
 - Trainer for 27B: per-layer update in the backward pass, micro-batches folded into the momentum, flip from U, V without
   materialising M.
 - The master-to-our-rule branch test (forgetting vs failing to learn rare pairs) needs a master-to-ternary converter.
+
+### 30 Sep 17:50: rank sweep finished; the rank penalty does not grow with width (so far)
+
+110M, dry friction + spend (final val): rank 32 3.1369 / 64 3.0401 / 128 2.9501 / 256 2.8699 / 512 2.8215. Every halving
+of the rank below 512 costs 0.05-0.10.
+
+Rank penalty (val minus rank 512 at the same step), 110M vs 340M (`d1024_l24`, 4090 rank 512, lab ranks 64 / 128):
+
+| step | 110M rank 64 | 340M rank 64 | 110M rank 128 | 340M rank 128 |
+|---|---|---|---|---|
+| 2000 | +0.230 | +0.196 | +0.133 | +0.180 |
+| 3000 | +0.228 | +0.208 | +0.131 | +0.171 |
+| 5000 | +0.218 | +0.193 | +0.133 | +0.150 |
+| 5250 | +0.217 | +0.190 | +0.132 | +0.150 |
+
+At 340M the rank-64 penalty is a little smaller than at 110M and the rank-128 one a little larger: roughly constant in
+absolute terms although rank 64 is a smaller share of the width (1/16 vs 1/12). The 340M model is 0.08 ahead of 110M at
+rank 512 (2.981 vs 3.061 at step 5250). For 27B at 12 GB (rank ~64) the penalty would be ~0.2 if it stays constant;
+at 16 GB (rank ~256) ~0.05.
