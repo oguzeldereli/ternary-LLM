@@ -1873,3 +1873,12 @@ At 340M the rank-64 penalty is a little smaller than at 110M and the rank-128 on
 absolute terms although rank 64 is a smaller share of the width (1/16 vs 1/12). The 340M model is 0.08 ahead of 110M at
 rank 512 (2.981 vs 3.061 at step 5250). For 27B at 12 GB (rank ~64) the penalty would be ~0.2 if it stays constant;
 at 16 GB (rank ~256) ~0.05.
+
+### 30 Sep 20:30: best 2.7998; 340M recipe 2.7246; seed spread
+
+- `gvsharp_dryspend_r1024_s0` (dry friction + spend + rank 1024) **2.7998** (ppl 16.4), gap to master **0.049**.
+- Seed spread: dry + rank 1024 seed 1 / 2 = 2.8198 / 2.8088 (0.011; Adam + gate's two seeds differed by 0.007).
+- 340M (`d1024_l24`), dry + spend + rank 512: **2.7246** (ppl 15.3), below the 110M master (2.751); master at 340M is
+  training (4090, ~02:30).
+- New flag `--mom_int8` (U, V rounded stochastically to int8 with a per-column scale every step): does 8-bit storage cost
+  anything? If not, 12 GB fits rank 128 instead of 64.

@@ -9,8 +9,9 @@ Running, queued, unfinished and never-run runs: [QUEUE.md](QUEUE.md) (kept curre
 |---|---|---|---|
 | `fp32_baseline` | full precision, fp32 + AdamW (reference) | 2.683 | 14.6 |
 | `master_tracked` | master weights: fp32 latent + STE + AdamW (reference) | 2.751 | 15.7 |
-| **`gvsharp_dry_r1024_s0`** | sharp base + beta 1 + dry friction 1/33 + rank 1024 | **2.8198** | **16.8** |
-| **`gvsharp_dryspend_r512_s0`** | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 512 | **2.8215** | **16.8** |
+| **`gvsharp_dryspend_r1024_s0`** | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 1024 | **2.7998** | **16.4** |
+| `gvsharp_dry_r1024_s0` / `_seed2` | sharp base + beta 1 + dry friction 1/33 + rank 1024, seeds 1 / 2 | 2.8198 / 2.8088 | 16.8 / 16.6 |
+| `gvsharp_dryspend_r512_s0` | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 512 | 2.8215 | 16.8 |
 | `gvsharp_b0995_r512_s0` | sharp base + decay 0.995 + rank 512 | 2.8339 | 17.0 |
 | `gvsharp_dry_r512_s0` | sharp base + dry friction + rank 512 | 2.8356 | 17.0 |
 | `gvsharp_dryspend_s0` | sharp base + dry friction + spend (rank 256) | 2.8699 | 17.6 |
@@ -175,8 +176,12 @@ ones: [QUEUE.md](QUEUE.md).
 
 | run | what | tokens | val |
 |---|---|---|---|
-| `gvsharp_dry_r1024_seed2` | the best run, seed 2 (`--seed 2`) | running | - |
-| `gvsharp_dryspend_r1024_s0` | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 1024 | running | - |
+| `gvsharp_dry_r1024_seed2` | dry + rank 1024, seed 2 (`--seed 2`) | 300M | 2.8088 |
+| **`gvsharp_dryspend_r1024_s0`** | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 1024 | 300M | **2.7998** |
+| `gvsharp_dryspend_r1024_seed2` | the best run, seed 2 | running | - |
+| `rk64_refresh_dryspend_s0` | dry + spend, rank 64 + subspace refresh (`--lr_refresh 8`) | running | - |
+| `rk128_int8_dryspend_s0` | dry + spend, rank 128, momentum rounded to int8 each step (`--mom_int8`) | running | - |
+| `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | running | - |
 
 ## Rank sweep and model width (30 Sep, running)
 
@@ -187,5 +192,5 @@ rank needed grow with width? 340M = `--preset d1024_l24`.
 |---|---|---|---|
 | `rk32_dryspend_s0` / `rk64_dryspend_s0` / `rk128_dryspend_s0` | 110M, rank 32 / 64 / 128 (rank 256: 2.8699, 512: 2.8215) | 300M | 3.1369 / 3.0401 / 2.9501 |
 | `big_rk64_dryspend_s0` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 (lab) | running | - |
-| `big_dryspend_r512_s0` | 340M, rank 512 (4090) | running | - |
-| `big_master` | 340M master weights (4090, after the above) | queued | - |
+| **`big_dryspend_r512_s0`** | 340M, dry + spend, rank 512 (4090) | 300M | **2.7246** (ppl 15.3) |
+| `big_master` | 340M master weights (4090) | running | - |

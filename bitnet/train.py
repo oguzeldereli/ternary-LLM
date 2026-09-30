@@ -200,10 +200,16 @@ def _diag_agg(name, vals, per_block=7):
             name + "_types": [t[j::per_block].mean().item() for j in range(per_block)]}
 
 
+def _q8(X):
+    """Stochastic rounding of each column to 255 levels of its absmax (what an int8 store + fp32 column scale holds)."""
+    s = X.abs().amax(0, keepdim=True).clamp_min(1e-30) / 127
+    return (X / s + torch.rand_like(X)).floor().clamp_(-127, 127) * s
+
+
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
-                 undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0, dry_w=0.0):
+                 undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0, dry_w=0.0, mom_int8=False):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -238,6 +244,9 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             ||M|| -= D x a slow EMA of the total gradient norm (to 0), use with beta 1. Two floats.
     dry_w: (--dry_w D) dry friction per weight: |M_ij| -= D x the layer's mean |g| each step (to 0), on the full M,
             then one subspace step back to rank r (like grav_up); use with beta 1.
+    mom_int8: (--mom_int8) store the momentum factors U, V at 8 bits: after each step every column is rounded
+            stochastically to 255 levels of its own absmax (per-column fp32 scale), so the next step reads what an int8
+            store would hold. Measures the precision cost; the memory itself is not yet packed.
     spend: (--spend c, plain path) a flip consumes the push that caused it: U += c * mean|M| * (D V), D = the trits'
             change (-sign(M) where they flipped), so those entries of M shrink by c * mean|M| (kept low-rank).
 
@@ -402,6 +411,9 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             del D
         if dither or spend:
             del w0
+        if mom_int8:
+            U, V = state[key]
+            state[key] = (_q8(U), _q8(V))
         if undo:
             from .kernel import unpack_rows, pack_rows
             pm[key] = pack_rows((unpack_rows(l.wpacked, l.K).to(torch.int8) - w_start).clamp(-1, 1).to(torch.int8))
@@ -1141,6 +1153,8 @@ def main():
                     help="momentum flips: low-discrepancy flip draw per weight (fixed hash + step * golden ratio)")
     ap.add_argument("--dry_vec", type=float, default=0.0,
                     help="momentum flips: dry friction on the whole momentum, ||M|| -= D x gradient norm per step")
+    ap.add_argument("--mom_int8", action="store_true",
+                    help="momentum flips: round the momentum factors U, V to int8 (per-column scale) after every step")
     ap.add_argument("--dry_w", type=float, default=0.0,
                     help="momentum flips: dry friction per weight, |M_ij| -= D x mean|g| per step (full M, then rank r)")
     ap.add_argument("--spend", type=float, default=0.0,
@@ -1789,7 +1803,7 @@ def main():
                                        ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh, grav_up=args.grav_up,
                                        undo=args.undo, slow_rank=args.slow_gate, slow_beta=args.slow_beta,
                                        dither=args.dither_ld, dry_vec=args.dry_vec, spend=args.spend,
-                                       dry_w=args.dry_w)
+                                       dry_w=args.dry_w, mom_int8=args.mom_int8)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)

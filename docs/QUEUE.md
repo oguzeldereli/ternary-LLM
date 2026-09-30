@@ -13,7 +13,20 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (30 Sep, 14:40)
+## Now (30 Sep, 20:30)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| 4090 | `big_master` | master weights at 340M (reference for `big_dryspend_r512_s0` 2.7246) | ~02:30 |
+| bufflehead | `gvsharp_dryspend_r1024_seed2` | the best run (2.7998), seed 2 | ~00:30 |
+| mallard | `rk64_refresh_dryspend_s0` | rank 64 + subspace refresh: can low rank be rescued? | ~22:30 |
+| pintail | `rk128_int8_dryspend_s0` | rank 128 with int8 momentum (vs fp32 2.9501) | ~00:20 |
+| gadwall | `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | ~23:10 |
+| shoveler / mandarin | `big_rk64` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 | ~22:00 |
+
+Free: harlequin. cackling: another user's llama-server holds 23.5 GB (the int8 run moved to pintail).
+
+## Earlier (30 Sep, 14:40)
 
 | machine | run | what | expected |
 |---|---|---|---|
