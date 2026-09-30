@@ -1744,3 +1744,25 @@ dry 0.01 are +0.6 at 33M).
   slow gate +2.5, dry + spend +1.9, beta 0.99 + spend +1.0); too-long or too-short memories do not (dry 0.01 +0.2, dry 0.1
   +0.03, beta 1 +0.1). Copy gain size varies a lot between runs with similar loss.
 - Rank capture at 300M (dry + spend / beta 0.995): cos(M, G) for rare pairs +0.064 / +0.060, frequent -0.073 / -0.083.
+
+### 30 Sep 09:50: dry friction is a decay that sets its own memory (`scripts/analysis/eff_beta.py`)
+
+Dry friction on the vector (beta 1, ||M|| -= D x EMA||g|| per step) with the relative flip rule is a global decay
+beta_eff = 1 - D ||g|| / ||M||. Measured at the checkpoints of `gvsharp_dry_s0` (D = 0.0303):
+
+| step | ||M|| / ||g|| | beta_eff | memory (steps) |
+|---|---|---|---|
+| 1000 | 6.6 | 0.9954 | 219 |
+| 3000 | 8.6 | 0.9965 | 283 |
+| 6000 | 7.6 | 0.9960 | 251 |
+| 9154 | 11.8 | 0.9974 | 388 |
+
+(beta 0.995 = 200 steps, 0.998 = 500; `gvsharp_b0995_s0` @9154 has ||M|| / ||g|| 8.2, below its pure-noise level 10: the
+swing keeps M small.)
+
+- Dry friction is not better than the best fixed decay: dry minus beta 0.995 is +0.140 at 1000, +0.019 at 3000, +0.006
+  at 6000, **+0.003 at 300M**; dry + spend minus beta 0.995 + spend -0.006 at 6000; dry + rank 512 minus beta 0.995 +
+  rank 512 +0.002 at 6000. Same mechanism, same memory length (~200-400 steps instead of ~33).
+- What dry friction adds is that it sets the memory itself, in gradient units, and lengthens it over training (220 ->
+  390 steps). Its cost is a slower start (the checkpoints do not show why: at step 1000 its memory is already ~220).
+- The earlier "dry + spend 2.8699 vs beta 0.99 + spend 2.9031" compared against beta 0.99 (100 steps), not the best decay.
