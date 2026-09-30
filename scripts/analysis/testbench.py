@@ -37,6 +37,20 @@ def load_model(ckpt):
         enable_rc_scales(m)
     for p in m.float_tail_parameters():
         p.data = p.data.float()
+    magA = [k for k in b["model"] if k.endswith("mag_A")]          # --lowrank_mag runs (additive unless MAG_KIND=mul)
+    if magA:
+        import os
+        from bitnet.flip import KernelTernaryLinear
+        r = b["model"][magA[0]].shape[1]
+        for l in m.modules():
+            if isinstance(l, KernelTernaryLinear):
+                l.enable_lowrank_mag(os.environ.get("MAG_KIND", "add"), r)
+                l.mag_cap = float(os.environ.get("MAG_CAP", 0))
+    if any(k.endswith("qk_logscale") for k in b["model"]):          # --qk_temp runs
+        import bitnet.model as BM
+        for a in m.modules():
+            if isinstance(a, BM.Attention):
+                a.qk_logscale = torch.nn.Parameter(torch.zeros(a.n_heads))
     missing, unexpected = m.load_state_dict(b["model"], strict=False)
     assert not unexpected, f"checkpoint keys the model does not have: {unexpected[:5]}"
     m = m.to(dev).train()

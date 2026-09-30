@@ -29,6 +29,11 @@ add:16 --mag_wd 0.1 --qk_temp`). Question: why pairs seen < 1e3 times learn at h
 | mandarin | `gvsharp_b1spend_s0` | `--lr_beta 1 --spend 3` | no friction; a flip consumes the push that caused it (master's threshold crossing) |
 | bufflehead | `gvsharp_rc_s0` | the base | ~01:45 |
 
+01:30 check (val minus the base `gvsharp_rc_s0` at step 1000 / 3000 / latest): beta 1 + spend +0.40 / -0.064 / -0.073
+(3250); beta 1 + dry +0.46 / -0.046 / -0.054; slow gate +0.16 / -0.051; beta 0.99 +0.13 / -0.041 / -0.043 (3500); rank 512
+-0.013 / -0.028 / -0.022; beta 1 +0.65 / +0.087 / +0.054 (closing); dither +0.01 / -0.001 / +0.001 (nothing). The
+long-memory runs start slower and overtake from ~66M. Base at 8500: 3.011 (master +0.241).
+
 Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
 A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
 

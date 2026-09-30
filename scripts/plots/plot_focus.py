@@ -17,7 +17,14 @@ RUNS = [  # (run, label, colour)
     ("gatevnorm_rc_s0", "Adam + gate", "#2e7d32"),
     ("gatevnorm_rc_s0_seed2", "Adam + gate, seed 2", "#81c784"),
     ("gvsharp_rc_s0", "Adam + gate + sharp (r16 + wd + head temperature)", "#c2185b"),
-    ("gvundo_rc_s0", "Adam + gate + undo", "#7b1fa2"),
+    ("gvundo_rc_s0", "Adam + gate + undo (stopped)", "#7b1fa2"),
+    ("gvsharp_b099_s0", "sharp + beta 0.99", "#1e88e5"),
+    ("gvsharp_b1_s0", "sharp + beta 1", "#5e35b1"),
+    ("gvsharp_r512_s0", "sharp + rank 512", "#6d4c41"),
+    ("gvsharp_slowgate_s0", "sharp + slow gate (r64, beta 0.999)", "#00897b"),
+    ("gvsharp_dither_s0", "sharp + low-discrepancy dither", "#bdbdbd"),
+    ("gvsharp_dry_s0", "sharp + beta 1 + dry friction (vector)", "#f9a825"),
+    ("gvsharp_b1spend_s0", "sharp + beta 1 + spend 3", "#212121"),
 ]
 
 
@@ -47,7 +54,7 @@ for d, lab, c in sorted(RUNS, key=lambda x: (load(x[0]) or (0, [9]))[1][-1]):
     t, v, done = r
     ls = "-" if done else "--"
     tag = f"{v[-1]:.3f}" + ("" if done else f" at {t[-1] / 1e6:.0f}M, running")
-    lw = 2.8 if d in ("gvsharp_rc_s0", "gvundo_rc_s0") else 1.8
+    lw = 2.8 if d.startswith("gvsharp") else 1.8
     a.plot(t, v, ls, color=c, lw=lw, label=f"{lab}  [{tag}]")
     m = t >= 9.5e7
     b.plot(t[m], v[m], ls, color=c, lw=lw)
@@ -64,7 +71,7 @@ b.set_xlim(9.5e7, 3.25e8); b.set_ylim(2.6, 3.6)
 b.set_xlabel("training tokens (100M-300M)", color=INK2)
 b.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x / 1e6:.0f}M"))
 a.legend(loc="upper right", fontsize=9, frameon=False, labelcolor=INK)
-fig.suptitle("Focus: Adam + gate, + sharp, + undo (validation loss, linear tokens; dashed = still running)", color=INK, fontsize=14, x=0.02,
+fig.suptitle("Focus: Adam + gate + sharp and the night 29-30 Sep variants (validation loss, linear tokens; dashed = still running)", color=INK, fontsize=14, x=0.02,
              ha="left")
 fig.tight_layout()
 fig.savefig("docs/figures/focus_runs.png", dpi=110, facecolor=SURFACE)
