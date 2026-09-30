@@ -13,7 +13,19 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (30 Sep, 20:30)
+## Now (1 Oct, 00:40)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| shoveler | `rare256sum_dryspend_s0` | rank 256 + a rare-pattern rank-256 momentum (gradient outside the main subspace, dry 0.01 = longer memory), summed into the flip signal. Same memory as rank 512 (2.8215) | ~04:45 |
+| mandarin | `rare256flip_dryspend_s0` | the same, the rare momentum flips on its own at 0.5x the rate (~1.5x the flips) | ~04:45 |
+| bufflehead | `gvsharp_dryspend_r1024_seed2` | the best run, seed 2 | ~00:55 |
+| gadwall | `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | ~00:45 |
+| 4090 | `big_master` | master weights at 340M | ~02:35 |
+
+Finished: `rk64_refresh_dryspend_s0` 3.0434 (plain rank 64 3.0401: no gain). Free: harlequin, mallard, pintail (after int8).
+
+## Earlier (30 Sep, 20:30)
 
 | machine | run | what | expected |
 |---|---|---|---|

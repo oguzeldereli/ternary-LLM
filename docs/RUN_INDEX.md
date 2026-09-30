@@ -182,6 +182,8 @@ ones: [QUEUE.md](QUEUE.md).
 | `rk64_refresh_dryspend_s0` | dry + spend, rank 64 + subspace refresh (`--lr_refresh 8`) | running | - |
 | `rk128_int8_dryspend_s0` | dry + spend, rank 128, momentum rounded to int8 each step (`--mom_int8`) | running | - |
 | `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | running | - |
+| `rare256sum_dryspend_s0` | dry + spend, rank 256 + a rare-pattern momentum (rank 256, fed the gradient outside the main subspace, dry 0.01), summed into the flip signal (`--rare_rank 256 --rare_mode sum`) | running | - |
+| `rare256flip_dryspend_s0` | the same, but the rare momentum proposes its own flips at 0.5x the rate (`--rare_mode flip`) | running | - |
 
 ## Rank sweep and model width (30 Sep, running)
 
