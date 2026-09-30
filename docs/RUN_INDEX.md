@@ -107,5 +107,13 @@ ones: [QUEUE.md](QUEUE.md).
 | `usersweep_cap{1,2,3,10,30}` | user's rule, cap sweep, stop at step 1500 | 49M | 4.132 / - / 3.991 / 4.946 / 5.305 |
 | `grav05_rc_s0` | asymmetric gravity 0.5 (`--grav_up 0.5`) | 300M | 3.5014 |
 | `grav05_gatevnorm_rc_s0` | asymmetric gravity 0.5 + gate + Adam step | 300M | 3.4972 |
-| `gvundo_rc_s0` | gate + Adam step + undo (`--undo`) | running | - |
-| `gvsharp_rc_s0` | gate + Adam step + sharp (`--lowrank_mag add:16 --mag_wd 0.1 --qk_temp`) | running | - |
+| `gvundo_rc_s0` | gate + Adam step + undo (`--undo`); stopped (undo reverses 2% of flips: inert) | 66M | 3.585 |
+| **`gvsharp_rc_s0`** | gate + Adam step + sharp (`--lowrank_mag add:16 --mag_wd 0.1 --qk_temp`): best without look-ahead, beats look-ahead + sharp (2.992) | 300M | **2.9875** |
+| `gvsharp_b099_s0` | sharp base + `--lr_beta 0.99` | running | - |
+| `gvsharp_b1_s0` | sharp base + `--lr_beta 1` (relative flip rule, no cap) | running | - |
+| `gvsharp_r512_s0` | sharp base + `--lowrank 512` | running | - |
+| `gvsharp_slowgate_s0` | sharp base + `--slow_gate 64 --slow_beta 0.999` | running | - |
+| `gvsharp_dither_s0` | sharp base + `--dither_ld` (low-discrepancy flip draw) | running | - |
+| `gvsharp_dry_s0` | sharp base + `--lr_beta 1 --dry_vec 0.0303` | running | - |
+| `gvsharp_b1spend_s0` | sharp base + `--lr_beta 1 --spend 3` | running | - |
+| `gvsharp_b1spend_slowgate_s0` | sharp base + beta 1 + spend 3 + slow gate | running | - |

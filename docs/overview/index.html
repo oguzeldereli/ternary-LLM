@@ -157,8 +157,15 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090</td><td class="mono">gvundo_rc_s0</td><td><b>Adam + gate + undo</b>: flip back last step's flips that the new batch gradient and the momentum both call uphill. From scratch, row/column scales, no look-ahead</td><td class="num">~00:30</td></tr>
-    <tr><td>bufflehead</td><td class="mono">gvsharp_rc_s0</td><td><b>Adam + gate + sharp</b> (sharp = additive r16 adapter + adapter weight decay + per-head temperature), no look-ahead</td><td class="num">~01:45</td></tr>
+    <tr><td>done</td><td class="mono">gvsharp_rc_s0</td><td><b>Adam + gate + sharp: 2.9875</b>, best without look-ahead (look-ahead + sharp 2.992; master 2.751). The base of tonight's runs</td><td class="num">01:45</td></tr>
+    <tr><td>mallard</td><td class="mono">gvsharp_b099_s0</td><td>sharp + β 0.99 (memory ~100 steps)</td><td class="num">~04:05</td></tr>
+    <tr><td>cackling</td><td class="mono">gvsharp_b1_s0</td><td>sharp + β 1 (no friction, relative flip rule, no cap)</td><td class="num">~04:05</td></tr>
+    <tr><td>harlequin</td><td class="mono">gvsharp_r512_s0</td><td>sharp + rank 512 (control: rank is not the limit)</td><td class="num">~04:15</td></tr>
+    <tr><td>gadwall</td><td class="mono">gvsharp_slowgate_s0</td><td>sharp + slow gate (rank-64 β 0.999 momentum must agree)</td><td class="num">~04:20</td></tr>
+    <tr><td>shoveler</td><td class="mono">gvsharp_dither_s0</td><td>sharp + low-discrepancy flip draw</td><td class="num">~04:10</td></tr>
+    <tr><td>pintail</td><td class="mono">gvsharp_dry_s0</td><td>sharp + β 1 + dry friction on the whole vector (1/33 per step)</td><td class="num">~04:15</td></tr>
+    <tr><td>mandarin</td><td class="mono">gvsharp_b1spend_s0</td><td>sharp + β 1 + spend 3 (a flip consumes the push that caused it)</td><td class="num">~04:10</td></tr>
+    <tr><td>bufflehead</td><td class="mono">gvsharp_b1spend_slowgate_s0</td><td>sharp + β 1 + spend 3 + slow gate</td><td class="num">~05:40</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
