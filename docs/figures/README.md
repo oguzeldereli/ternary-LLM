@@ -13,7 +13,7 @@ noted. Validation loss is in nats per token; perplexity = e^loss. Formulas behin
 | `gaps.png` | where the gap to master is at 300M: by training-set count of the (previous, target) pair, by context position (small buckets are noisy: 96 and 672 tokens), and the copy (induction) gain | `python -m scripts.plots.plot_gaps` (data: `scripts/analysis/loss_by_freq.py`, `loss_by_pos.py`) |
 | `night_runs.png` | every run of the night of 29-30 Sep on the sharp base, final loss as the gap to master | `python -m scripts.plots.plot_night` |
 | `swing_tests.png` | 41-step swing tests from one checkpoint: loss change vs flips, the lag-3 reversal of the true gradient, uphill share, never-turning weights, against master | `python -m scripts.plots.plot_swing` (data: `scripts/analysis/wave.py`, `master_wave.py`) |
-| `mlp.png` | MLP width / N+K scaling sketch (the user's) | `scripts/plots/plot_mlp.py` |
+| `mlp.png` | MLP testbed: width / N+K scaling sketch (24 Sep) | `scripts/plots/plot_mlp.py` |
 
 ## Archive (`archive/`): cited in RUNS.md, not updated
 
