@@ -1774,3 +1774,10 @@ only -0.025; rank 1024 is not ahead of 512 at 3000-6000). At 300M vs master: pai
 >1e4 +0.06 / +0.07 / +0.15 / +0.12 / +0.05 / +0.02; positions 0-1 / 2-15 / 16-127 / 512+ +0.26 / +0.11 / +0.08 / +0.06;
 copy gain +4.31 (induction). Rank capture: 89-94% of each bucket's held-out gradient inside the rank-512 subspace (78-89%
 at rank 256); cos(M, G) rare pairs +0.081, frequent -0.086.
+
+### 30 Sep 11:45: third wave finals
+
+**`gvsharp_dryspend_r512_s0` (dry friction + spend + rank 512): 2.8215, ppl 16.8** (master 2.751 / 15.7, fp32 2.683 /
+14.6): gap to master **+0.070**, -0.166 vs the base. Others: beta 0.995 + rank 512 2.8339 (17.0); beta 0.995 + spend
+2.8807; dry 0.05 2.8875; beta 0.998 2.8910 (too long: 0.995 2.8783). Decay sweep 0.97 / 0.99 / 0.995 / 0.998 / 1:
+2.988 / 2.911 / 2.878 / 2.891 / 3.047. Friction sweep 0.01 / 0.0303 / 0.05 / 0.1: 2.956 / 2.881 / 2.888 / 3.003.

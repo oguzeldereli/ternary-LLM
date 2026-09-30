@@ -126,10 +126,10 @@ ones: [QUEUE.md](QUEUE.md).
 | `gvsharp_b099slow_s0` | sharp base + beta 0.99 + slow gate | 300M | 2.9441 |
 | **`gvsharp_dry_r512_s0`** | sharp base + beta 1 + dry 0.0303 + rank 512 | 300M | **2.8356** |
 | `gvsharp_b0995spend_r512_s0` | sharp base + beta 0.995 + spend 3 + rank 512 | running | - |
-| `gvsharp_dryspend_r512_s0` | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 512 | running | - |
-| `gvsharp_b0995_r512_s0` | sharp base + beta 0.995 + rank 512 | running | - |
-| `gvsharp_b0998_s0` | sharp base + beta 0.998 | running | - |
+| **`gvsharp_dryspend_r512_s0`** | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 512 | 300M | **2.8215** |
+| `gvsharp_b0995_r512_s0` | sharp base + beta 0.995 + rank 512 | 300M | 2.8339 |
+| `gvsharp_b0998_s0` | sharp base + beta 0.998 | 300M | 2.8910 |
 | `gvsharp_dry_r1024_s0` | sharp base + beta 1 + dry 0.0303 + rank 1024 | running | - |
-| `gvsharp_b0995spend_s0` | sharp base + beta 0.995 + spend 3 | running | - |
-| `gvsharp_dry05_s0` | sharp base + beta 1 + dry 0.05 | running | - |
+| `gvsharp_b0995spend_s0` | sharp base + beta 0.995 + spend 3 | 300M | 2.8807 |
+| `gvsharp_dry05_s0` | sharp base + beta 1 + dry 0.05 | 300M | 2.8875 |
 | `gvsharp_dry02_s0` | sharp base + beta 1 + dry 0.02 | running | - |
