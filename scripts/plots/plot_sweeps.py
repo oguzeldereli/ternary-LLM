@@ -82,7 +82,8 @@ if missing:
 a.set_xscale("log", base=2); a.set_xlim(24, 1500)
 a.set_xticks([32, 64, 128, 256, 512, 1024]); a.set_xticklabels(["32", "64", "128", "256", "512", "1024"])
 a.set_xlabel("momentum rank r (state = r x (rows + columns) per layer)", color=INK2)
-a.set_title("rank: helps once the memory is long; 1024 adds little over 512", color=INK, fontsize=11, loc="left")
+a.set_ylim(2.72, 3.18)   # own range: rank 32 sits at 3.14
+a.set_title("rank: each halving below 512 costs 0.05-0.10; 1024 adds 0.016", color=INK, fontsize=11, loc="left")
 a.legend(loc="upper right", fontsize=9.5, frameon=False, labelcolor=INK)
 fig.suptitle("The recipe's three knobs: final validation loss at 300M tokens (110M model; dashed = master weights)",
              color=INK, fontsize=14, x=0.01, ha="left")
