@@ -34,6 +34,13 @@ RUNS = [  # (run, label, colour)
     ("gvsharp_dryw_s0", "sharp + beta 1 + dry per weight", "#a1887f"),
     ("gvsharp_b099slow_s0", "sharp + beta 0.99 + slow gate", "#80cbc4"),
     ("gvsharp_dry_r512_s0", "sharp + beta 1 + dry + rank 512", "#3e2723"),
+    ("gvsharp_dryspend_r512_s0", "sharp + dry + spend + rank 512", "#e53935"),
+    ("gvsharp_b0995_r512_s0", "sharp + beta 0.995 + rank 512", "#1a237e"),
+    ("gvsharp_b0998_s0", "sharp + beta 0.998", "#64b5f6"),
+    ("gvsharp_dry_r1024_s0", "sharp + dry + rank 1024", "#000000"),
+    ("gvsharp_b0995spend_s0", "sharp + beta 0.995 + spend", "#2e7d32"),
+    ("gvsharp_dry05_s0", "sharp + beta 1 + dry 0.05", "#ff7043"),
+    ("gvsharp_dry02_s0", "sharp + beta 1 + dry 0.02", "#fdd835"),
 ]
 
 

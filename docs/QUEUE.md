@@ -62,6 +62,22 @@ dry 0.1 +0.018 (3500: too short a memory); beta 1 + spend + slow gate -0.027 (85
 dry per weight -0.051 (5750); dry 0.01 -0.043; beta 0.99 + slow gate -0.042; dry 0.1 +0.020. beta 1 + spend + slow
 gate finished 2.9708.
 
+07:30 check (vs base): dry + spend -0.119 (8250); beta 0.995 -0.111 (8750); **dry + rank 512 -0.110 at 3750** (dry alone
+-0.054 at 3250: with a long memory, rank helps); beta 0.99 + spend -0.085; dry per weight -0.050; beta 0.99 + slow
+gate -0.049; dry 0.01 -0.035; dry 0.1 +0.015.
+
+Third wave, queued in each runner (starts ~07:35-08:30 as the second wave ends, ends ~11:30-12:30):
+
+| machine | run | change |
+|---|---|---|
+| mallard | `gvsharp_dryspend_r512_s0` | beta 1 + dry 0.0303 + spend 3 + rank 512 (the three best together) |
+| cackling | `gvsharp_b0995_r512_s0` | beta 0.995 + rank 512 |
+| gadwall | `gvsharp_b0998_s0` | beta 0.998 (the decay sweep: 0.97 / 0.99 / 0.995 / 0.998 / 1) |
+| harlequin | `gvsharp_dry_r1024_s0` | dry 0.0303 + rank 1024 (does rank keep helping?) |
+| shoveler | `gvsharp_b0995spend_s0` | beta 0.995 + spend 3 |
+| mandarin | `gvsharp_dry05_s0` | beta 1 + dry 0.05 (friction sweep: 0.01 / 0.02 / 0.0303 / 0.05 / 0.1) |
+| pintail | `gvsharp_dry02_s0` | beta 1 + dry 0.02 |
+
 Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
 A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
 
