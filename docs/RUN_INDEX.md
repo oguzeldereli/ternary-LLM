@@ -109,11 +109,18 @@ ones: [QUEUE.md](QUEUE.md).
 | `grav05_gatevnorm_rc_s0` | asymmetric gravity 0.5 + gate + Adam step | 300M | 3.4972 |
 | `gvundo_rc_s0` | gate + Adam step + undo (`--undo`); stopped (undo reverses 2% of flips: inert) | 66M | 3.585 |
 | **`gvsharp_rc_s0`** | gate + Adam step + sharp (`--lowrank_mag add:16 --mag_wd 0.1 --qk_temp`): best without look-ahead, beats look-ahead + sharp (2.992) | 300M | **2.9875** |
-| `gvsharp_b099_s0` | sharp base + `--lr_beta 0.99` | running | - |
-| `gvsharp_b1_s0` | sharp base + `--lr_beta 1` (relative flip rule, no cap) | running | - |
-| `gvsharp_r512_s0` | sharp base + `--lowrank 512` | running | - |
-| `gvsharp_slowgate_s0` | sharp base + `--slow_gate 64 --slow_beta 0.999` | running | - |
-| `gvsharp_dither_s0` | sharp base + `--dither_ld` (low-discrepancy flip draw) | running | - |
-| `gvsharp_dry_s0` | sharp base + `--lr_beta 1 --dry_vec 0.0303` | running | - |
-| `gvsharp_b1spend_s0` | sharp base + `--lr_beta 1 --spend 3` | running | - |
+| `gvsharp_b099_s0` | sharp base + `--lr_beta 0.99` | 300M | 2.9108 |
+| `gvsharp_b1_s0` | sharp base + `--lr_beta 1` (relative flip rule, no cap) | 300M | 3.0466 |
+| `gvsharp_r512_s0` | sharp base + `--lowrank 512` | 300M | 2.9627 |
+| `gvsharp_slowgate_s0` | sharp base + `--slow_gate 64 --slow_beta 0.999` | 300M | 2.9615 |
+| `gvsharp_dither_s0` | sharp base + `--dither_ld` (low-discrepancy flip draw) | 300M | 2.9908 |
+| **`gvsharp_dry_s0`** | sharp base + `--lr_beta 1 --dry_vec 0.0303` | 300M | **2.8812** |
+| `gvsharp_b1spend_s0` | sharp base + `--lr_beta 1 --spend 3` | 300M | 2.9426 |
 | `gvsharp_b1spend_slowgate_s0` | sharp base + beta 1 + spend 3 + slow gate | running | - |
+| `gvsharp_b0995_s0` | sharp base + `--lr_beta 0.995` | running | - |
+| `gvsharp_dry01_s0` | sharp base + beta 1 + `--dry_vec 0.01` | running | - |
+| `gvsharp_dry1_s0` | sharp base + beta 1 + `--dry_vec 0.1` | running | - |
+| `gvsharp_dryspend_s0` | sharp base + beta 1 + dry 0.0303 + spend 3 | running | - |
+| `gvsharp_b099spend_s0` | sharp base + beta 0.99 + spend 3 | running | - |
+| `gvsharp_dryw_s0` | sharp base + beta 1 + `--dry_w 0.0303` (per weight) | running | - |
+| `gvsharp_b099slow_s0` | sharp base + beta 0.99 + slow gate | running | - |
