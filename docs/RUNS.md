@@ -1673,3 +1673,42 @@ By context position at 300M (master / ours): 0-1 5.15 / 5.72 (**+0.57**), 2-15 3
   statistics.
 - Rank capture at 300M: 80-90% of each bucket's held-out gradient is inside the rank-256 subspace; cos(M, G) -0.05 to
   +0.02. Same as at 5000.
+
+### 30 Sep 04:15: night results — longer memory is the lever; dry friction on the vector 2.8812
+
+All from scratch, 300M, no look-ahead, base = Adam + gate + sharp (`gvsharp_rc_s0`, 2.9875). Master 2.751.
+
+| run | change | final val | vs base | gap to master |
+|---|---|---|---|---|
+| **`gvsharp_dry_s0`** | beta 1 + dry friction on the whole vector (`--dry_vec 0.0303`) | **2.8812** | **-0.106** | **+0.130** |
+| `gvsharp_b099_s0` | beta 0.99 | 2.9108 | -0.077 | +0.160 |
+| `gvsharp_b1spend_s0` | beta 1 + spend 3 | 2.9426 | -0.045 (-0.089 at 197M) | +0.191 |
+| `gvsharp_slowgate_s0` | slow gate (r64, beta 0.999) | 2.9615 | -0.026 | +0.210 |
+| `gvsharp_r512_s0` | rank 512 | 2.9627 | -0.025 | +0.211 |
+| `gvsharp_dither_s0` | low-discrepancy flip draw | 2.9908 | +0.003 | +0.240 |
+| `gvsharp_b1_s0` | beta 1, no friction | 3.0466 | +0.059 | +0.295 |
+
+The long-memory runs start slower (+0.13 to +0.65 at 33M) and pass the base from ~66M. Pure beta 1 is too long
+(the momentum never forgets the early gradients); dry friction on the vector keeps it finite (with the relative flip
+rule a global rescale acts as an adaptive decay: the fuller M is, the less of it each step removes).
+
+At 300M (gap to master; loss_by_freq / loss_by_pos, `lbf_night_laptop.txt`, `lbp_night_laptop.txt`):
+
+| run | pairs 0 | 1-9 | 10-99 | 1e2-1e3 | 1e3-1e4 | >1e4 | pos 0-1 | 2-15 | 16-127 | 512+ | copy gain |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| master | 7.90 | 6.55 | 4.86 | 3.33 | 2.23 | 1.47 | 5.15 | 3.40 | 3.16 | 2.82 | +3.15 |
+| base | +0.27 | +0.34 | +0.42 | +0.35 | +0.17 | +0.07 | +0.57 | +0.43 | +0.30 | +0.21 | +0.23 |
+| beta 0.99 | +0.18 | +0.22 | +0.29 | +0.23 | +0.12 | +0.04 | +0.20 | +0.22 | +0.19 | +0.14 | **+4.75** |
+| dry (vector) | **+0.08** | **+0.13** | **+0.23** | **+0.19** | +0.08 | +0.03 | **+0.13** | **+0.18** | +0.16 | +0.10 | **+4.75** |
+| spend | +0.31 | +0.32 | +0.35 | +0.26 | +0.14 | +0.06 | +0.45 | +0.52 | +0.24 | +0.17 | +0.12 |
+| slow gate | +0.28 | +0.32 | +0.37 | +0.31 | +0.15 | +0.07 | +0.41 | +0.43 | +0.27 | +0.18 | +0.06 |
+| rank 512 | +0.28 | +0.30 | +0.38 | +0.30 | +0.16 | +0.07 | +0.84 | +0.50 | +0.27 | +0.18 | +0.07 |
+
+- Longer memory closes the rare-pair gap: dry friction halves it on pairs seen < 1e4 times (e.g. 1e2-1e3: +0.35 ->
+  +0.19) and cuts the no-context gap from +0.57 to +0.13. The memory-horizon explanation holds.
+- **Both long-memory runs form strong induction heads**: copy gain +4.75 (master +3.15; every other run +0.03-0.23).
+  At 98M both are still at ~0 (+0.01): induction forms between 98M and 300M. Our earlier runs formed it weakly
+  (plain rc_s0 +0.31 at 98M) and then lost it; with a long memory it forms and stays.
+- Rank capture at 300M: with dry friction cos(M, G) for rare pairs is +0.079 (base +0.015, beta 0.99 +0.048): the
+  longer memory carries the rare-pair gradient. Subspace share unchanged (78-89%): still not a rank limit.
+- Rank 512 (-0.025) and dither (0) do little, as predicted. Spend helps mid-run and fades.
