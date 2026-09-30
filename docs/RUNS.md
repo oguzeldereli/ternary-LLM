@@ -1712,3 +1712,8 @@ At 300M (gap to master; loss_by_freq / loss_by_pos, `lbf_night_laptop.txt`, `lbp
 - Rank capture at 300M: with dry friction cos(M, G) for rare pairs is +0.079 (base +0.015, beta 0.99 +0.048): the
   longer memory carries the rare-pair gradient. Subspace share unchanged (78-89%): still not a rank limit.
 - Rank 512 (-0.025) and dither (0) do little, as predicted. Spend helps mid-run and fades.
+
+`gvsharp_b1spend_slowgate_s0` (beta 1 + spend 3 + slow gate) finished **2.9708** (-0.017 vs base; -0.060 at 197M, faded
+like spend alone). At 300M vs master: pairs 0 / 1-9 / 10-99 / 1e2-1e3 / 1e3-1e4 / >1e4 +0.39 / +0.44 / +0.40 / +0.30 /
++0.16 / +0.08; positions 0-1 / 2-15 / 512+ +0.54 / +0.52 / +0.20; copy gain +0.07 (no induction). Spend and the slow
+gate do not add up; neither gives the long-memory benefit of dry friction or beta 0.99.

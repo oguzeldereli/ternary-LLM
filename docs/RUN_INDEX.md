@@ -116,7 +116,7 @@ ones: [QUEUE.md](QUEUE.md).
 | `gvsharp_dither_s0` | sharp base + `--dither_ld` (low-discrepancy flip draw) | 300M | 2.9908 |
 | **`gvsharp_dry_s0`** | sharp base + `--lr_beta 1 --dry_vec 0.0303` | 300M | **2.8812** |
 | `gvsharp_b1spend_s0` | sharp base + `--lr_beta 1 --spend 3` | 300M | 2.9426 |
-| `gvsharp_b1spend_slowgate_s0` | sharp base + beta 1 + spend 3 + slow gate | running | - |
+| `gvsharp_b1spend_slowgate_s0` | sharp base + beta 1 + spend 3 + slow gate | 300M | 2.9708 |
 | `gvsharp_b0995_s0` | sharp base + `--lr_beta 0.995` | running | - |
 | `gvsharp_dry01_s0` | sharp base + beta 1 + `--dry_vec 0.01` | running | - |
 | `gvsharp_dry1_s0` | sharp base + beta 1 + `--dry_vec 0.1` | running | - |
@@ -124,3 +124,4 @@ ones: [QUEUE.md](QUEUE.md).
 | `gvsharp_b099spend_s0` | sharp base + beta 0.99 + spend 3 | running | - |
 | `gvsharp_dryw_s0` | sharp base + beta 1 + `--dry_w 0.0303` (per weight) | running | - |
 | `gvsharp_b099slow_s0` | sharp base + beta 0.99 + slow gate | running | - |
+| `gvsharp_dry_r512_s0` | sharp base + beta 1 + dry 0.0303 + rank 512 | running | - |

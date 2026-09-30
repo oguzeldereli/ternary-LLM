@@ -58,6 +58,10 @@ Next wave, queued in each runner (starts when the current run ends, ~03:45-04:20
 dry 0.1 +0.018 (3500: too short a memory); beta 1 + spend + slow gate -0.027 (8500). Queued on bufflehead after it
 (~05:45 -> ~09:40): `gvsharp_dry_r512_s0` = the best (dry friction) + rank 512 (does a long memory need more rank?).
 
+06:30 check (vs base): dry + spend -0.102 (6000; dry alone -0.085); beta 0.995 -0.095 (6500); beta 0.99 + spend -0.078;
+dry per weight -0.051 (5750); dry 0.01 -0.043; beta 0.99 + slow gate -0.042; dry 0.1 +0.020. beta 1 + spend + slow
+gate finished 2.9708.
+
 Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
 A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
 
