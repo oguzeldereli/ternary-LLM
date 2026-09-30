@@ -1882,3 +1882,14 @@ at 16 GB (rank ~256) ~0.05.
   training (4090, ~02:30).
 - New flag `--mom_int8` (U, V rounded stochastically to int8 with a per-column scale every step): does 8-bit storage cost
   anything? If not, 12 GB fits rank 128 instead of 64.
+
+### 30 Sep 22:20: 340M rank penalty (final); int8 momentum costs nothing
+
+340M finals (dry + spend): rank 64 / 128 / 512 = 2.9121 / 2.8677 / 2.7246, penalty vs rank 512 +0.188 / +0.143. At 110M:
++0.219 / +0.129. The rank penalty stays roughly constant in absolute terms from 110M to 340M.
+
+`rk128_int8_dryspend_s0` (momentum factors rounded to int8 with a per-column scale every step) minus fp32 rank 128 at the
+same step: +0.060 at 1000, +0.016 at 1750, -0.003 / -0.001 / +0.000 at 4250 / 4500 / 4750. 8-bit storage costs nothing
+after the first ~50M tokens, so a 12 GB budget holds rank 128 (int8) instead of 64 (bf16).
+
+`rk64_refresh_dryspend_s0` (subspace refresh at rank 64) minus plain rank 64: +0.001 to +0.008 throughout: no gain.

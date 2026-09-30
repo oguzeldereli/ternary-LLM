@@ -22,7 +22,7 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 | mallard | `rk64_refresh_dryspend_s0` | rank 64 + subspace refresh: can low rank be rescued? | ~22:30 |
 | pintail | `rk128_int8_dryspend_s0` | rank 128 with int8 momentum (vs fp32 2.9501) | ~00:20 |
 | gadwall | `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | ~23:10 |
-| shoveler / mandarin | `big_rk64` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 | ~22:00 |
+| shoveler / mandarin | `big_rk64` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128: finished 2.9121 / 2.8677 | done |
 
 Free: harlequin. cackling: another user's llama-server holds 23.5 GB (the int8 run moved to pintail).
 
@@ -33,7 +33,7 @@ Free: harlequin. cackling: another user's llama-server holds 23.5 GB (the int8 r
 | bufflehead | `gvsharp_dry_r1024_seed2` | the best run (dry friction + rank 1024), second seed (`--seed 2`: new init and data order) | ~18:40 |
 | harlequin | `gvsharp_dryspend_r1024_s0` | dry friction + spend + rank 1024 (the two best together) | ~18:40 |
 | mallard / cackling / gadwall | `rk32` / `rk64` / `rk128_dryspend_s0` | 110M rank sweep | ~15:40 |
-| shoveler / mandarin | `big_rk64` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 | ~22:00 |
+| shoveler / mandarin | `big_rk64` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128: finished 2.9121 / 2.8677 | done |
 | 4090 | `big_dryspend_r512_s0` then `big_master` | 340M rank 512, then master | ~20:00, then ~12-15 h |
 
 Finished: `gvsharp_b0995spend_r512_s0` 2.8398 (spend does not help the decay form). Free: pintail.
