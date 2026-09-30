@@ -34,6 +34,9 @@ add:16 --mag_wd 0.1 --qk_temp`). Question: why pairs seen < 1e3 times learn at h
 -0.013 / -0.028 / -0.022; beta 1 +0.65 / +0.087 / +0.054 (closing); dither +0.01 / -0.001 / +0.001 (nothing). The
 long-memory runs start slower and overtake from ~66M. Base at 8500: 3.011 (master +0.241).
 
+Queued on bufflehead after the base (~01:45 -> ~05:40): `gvsharp_b1spend_slowgate_s0` = beta 1 + spend 3 + slow gate
+(r64, 0.999): the two best new mechanisms together.
+
 Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
 A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
 
