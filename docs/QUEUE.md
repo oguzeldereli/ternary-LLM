@@ -78,6 +78,10 @@ Third wave, queued in each runner (starts ~07:35-08:30 as the second wave ends, 
 | mandarin | `gvsharp_dry05_s0` | beta 1 + dry 0.05 (friction sweep: 0.01 / 0.02 / 0.0303 / 0.05 / 0.1) |
 | pintail | `gvsharp_dry02_s0` | beta 1 + dry 0.02 |
 
+08:30 check: second wave finished (dry + spend 2.8699 best; beta 0.995 2.8783). Third wave running (steps 750-1970):
+dry + spend + rank 512 -0.123 at 1750; dry 0.05 -0.074; beta 0.995 + rank 512 -0.045; beta 0.995 + spend -0.036.
+dry + rank 512 (bufflehead) -0.131 at 6000.
+
 Stopped: `gvundo_rc_s0` (undo reverses 2% of flips with the gate: inert). Down: eider, 4090. gressingham too hot (91 C).
 A fixed hash dither (flip iff u_ij < p) would freeze 98% of weights (p <= rate = 0.02), hence the low-discrepancy form.
 

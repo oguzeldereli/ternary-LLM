@@ -1717,3 +1717,30 @@ At 300M (gap to master; loss_by_freq / loss_by_pos, `lbf_night_laptop.txt`, `lbp
 like spend alone). At 300M vs master: pairs 0 / 1-9 / 10-99 / 1e2-1e3 / 1e3-1e4 / >1e4 +0.39 / +0.44 / +0.40 / +0.30 /
 +0.16 / +0.08; positions 0-1 / 2-15 / 512+ +0.54 / +0.52 / +0.20; copy gain +0.07 (no induction). Spend and the slow
 gate do not add up; neither gives the long-memory benefit of dry friction or beta 0.99.
+
+### 30 Sep 08:45: second wave — memory length sweeps; dry friction + spend 2.8699 (gap to master 0.119)
+
+| run | final | vs base | gap to master | copy gain |
+|---|---|---|---|---|
+| **`gvsharp_dryspend_s0`** beta 1 + dry 0.0303 + spend 3 | **2.8699** | -0.118 | **+0.119** | +1.86 |
+| `gvsharp_b0995_s0` beta 0.995 | 2.8783 | -0.109 | +0.127 | **+5.88** |
+| `gvsharp_b099spend_s0` beta 0.99 + spend 3 | 2.9031 | -0.084 | +0.152 | +1.01 |
+| `gvsharp_dryw_s0` beta 1 + dry per weight 0.0303 | 2.9409 | -0.047 | +0.190 | +0.15 |
+| `gvsharp_b099slow_s0` beta 0.99 + slow gate | 2.9441 | -0.043 | +0.193 | +2.49 |
+| `gvsharp_dry01_s0` beta 1 + dry 0.01 | 2.9558 | -0.032 | +0.205 | +0.20 |
+| `gvsharp_dry1_s0` beta 1 + dry 0.1 | 3.0031 | +0.016 | +0.252 | +0.03 |
+
+Memory-length sweeps (final val): decay beta 0.97 (base) 2.9875 / 0.99 2.9108 / **0.995 2.8783** / 1 3.0466 (0.998
+running); dry friction on the vector 0.01 2.9558 / **0.0303 2.8812** / 0.1 3.0031 (0.02, 0.05 running). Both have an
+optimum: too short forgets the rare-pair signal, too long keeps the stale early gradients (and starts slowly: beta 1 and
+dry 0.01 are +0.6 at 33M).
+
+- Spend adds on top of a well-set memory (dry 2.8812 -> + spend 2.8699; beta 0.99 2.9108 -> + spend 2.9031), unlike on
+  beta 1 alone, where it faded. Per-weight dry friction and the slow gate are weaker than the vector friction.
+- Pair gaps to master at 300M, dry + spend / beta 0.995: 0 +0.06 / +0.11, 1-9 +0.13 / +0.16, 10-99 +0.22 / +0.24,
+  1e2-1e3 +0.16 / +0.18, 1e3-1e4 +0.07 / +0.08, >1e4 +0.02 / +0.03 (base: +0.27 / +0.34 / +0.42 / +0.35 / +0.17 / +0.07).
+  Positions 0-1 / 2-15 / 512+: dry + spend +0.20 / +0.18 / +0.09; beta 0.995 +0.22 / +0.16 / +0.11.
+- Induction: every run with a good memory forms induction heads (beta 0.995 +5.9, beta 0.99 +4.8, dry +4.7, beta 0.99 +
+  slow gate +2.5, dry + spend +1.9, beta 0.99 + spend +1.0); too-long or too-short memories do not (dry 0.01 +0.2, dry 0.1
+  +0.03, beta 1 +0.1). Copy gain size varies a lot between runs with similar loss.
+- Rank capture at 300M (dry + spend / beta 0.995): cos(M, G) for rare pairs +0.064 / +0.060, frequent -0.073 / -0.083.
