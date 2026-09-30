@@ -13,6 +13,13 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
+## Now (30 Sep, 11:40)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| 4090 | `big_dryspend_r512_s0` then `big_master` | scale check on the 340M model (d1024_l24): the night's winning recipe, then master, 300M tokens each (`scripts/remote/queue_scale.sh`); 3.2 s/step, 11.7 GiB | ~19:45, master after (~12-15 h) |
+| lab PCs | third wave (see the night section) | dry 0.05 finished 2.8875 | ~11:45-12:20; bufflehead ~14:05 |
+
 ## Night 29-30 Sep (started 23:57-00:08, all ~04:05-04:20)
 
 All from scratch, 300M, no look-ahead, base = Adam + gate + sharp (`--rc_scale --lr_gate --lr_vnorm 0.99 --lowrank_mag
