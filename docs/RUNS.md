@@ -1651,3 +1651,25 @@ Per-bucket learning over time (`lbf2_laptop.txt`): loss drop per 1000 steps, mas
   (-0.0917 vs -0.0920); in training `gvundo_rc_s0` is +0.006 / +0.043 vs the two Adam + gate seeds at step 2000.
 - Dry friction (1/33 per step instead of x0.97) was only swing-tested (-0.030 / -0.032 vs -0.025 for the tanh
   chance alone), never trained; it is not in the trainer.
+
+### 30 Sep 02:45: Adam + gate + sharp finished (`gvsharp_rc_s0`): **2.9875**
+
+Best result without look-ahead (look-ahead + sharp 2.992, Adam + gate 3.077 / 3.070, master 2.751, gap +0.236).
+
+By pair count (held-out, positions 2-2048; master / ours):
+
+| step | 0 | 1-9 | 10-99 | 1e2-1e3 | 1e3-1e4 | >1e4 | all |
+|---|---|---|---|---|---|---|---|
+| 6000 (197M) | 8.05 / 8.36 | 6.79 / 7.12 | 5.11 / 5.51 | 3.53 / 3.91 | 2.34 / 2.55 | 1.52 / 1.60 | 2.983 / 3.221 |
+| 9154 (300M) | 7.90 / 8.17 (+0.27) | 6.55 / 6.89 (+0.34) | 4.86 / 5.28 (+0.42) | 3.33 / 3.68 (+0.35) | 2.23 / 2.40 (+0.17) | 1.47 / 1.54 (+0.07) | 2.849 / 3.068 |
+
+By context position at 300M (master / ours): 0-1 5.15 / 5.72 (**+0.57**), 2-15 3.40 / 3.83 (+0.43), 16-127 3.16 / 3.45
+(+0.30), 128-511 2.86 / 3.09 (+0.23), 512+ 2.82 / 3.03 (+0.21). Copy gain: master +3.15, ours +0.23 (at 197M: +1.78 /
++0.01): master has strong induction heads, ours hardly any.
+
+- From 197M to 300M rare pairs improve at master's rate (1e2-1e3: -0.23 vs -0.20; 10-99: -0.23 vs -0.25): the gap was
+  built between 33M and 197M and is not closing.
+- The largest single gap is the prediction from one or two tokens (+0.57): the bigram table, again the pair
+  statistics.
+- Rank capture at 300M: 80-90% of each bucket's held-out gradient is inside the rank-256 subspace; cos(M, G) -0.05 to
+  +0.02. Same as at 5000.
