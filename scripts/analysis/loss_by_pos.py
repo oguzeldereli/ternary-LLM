@@ -17,8 +17,8 @@ for arg in sys.argv[1:]:
     step, m, V = load(f"checkpoints/{run}/ckpt_{st}.pt", kind)
     L = []
     with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
-        for i in range(0, len(X), 8):
-            x = X[i:i + 8, :-1].cuda(); y = X[i:i + 8, 1:].cuda()
+        for i in range(0, len(X)):            # one sequence at a time: the logits are 2048 x 32k
+            x = X[i:i + 1, :-1].cuda(); y = X[i:i + 1, 1:].cuda()
             out = m(x); lg = out[0] if isinstance(out, tuple) else out
             L.append(F.cross_entropy(lg.float().reshape(-1, lg.shape[-1]), y.reshape(-1), reduction="none").view(y.shape).cpu())
         L = torch.cat(L)
