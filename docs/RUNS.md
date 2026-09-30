@@ -1893,3 +1893,35 @@ same step: +0.060 at 1000, +0.016 at 1750, -0.003 / -0.001 / +0.000 at 4250 / 45
 after the first ~50M tokens, so a 12 GB budget holds rank 128 (int8) instead of 64 (bf16).
 
 `rk64_refresh_dryspend_s0` (subspace refresh at rank 64) minus plain rank 64: +0.001 to +0.008 throughout: no gain.
+
+### 1 Oct 00:20: why the gap sits in pairs seen 30-999 times (`scripts/analysis/rare_pairs.py`)
+
+Held-out loss minus master's at 300M by training-set count of the (previous, target) pair, split by whether the target
+starts a word ("▁...") or continues one (sub-word completion). Share = share of held-out positions; the 0-9 buckets are
+small (1.8-3.1% each, so their continuation cells are a few hundred tokens: noisy).
+
+| bucket | 0 | 1-2 | 3-9 | 10-29 | 30-99 | 100-299 | 300-999 | 1k-3k | 3k-10k | >10k |
+|---|---|---|---|---|---|---|---|---|---|---|
+| share of positions | 1.9% | 1.8% | 3.1% | 4.2% | 6.8% | 8.8% | 13.9% | 14.8% | 12.9% | 31.8% |
+| targets that continue a word | 12% | 10% | 14% | 19% | 26% | 33% | 44% | 50% | 46% | 57% |
+| master loss (continuations) | 6.27 | 5.97 | 5.02 | 3.96 | 3.18 | 2.37 | 1.64 | 1.22 | 1.05 | 1.06 |
+| rank 256 (dry + spend), all | +0.058 | +0.100 | +0.152 | +0.187 | +0.245 | +0.212 | +0.131 | +0.076 | +0.063 | +0.026 |
+| rank 512, all | +0.022 | +0.056 | +0.075 | +0.075 | +0.153 | +0.124 | +0.080 | +0.046 | +0.030 | +0.010 |
+| **rank 1024 (best), all** | +0.029 | +0.064 | +0.049 | +0.072 | **+0.090** | **+0.086** | +0.055 | +0.028 | +0.018 | +0.004 |
+| rank 1024, word starts | +0.043 | +0.079 | +0.047 | +0.063 | +0.076 | +0.058 | +0.034 | +0.015 | +0.019 | +0.001 |
+| **rank 1024, continuations** | -0.08 | -0.08 | +0.060 | +0.108 | **+0.129** | **+0.143** | +0.081 | +0.042 | +0.017 | +0.007 |
+| short memory (base), all | +0.273 | +0.316 | +0.357 | +0.357 | +0.466 | +0.434 | +0.301 | +0.198 | +0.140 | +0.072 |
+
+Share of master's gain over the unigram guess, (U - ours) / (U - master): best run 97.9-99.9% in every bucket (lowest at
+30-99), short-memory base 89-98%.
+
+- The band is where master learns a pair *specifically*: below ~10 sightings master cannot either (its loss stays 6-8,
+  both models fall back on generalisation, so the gap is small); above ~1k sightings both learn it (saturated). In
+  30-999 master's loss falls far below the unigram guess (30-99: 4.48 vs 8.86) and ~60% of our remaining gap sits there.
+- Within it the gap is mostly **word continuations**: completing rare words split into sub-word tokens (+0.13-0.14 at
+  30-299 vs +0.06-0.08 for word starts). These are many distinct, nearly deterministic facts, each seen every ~40-400
+  steps.
+- **Rank closes this band most**: 30-99 continuations +0.345 (rank 256) -> +0.244 (512) -> +0.129 (1024); overall 30-99
+  +0.245 -> +0.090, against >10k +0.026 -> +0.004. Memory length sets how long each rare fact is held; rank sets how
+  many distinct facts the momentum can hold at once. The remaining gap is a capacity limit of the low-rank momentum for
+  many sparse, specific facts.
