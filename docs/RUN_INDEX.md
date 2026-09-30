@@ -171,6 +171,13 @@ ones: [QUEUE.md](QUEUE.md).
 | `gvsharp_dry05_s0` | sharp base + beta 1 + dry 0.05 | 300M | 2.8875 |
 | `gvsharp_dry02_s0` | sharp base + beta 1 + dry 0.02 | 300M | 2.8970 |
 
+## Running (30 Sep, 14:40)
+
+| run | what | tokens | val |
+|---|---|---|---|
+| `gvsharp_dry_r1024_seed2` | the best run, seed 2 (`--seed 2`) | running | - |
+| `gvsharp_dryspend_r1024_s0` | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 1024 | running | - |
+
 ## Rank sweep and model width (30 Sep, running)
 
 Recipe = sharp base + beta 1 + dry 0.0303 + spend 3. Does it survive a rank that fits 27B in 12-16 GB, and does the

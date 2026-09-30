@@ -13,7 +13,19 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (30 Sep, 13:00)
+## Now (30 Sep, 14:40)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| bufflehead | `gvsharp_dry_r1024_seed2` | the best run (dry friction + rank 1024), second seed (`--seed 2`: new init and data order) | ~18:40 |
+| harlequin | `gvsharp_dryspend_r1024_s0` | dry friction + spend + rank 1024 (the two best together) | ~18:40 |
+| mallard / cackling / gadwall | `rk32` / `rk64` / `rk128_dryspend_s0` | 110M rank sweep | ~15:40 |
+| shoveler / mandarin | `big_rk64` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 | ~22:00 |
+| 4090 | `big_dryspend_r512_s0` then `big_master` | 340M rank 512, then master | ~20:00, then ~12-15 h |
+
+Finished: `gvsharp_b0995spend_r512_s0` 2.8398 (spend does not help the decay form). Free: pintail.
+
+## Earlier (30 Sep, 13:00)
 
 Best so far: `gvsharp_dry_r1024_s0` 2.8198, `gvsharp_dryspend_r512_s0` 2.8215 (master 2.751). Finished since 11:40:
 dry + rank 1024 2.8198, dry 0.02 2.8970, beta 0.995 + rank 512 2.8339, dry + spend + rank 512 2.8215. Free: harlequin,
