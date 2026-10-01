@@ -206,6 +206,69 @@ def _q8(X):
     return (X / s + torch.rand_like(X)).floor().clamp_(-127, 127) * s
 
 
+def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False):
+    """--ts: master's two timescales with sublinear state (the mechanism the 1 Oct master branches point to).
+    Per layer:
+      v      factored row x column EMA of g^2 (decay b2), v_ij ~ R_i C_j / mean(R)          (N + K floats)
+      m      short momentum, rank rank_s, decay b1 (~10 steps): the direction, like Adam's m   (rank_s (N + K))
+      u      = -(m / (1 - b1^t)) / sqrt(v / (1 - b2^t)): Adam's normalized step
+      A      long accumulator, rank r: A <- (1 - 1/tau) A + lr_ratio * u  (the latent's sub-threshold position;
+             lr_ratio = lr_t / lr_peak, so steps shrink as the schedule decays, as master's latent steps do)
+      fire   a trit moves by d = sign(A_ij) the step |A_ij| >= theta (deterministic, no rate), unless blocked at +-1
+             (optionally only where this batch's gradient agrees: gate); the move spends theta: A -= theta * D
+             (kept low-rank: U -= theta * (D V)). theta ~ half a bin in latent units over the peak lr (~16)."""
+    from .kernel import unpack_rows, pack_rows
+    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
+    nf = nt = 0
+    st = state.setdefault("_ts", {})
+    for i, l in enumerate(layers):
+        g = l.gw.float(); l.gw = None; l.capture = False
+        key = id(l); t = st.get(("t", key), 0) + 1; st[("t", key)] = t
+        g2 = g * g
+        if ("v", key) in st:
+            R, C = st[("v", key)]; R = b2 * R + (1 - b2) * g2.mean(1); C = b2 * C + (1 - b2) * g2.mean(0)
+        else:
+            R, C = (1 - b2) * g2.mean(1), (1 - b2) * g2.mean(0)
+        st[("v", key)] = (R, C)
+        v = R[:, None] * C[None, :] / R.mean().clamp_min(1e-30) / (1 - b2 ** t)
+        rs = min(rank_s, l.N, l.K)
+        if ("m", key) not in st:
+            Vm = torch.linalg.qr(g.T @ torch.randn(l.N, rs, device=g.device))[0]
+            Um = (1 - b1) * g @ Vm
+        else:
+            Um, Vm = st[("m", key)]
+            Vn = torch.linalg.qr(b1 * Vm @ (Um.T @ Um) + (1 - b1) * g.T @ Um)[0]
+            Um = b1 * Um @ (Vm.T @ Vn) + (1 - b1) * g @ Vn; Vm = Vn
+        st[("m", key)] = (Um, Vm)
+        u = -(Um @ Vm.T) / (1 - b1 ** t) / (v.sqrt() + 1e-8) * lr_ratio
+        ra = min(r, l.N, l.K)
+        if key not in state:
+            V = torch.linalg.qr(u.T @ torch.randn(l.N, ra, device=g.device))[0]
+            U = u @ V
+        else:
+            U, V = state[key]
+            U = U * (1 - 1 / tau)
+            Vn = torch.linalg.qr(V @ (U.T @ U) + u.T @ U)[0]
+            U = U @ (V.T @ Vn) + u @ Vn; V = Vn
+        A = U @ V.T
+        w0 = unpack_rows(l.wpacked, l.K).to(torch.int8)
+        d = A.sign()
+        fire = (A.abs() >= theta) & ((w0.float() + d).abs() <= 1)
+        if gate:
+            fire &= (d == -g.sign())
+        before = l.wpacked.clone() if l.track else None
+        D = torch.where(fire, d, torch.zeros_like(d))
+        if fire.any():
+            l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
+            U = U - theta * (D @ V)
+        state[key] = (U, V)
+        nf += int(fire.sum()); nt += fire.numel()
+        if before is not None:
+            l._record_flips(before, l.wpacked)
+        del g, g2, v, u, A, w0, d, fire, D
+    return {"ts_frac": nf / max(nt, 1)}
+
+
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
@@ -425,7 +488,8 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             w_start = unpack_rows(l.wpacked, l.K).to(torch.int8)
             if key in pm:
                 d = unpack_rows(pm[key], l.K).to(torch.int8).float()      # last step's move, -1 / 0 / +1
-                back = (d != 0) & (d * g > 0) & (M.sign() == d)
+                back = (d != 0) & (d * g > 0)
+                if undo != "g": back &= M.sign() == d       # --undo_g: this batch's gradient alone decides
                 if back.any():
                     l.wpacked.copy_(pack_rows(torch.where(back, (w_start.float() - d).clamp(-1, 1).to(torch.int8), w_start)))
                 state["_nundo"] = state.get("_nundo", 0) + int(back.sum())
@@ -1272,8 +1336,18 @@ def main():
     ap.add_argument("--lr_vfull", action="store_true",
                     help="momentum flips: Adam step normalized by a per-weight EMA of g^2 (N x K floats) instead of "
                          "the factored row x column one (analysis: is the factored normalization what we lack?)")
+    ap.add_argument("--ts", action="store_true",
+                    help="two timescales (ts_step): short low-rank momentum for the direction, long low-rank accumulator "
+                         "of Adam-normalized steps, a trit moves when the accumulator crosses theta (no flip rate)")
+    ap.add_argument("--ts_theta", type=float, default=16.0, help="--ts: firing threshold (latent half-bin / peak lr)")
+    ap.add_argument("--ts_tau", type=float, default=300.0, help="--ts: the accumulator's leak time constant (steps)")
+    ap.add_argument("--ts_rank_s", type=int, default=128, help="--ts: rank of the short momentum")
+    ap.add_argument("--ts_b1", type=float, default=0.9, help="--ts: decay of the short momentum")
+    ap.add_argument("--ts_b2", type=float, default=0.95, help="--ts: decay of the factored second moment")
     ap.add_argument("--tf32", action="store_true",
                     help="allow TF32 for fp32 matmuls (the low-rank momentum's products); A100 fp32 is 19.5 TFLOPs, TF32 156")
+    ap.add_argument("--undo_g", action="store_true",
+                    help="undo on this batch's gradient alone (no momentum condition: with spend it mostly holds anyway)")
     ap.add_argument("--undo", action="store_true",
                     help="momentum flips: flip back last step's moves that this batch's gradient and the updated "
                          "momentum both call uphill (one-step buffer of the moves)")
@@ -1958,6 +2032,9 @@ def main():
                 rs_info = select_step(model, lr_state, sel_state, args.lowrank, args.lr_beta, step, args, args.flip_seed)
             elif args.multibeta:
                 rs_info = multibeta_step(model, mb_states, mb_betas, mb_scores, args.lowrank, step, args.flip_seed)
+            elif args.ts:
+                rs_info = ts_step(model, lr_state, args.lowrank, step, lr / tc.lr, args.ts_theta, args.ts_tau,
+                                  args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
@@ -1966,7 +2043,7 @@ def main():
                                        args.flip_seed, args.lr_adapt, gate=args.lr_gate, vnorm=args.lr_vnorm,
                                        speed_ref=args.speed_ref, speed_row=args.speed_row,
                                        ncap=args.mom_ncap, pfun_tanh=args.pfun_tanh, grav_up=args.grav_up,
-                                       undo=args.undo, slow_rank=args.slow_gate, slow_beta=args.slow_beta,
+                                       undo=("g" if args.undo_g else args.undo), slow_rank=args.slow_gate, slow_beta=args.slow_beta,
                                        dither=args.dither_ld, dry_vec=args.dry_vec, spend=args.spend,
                                        dry_w=args.dry_w, mom_int8=args.mom_int8, rare_rank=args.rare_rank,
                                        rare_dry=args.rare_dry, rare_mode=args.rare_mode, rare_rate=args.rare_rate,

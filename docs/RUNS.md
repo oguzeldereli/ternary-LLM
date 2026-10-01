@@ -2463,3 +2463,17 @@ the same state lost master's whole lead (+0.085) within 250 steps (`branch_m3000
 
 Caveat: these are switches made at step 3000 (a shock to a state built under the other setting); from-scratch runs are
 the test of the steady state (`mx_*` on Myriad; lag and beta1 to follow).
+
+### 2 Oct 00:40: the remaining branches; undo bench
+
+Branches (master @3000, 500 steps; control 3.126): our sign gate on master's update 3.079 (-0.047), leak tau 1000
+3.086 (-0.040). Like leak 300 these cut master's boundary churn and help over 500 steps; rate-limited firing and a long
+beta1 also cut churn but cost +0.29-0.33, so those two are real losses, not churn effects. From scratch, master with
+rate-limited firing (`mx_lag02`, prob. 0.02 / step) is at 4.98 at step 1500 (master 3.49).
+
+`undo_anatomy.py` at 110M (`cheapcos512_dryspend_s0` @2000, still 89% the plain rule; 156k flips per step, 52% of them
+uphill on the 16-batch gradient after the move). One step: the current undo takes back 36% of the moves (precision 57%,
+recall 40%); its momentum condition holds for 69% of moves with spend and 0.4% without, so it is spend's doing. Ten
+sequential steps, held-out change: no undo -0.0049, current undo -0.0078, batch gradient alone -0.0093, gradient of 4
+batches -0.0119, oracle (16 batches) -0.0139; undoing moves of the last 4 steps hurts (+0.0024 with 4 batches). So a
+stronger undo is free: drop the momentum condition (`--undo_g`, running as `undog512_dryspend_s0`).

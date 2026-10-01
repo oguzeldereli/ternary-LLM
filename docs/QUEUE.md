@@ -6,14 +6,34 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-01 23:50
+Last updated: 2026-10-02 00:50
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (1 Oct, 21:30): what master has that we lack
+## Now (2 Oct, 00:50): night plan
+
+Master branch tests say master cannot do without (a) a short momentum and (b) immediate firing (RUNS.md 1 Oct 23:45).
+Tonight: confirm from scratch, and test our rule rebuilt the same way (`--ts`: short rank-128 momentum for the direction,
+long rank-512 accumulator of Adam-normalized steps, a trit moves when the accumulator crosses theta, spends theta).
+
+| machine | run | what | expected |
+|---|---|---|---|
+| 4090 | `mx_lag02` | master from scratch, trits follow the latent with prob. 0.02 / step: val 4.98 at 1500 (master 3.49) | ~02:45 |
+| albacore / barbel / dory | `ts16_s0` / `ts8_s0` / `ts32_s0` | `--ts`, theta 16 / 8 / 32 | morning |
+| elver | `ts16gate_s0` | theta 16 + sign gate | morning |
+| flounder | `ts16tau1000_s0` | theta 16, accumulator leak 1000 steps | morning |
+| goldeye | `ts16r1024_s0` | theta 16, full-rank accumulator | morning |
+| lamprey | `ts16rs512_s0` | theta 16, short momentum rank 512 | morning |
+| inanga | `fast512_dryspend_s0` | our recipe, saturated weights fire 10x faster (`--rate_peak 0.2 --g_ref 30`, same unsaturated chance) | morning |
+| plaice | `undog512_dryspend_s0` | recipe + undo on this batch's gradient alone (`--undo_g`; bench: -0.0093 vs -0.0078 current undo, -0.0049 none) | morning |
+| hake / koi | `mx_gate` / `mx_b1997` | master from scratch with our sign gate / beta1 0.997 | ~05:00 |
+| harlequin / pintail | `undo512_dryspend_s0` / `drywarm512_dryspend_s0` | resumed after the reboot (saved at 3112 / 3691) | ~02:40 |
+| Myriad | `mx_leak300` (running), `mx_snap`, `mx_factv`, `mx_rank512`, `ours_vfull_r1024`, `x1b_dryspend_r512_lr75` (queued); `x1b_master_lr75` running | | |
+
+## Earlier (1 Oct, 21:30): what master has that we lack
 
 Master with one ingredient of its update taken away at a time (`bitnet/master_opt.py`, flags `--m_*`): if one
 restriction alone costs master about the gap (0.05-0.07 at 110M), that ingredient is what our rule lacks.

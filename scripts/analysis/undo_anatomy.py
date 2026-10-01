@@ -35,7 +35,7 @@ gen = torch.Generator().manual_seed(4242)
 
 def gmean(D, n, g_=None, sq=False):
     """mean gradient of n batches at state D (and the mean of squares' row / column means)"""
-    B.set_trits(D)
+    B.set_trits(D if D is not None else [torch.zeros_like(t) for t in B.T0])
     m = r = c = None
     for _ in range(n):
         o = B.grad([get_batch(tr, 16, 2048, "cuda", g_ or gen)]); o = [o[k].float() / n for k in names]

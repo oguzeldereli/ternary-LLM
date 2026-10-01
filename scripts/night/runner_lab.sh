@@ -6,5 +6,8 @@ L=$HOME/ternary-LLM/scripts/night/$1; W=${2:-}
 while line=$(grep -m1 -v '^#' "$L" 2>/dev/null) && [ -n "$line" ]; do
   grep -v -x -F "$line" "$L" > "$L.tmp"; mv "$L.tmp" "$L"
   echo "$(date '+%F %T') START $line" >> $HOME/ternary-sync/lab_queue.log
-  bash $HOME/ternary-LLM/scripts/lab/scratch_run.sh $line
+  case "$line" in
+    mx_*) bash $HOME/ternary-LLM/scripts/lab/master_run.sh $line ;;     # master weights (with --m_* restrictions)
+    *) bash $HOME/ternary-LLM/scripts/lab/scratch_run.sh $line ;;
+  esac
 done
