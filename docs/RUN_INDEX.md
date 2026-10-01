@@ -9,7 +9,7 @@ Running, queued, unfinished and never-run runs: [QUEUE.md](QUEUE.md) (kept curre
 |---|---|---|---|
 | `fp32_baseline` | full precision, fp32 + AdamW (reference) | 2.683 | 14.6 |
 | `master_tracked` | master weights: fp32 latent + STE + AdamW (reference) | 2.751 | 15.7 |
-| **`gvsharp_dryspend_r1024_s0`** | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 1024 | **2.7998** | **16.4** |
+| **`gvsharp_dryspend_r1024_s0`** | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 1024 (= full rank: every 110M matrix has a smaller side of 768) | **2.7998** | **16.4** |
 | `gvsharp_dry_r1024_s0` / `_seed2` | sharp base + beta 1 + dry friction 1/33 + rank 1024, seeds 1 / 2 | 2.8198 / 2.8088 | 16.8 / 16.6 |
 | `gvsharp_dryspend_r512_s0` | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 512 | 2.8215 | 16.8 |
 | `gvsharp_b0995_r512_s0` | sharp base + decay 0.995 + rank 512 | 2.8339 | 17.0 |

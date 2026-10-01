@@ -1944,3 +1944,16 @@ Share of master's gain over the unigram guess, (U - ours) / (U - master): best r
   apart): weak evidence only.
 - Spend without extra rank is worse with 0-1 tokens of context (+0.25 vs +0.15, ~1.5-2 s.e.); rank 1024 removes it.
 - Otherwise the runs differ by their overall level at every context length; gaps.png now draws this measurement.
+
+### 1 Oct 01:10: "rank 1024" is full rank at 110M
+
+Every ternary matrix of the 110M model has a smaller side of 768 (dim 768; MLP 768 x 2048; attention 768 x 768). The
+subspace iteration keeps at most min(N, K) directions (the QR of an N x r or K x r matrix with r > 768 returns 768
+columns), so `--lowrank 1024` runs a **full-rank, uncompressed momentum** (and stores more numbers than N x K would
+need). Rank 512 is 2/3 of full rank. Read the rank results as:
+
+- rank 512 -> full rank (768): -0.016 to -0.022 (2.8215 -> 2.7998 with spend; 2.8356 -> 2.8198 without). The best
+  results (2.7998, 2.8088, 2.8198) are therefore **full-momentum** results, not sublinear ones; the best sublinear
+  run is rank 512: **2.8215** (dry + spend), gap to master 0.070. A second seed of it is running.
+- At 340M (dim 1024, MLP 1024 x 2816) rank 512 is half of full rank.
+- The rank penalty table (rank 64 / 128 vs 512) is unaffected; "1024" in the figures means full rank.

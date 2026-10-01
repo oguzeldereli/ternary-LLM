@@ -80,7 +80,7 @@ if missing:
     a.annotate("dry friction + spend at rank " + " / ".join(str(k) for k in sorted(missing)) + ": still training",
                (0.03, 0.04), xycoords="axes fraction", fontsize=9.5, color=INK2)
 a.set_xscale("log", base=2); a.set_xlim(24, 1500)
-a.set_xticks([32, 64, 128, 256, 512, 1024]); a.set_xticklabels(["32", "64", "128", "256", "512", "1024"])
+a.set_xticks([32, 64, 128, 256, 512, 1024]); a.set_xticklabels(["32", "64", "128", "256", "512", "1024\n(= full, 768)"])
 a.set_xlabel("momentum rank r (state = r x (rows + columns) per layer)", color=INK2)
 a.set_ylim(2.72, 3.18)   # own range: rank 32 sits at 3.14
 a.set_title("rank: each halving below 512 costs 0.05-0.10; 1024 adds 0.016", color=INK, fontsize=11, loc="left")

@@ -35,8 +35,9 @@ $$\gamma=\operatorname{mean}|W|,\qquad W_q=\gamma\cdot\operatorname{clip}(\opera
 
 ## 2. The current recipe
 
-Best so far: `gvsharp_dryspend_r512_s0` **2.8215** (dry friction + spend, rank 512) and `gvsharp_dry_r1024_s0`
-**2.8198** (dry friction, rank 1024). Flags:
+Best so far: `gvsharp_dryspend_r1024_s0` **2.7998** (dry friction + spend, rank 1024 = full rank at 110M, where every
+matrix has a smaller side of 768) and, with a compressed (sublinear) momentum, `gvsharp_dryspend_r512_s0` **2.8215**
+(rank 512). Flags:
 `--lowrank 512 --lr_beta 1 --dry_vec 0.0303 --spend 3 --lr_gate --lr_vnorm 0.99 --rc_scale --lowrank_mag add:16
 --mag_wd 0.1 --qk_temp`.
 
@@ -48,7 +49,8 @@ step (two thin GEMMs and a QR, no SVD):
 
 $$V'=\operatorname{qr}\!\big(b\,V(U^\top U)+g^\top U\big),\qquad U'=b\,U(V^\top V')+g\,V'$$
 
-Start: $U_0$ random orthonormal, $V=\operatorname{qr}(g^\top U_0)$, $U=gV$. State $r(N+K)$ floats per layer. With the
+Start: $U_0$ random orthonormal, $V=\operatorname{qr}(g^\top U_0)$, $U=gV$. State $r(N+K)$ floats per layer. The
+rank is at most $\min(N,K)$: at 110M ($\min=768$) `--lowrank 1024` is full rank. With the
 current recipe $b=1$ (no decay); the memory comes from dry friction (2.5).
 
 **2.2 Factored Adam step** (`--lr_vnorm 0.99`). Row and column EMAs of $g^2$ (Adafactor-style, $N+K$ floats):

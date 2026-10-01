@@ -210,7 +210,7 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
                  undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0, dry_w=0.0, mom_int8=False,
-                 rare_rank=0, rare_dry=0.01, rare_mode="sum", rare_rate=0.5):
+                 rare_rank=0, rare_dry=0.01, rare_mode="sum", rare_rate=0.5, tiers=()):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -249,6 +249,9 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             each gradient outside the main momentum's column space, g2 = g - (g V) V^T, with its own, weaker dry
             friction (--rare_dry, so a longer memory; decay 1). rare_mode "sum": the flip signal is M + M2; "flip": M2
             proposes its own flips after the main ones, at rare_rate x the flip rate, with the same Adam step and gate.
+    tiers: (--tiers "R:D,R:D,...") generalises rare_rank to a chain: tier t is fed what the main momentum and tiers
+            0..t-1 miss (the residual after projecting out each one's column space in turn), has rank R and its own dry
+            friction D (each later tier usually weaker = longer memory); combined as rare_mode (sum / own flips).
     mom_int8: (--mom_int8) store the momentum factors U, V at 8 bits: after each step every column is rounded
             stochastically to 255 levels of its own absmax (per-column fp32 scale), so the next step reads what an int8
             store would hold. Measures the precision cost; the memory itself is not yet packed.
@@ -266,7 +269,8 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     state["_gms"] = []
     D = {k: [] for k in ("d_gabs", "d_mabs", "d_agree", "d_agree_top", "d_insub")}
     gn2 = 0.0
-    rare_gn2 = 0.0
+    TIERS = list(tiers) if tiers else ([(rare_rank, rare_dry)] if rare_rank else [])
+    tier_gn2 = [0.0] * len(TIERS)
     for i, l in enumerate(layers):
         g = l.gw.float()
         if ncap or dry_vec: gn2 += float(g.pow(2).sum())
@@ -345,23 +349,26 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 V = torch.cat([Vk, Q], 1); U = torch.cat([Uk, g @ Q], 1)
                 E[key] = torch.cat([E[key][keep], E[key][keep].mean().expand(k)])
                 state[key] = (U, V)
-        if rare_rank:
-            rk = ("rare", key)
-            g2 = g - (g @ V) @ V.T                      # what the main momentum's column space misses
-            rare_gn2 += float(g2.pow(2).sum())
+        g2, Vprev = g, V
+        for t, (tr, _) in enumerate(TIERS):              # each tier: what the momenta before it miss
+            rk = ("rare", key) if t == 0 else ("rare", t, key)
+            g2 = g2 - (g2 @ Vprev) @ Vprev.T
+            tier_gn2[t] += float(g2.pow(2).sum())
             if rk not in state:
-                U0 = torch.linalg.qr(torch.randn(l.N, rare_rank, device=g.device))[0]
+                U0 = torch.linalg.qr(torch.randn(l.N, tr, device=g.device))[0]
                 V2 = torch.linalg.qr(g2.T @ U0)[0]
                 state[rk] = (g2 @ V2, V2)
             else:
                 U2, V2 = state[rk]
                 Vn = torch.linalg.qr(V2 @ (U2.T @ U2) + g2.T @ U2)[0]
                 state[rk] = (U2 @ (V2.T @ Vn) + g2 @ Vn, Vn)
-            U2, V2 = state[rk]
-            del g2
+            Vprev = state[rk][1]
+        del g2
+        TK = [("rare", key) if t == 0 else ("rare", t, key) for t in range(len(TIERS))]
         M = U @ V.T
-        if rare_rank and rare_mode == "sum":
-            M = M + U2 @ V2.T
+        if TIERS and rare_mode == "sum":
+            for rk in TK:
+                M = M + state[rk][0] @ state[rk][1].T
         # spend's scale: mean |M| in gradient units (U's units), taken before vnorm rescales M
         state.setdefault("_gm", {})[key] = M.abs().mean().clamp_min(1e-12)
         if vnorm:
@@ -430,13 +437,14 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             D = (unpack_rows(l.wpacked, l.K).to(torch.int8) - w0).float()
             U, V = state[key]
             state[key] = (U + spend * state["_gm"][key] * (D @ V), V)
-            if rare_rank and rare_mode == "sum":      # the summed signal: both parts pay for the flip
-                U2, V2 = state[("rare", key)]
-                state[("rare", key)] = (U2 + spend * state["_gm"][key] * (D @ V2), V2)
+            if TIERS and rare_mode == "sum":          # the summed signal: every part pays for the flip
+                for rk in TK:
+                    U2, V2 = state[rk]
+                    state[rk] = (U2 + spend * state["_gm"][key] * (D @ V2), V2)
             del D
-        if rare_rank and rare_mode == "flip":         # the rare momentum proposes its own flips
+        for t, rk in enumerate(TK if rare_mode == "flip" else []):   # each tier proposes its own flips
             from .kernel import unpack_rows
-            U2, V2 = state[("rare", key)]
+            U2, V2 = state[rk]
             M2 = U2 @ V2.T
             gm2_raw = M2.abs().mean().clamp_min(1e-12)
             if vnorm:
@@ -446,11 +454,11 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             if gate:
                 M2 = M2 * (M2.sign() == g.sign())
             w1 = unpack_rows(l.wpacked, l.K).to(torch.int8)
-            fused_flip(l.wpacked, M2, l.rate * rare_rate, l.g_ref, 9_000_000 + step * 131 + i + flip_seed * 1_000_003,
-                       gmean=gm2)
+            fused_flip(l.wpacked, M2, l.rate * rare_rate, l.g_ref,
+                       9_000_000 + 7_777 * t + step * 131 + i + flip_seed * 1_000_003, gmean=gm2)
             if spend:
                 D2 = (unpack_rows(l.wpacked, l.K).to(torch.int8) - w1).float()
-                state[("rare", key)] = (U2 + spend * gm2_raw * (D2 @ V2), V2)
+                state[rk] = (U2 + spend * gm2_raw * (D2 @ V2), V2)
                 del D2
             del M2, w1
         if dither or spend:
@@ -473,12 +481,15 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
         for k in keys:
             U, V = state[k]; state[k] = (U * f, V)
         state["_dry_f"] = f
-    if rare_rank and rare_dry:   # the rare momentum's own dry friction (weaker: a longer memory)
-        gn = rare_gn2 ** 0.5
-        state["_gnorm_r"] = gn if "_gnorm_r" not in state else 0.99 * state["_gnorm_r"] + 0.01 * gn
-        rks = [("rare", id(l)) for l in layers if ("rare", id(l)) in state]
+    for t, (_, td) in enumerate(TIERS):   # each tier's own dry friction (weaker: a longer memory)
+        if not td: continue
+        gn = tier_gn2[t] ** 0.5
+        nk = "_gnorm_r" if t == 0 else f"_gnorm_r{t}"
+        state[nk] = gn if nk not in state else 0.99 * state[nk] + 0.01 * gn
+        rks = [(("rare", id(l)) if t == 0 else ("rare", t, id(l))) for l in layers]
+        rks = [k for k in rks if k in state]
         tot = sum(float(state[k][0].pow(2).sum()) for k in rks) ** 0.5
-        f = max(tot - rare_dry * state["_gnorm_r"], 0.0) / max(tot, 1e-30)
+        f = max(tot - td * state[nk], 0.0) / max(tot, 1e-30)
         for k in rks:
             U2, V2 = state[k]; state[k] = (U2 * f, V2)
     if ncap:                # cap the momentum as one vector: ||M||^2 = sum over layers of ||U||^2 (V orthonormal)
@@ -1210,6 +1221,8 @@ def main():
     ap.add_argument("--rare_dry", type=float, default=0.01, help="dry friction of the --rare_rank momentum (decay 1)")
     ap.add_argument("--rare_mode", default="sum", choices=["sum", "flip"],
                     help="--rare_rank: add it to the flip signal, or let it propose its own flips")
+    ap.add_argument("--tiers", default="",
+                    help="momentum flips: chain of extra momenta 'R:D,R:D,...' (rank, dry friction), each fed what the ones before miss")
     ap.add_argument("--rare_rate", type=float, default=0.5, help="--rare_mode flip: its flip rate as a share of the rate")
     ap.add_argument("--mom_int8", action="store_true",
                     help="momentum flips: round the momentum factors U, V to int8 (per-column scale) after every step")
@@ -1862,7 +1875,8 @@ def main():
                                        undo=args.undo, slow_rank=args.slow_gate, slow_beta=args.slow_beta,
                                        dither=args.dither_ld, dry_vec=args.dry_vec, spend=args.spend,
                                        dry_w=args.dry_w, mom_int8=args.mom_int8, rare_rank=args.rare_rank,
-                                       rare_dry=args.rare_dry, rare_mode=args.rare_mode, rare_rate=args.rare_rate)
+                                       rare_dry=args.rare_dry, rare_mode=args.rare_mode, rare_rate=args.rare_rate,
+                                       tiers=[(int(a), float(b)) for a, b in (x.split(':') for x in args.tiers.split(','))] if args.tiers else ())
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)

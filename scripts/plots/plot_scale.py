@@ -85,7 +85,7 @@ for runs, c, lab, mref in ((RANKS, C110, "110M", m110), (BIG, C340, "340M", m340
         a.axhline(end(mref), color=c, lw=1.4, ls="--")
         a.annotate(f"master, {lab}: {end(mref):.3f}", (0.02, end(mref)), xycoords=("axes fraction", "data"),
                    xytext=(0, 4), textcoords="offset points", fontsize=9.5, color=c)
-a.set_xscale("log", base=2); a.set_xticks([32, 64, 128, 256, 512, 1024]); a.set_xticklabels(["32", "64", "128", "256", "512", "1024"])
+a.set_xscale("log", base=2); a.set_xticks([32, 64, 128, 256, 512, 1024]); a.set_xticklabels(["32", "64", "128", "256", "512", "1024\n(= full, 768)"])
 a.set_xlim(24, 1500); a.set_ylim(2.65, 3.18)
 a.set_xlabel("momentum rank r", color=INK2); a.set_ylabel("final validation loss", color=INK2)
 a.set_title("final loss against rank (dashed = master at that size)", color=INK, fontsize=11, loc="left")
