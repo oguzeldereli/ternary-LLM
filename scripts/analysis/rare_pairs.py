@@ -5,7 +5,7 @@ unigram cross-entropy of the target (-log of its training-set frequency).
   python -m scripts.analysis.rare_pairs master_tracked:9154:master gvsharp_dryspend_r1024_s0:9154:kernel ...
 """
 import sys, numpy as np, torch, torch.nn.functional as F
-from tokenizers import Tokenizer
+import os
 from scripts.analysis.induction_heads import load
 
 val = np.memmap("data/wiki32k_val.bin", dtype=np.uint16, mode="r")
@@ -24,8 +24,8 @@ for a in range(0, len(tr) - 1, 50_000_000):
     cnt += np.bincount(i[hit], minlength=len(up))
 PC = cnt[inv]
 U = -np.log(uni[tgt] / uni.sum() + 1e-12)                                    # unigram guess
-tok = Tokenizer.from_pretrained("hf-internal-testing/llama-tokenizer")
-start = np.array([tok.id_to_token(int(i)).startswith("▁") for i in range(32000)])
+WS = os.path.join(os.path.dirname(__file__), "wordstart_llama32k.npy")   # token id -> starts a word ("▁..."), from
+start = np.load(WS)                                                      # the Llama 32k tokenizer (no tokenizers needed)
 KIND = start[tgt]                                                           # True = the target starts a word
 EDGES = [0, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 1 << 62]
 LAB = ["0", "1-2", "3-9", "10-29", "30-99", "100-299", "300-999", "1k-3k", "3k-10k", ">10k"]
