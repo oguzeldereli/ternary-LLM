@@ -1992,3 +1992,11 @@ Both seeds of the best run show the same shape: the remaining gap is rare word c
 Running: `rare256w03_dryspend_s0` (bufflehead): the rare momentum added at 0.3x the main one's mean size
 (`--rare_weight 0.3`), to test whether the summed version failed because the rare momentum outgrew the main one; it
 logs the raw size ratio `rare_ratio`.
+
+### 1 Oct 04:30: the rare momentum does outgrow the main one
+
+`rare256w03_dryspend_s0` logs the raw size ratio mean|M_rare| / mean|M_main| (before its 0.3x weighting): 0.09 at step
+0, 1.76 at 250, 4.42 at 500, 3.85 at 750. Within a few hundred steps the long-memory rare momentum (dry 0.01) is ~4x the
+main one, so in the unweighted summed run (`rare256sum`) it decides most flips. That run keeps getting worse relative to
+the base (+0.013 at 3000, +0.051 at 6000, +0.087 at 8750); the own-flips run (`rare256flip`) improves relative to the base
+(-0.052 at 8750) but stays ~0.06 behind plain rank 256. The weighted run tests whether keeping it at 0.3x helps.
