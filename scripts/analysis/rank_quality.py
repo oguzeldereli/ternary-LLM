@@ -31,6 +31,9 @@ for a in range(0, len(tr) - 1, 50_000_000):
     cnt += np.bincount(i[hit], minlength=len(up))
 PC = cnt[inv].reshape(NSEQ, 2048)
 BK = {"all positions": (-1, 1 << 62), "pairs 0-999x": (0, 1000), "pairs 1e3-1e4x": (1000, 10000), "pairs >1e4x": (10000, 1 << 62)}
+if "--all-only" in sys.argv:          # bigger models: only the all-positions gradient (6 gradient copies instead of 24)
+    BK = {"all positions": BK["all positions"]}
+    sys.argv.remove("--all-only")
 Xt = torch.tensor(X)
 print(f"{'run':34s} {'r':>5s} {'bucket':16s} {'in M sub':>9s} {'best r':>7s} {'random':>7s} {'cos(M,G)':>9s}")
 def views(UV0, trunc):

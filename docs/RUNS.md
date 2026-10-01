@@ -2195,3 +2195,19 @@ truncation: rank 256 68% (vs 62%), rank 512 81% (vs 77%).
 changes the net benefit by 15-50% but not the precision. This is the mechanism behind the branch result: each step most
 of the good flips are cancelled by almost as many bad ones; facts with a weak, sporadic gradient (rare word
 completions) are rebuilt only as fast as they are knocked out, and the loss settles where the two balance.
+
+### 1 Oct 13:50: rank vs width, measured on the gradient (340M vs 110M)
+
+Share of the true held-out gradient inside the full-rank momentum's top-r directions, step 6000 (`rank_quality_340m.txt`;
+the flip-precision part ran out of memory at 340M):
+
+| rank r | 32 | 64 | 128 | 256 | 512 | full |
+|---|---|---|---|---|---|---|
+| 110M (full = 768): momentum / best possible | 25 / 48% | 37 / 56% | 48 / 64% | 60 / 73% | 76 / 84% | 90 / 91% |
+| 340M (full = 1024): momentum / best possible | 22 / 40% | 32 / 48% | 42 / 58% | 53 / 68% | 66 / 79% | 88 / 92% |
+
+At the same absolute rank the 340M momentum holds 3-10 points less of its gradient. If the rank needed scaled with width
+(x1.33), 340M rank 512 would equal 110M rank ~384 (~68%) and rank 128 would equal ~96 (~42%): measured 66% and 42%.
+**By the gradient share, the rank needed grows roughly in proportion to width.** The loss cost grew less: rank 512's penalty
+vs full rank went +0.022 -> +0.034 (proportional would be ~+0.045), rank 64's went +0.240 -> +0.222, and the gap to
+master at rank 512 stayed 0.064 -> 0.062. Two widths; a third (a cheap narrower model) is needed before extrapolating.
