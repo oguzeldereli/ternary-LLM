@@ -2074,3 +2074,20 @@ to master is not something our runs failed to learn early; it is what the rule c
 Open: how much of the drop is the flips themselves and how much the fresh tail optimizer (the converter starts AdamW for
 the tail from zero). `branch_m3000_q_dryspend_r512` (mallard) repeats the branch at 1/4 of the flip rate
 (`--rate_peak 0.005`): if it keeps master's lead longer, the flips are what undo it.
+
+### 1 Oct 09:30: at 1/4 of the flip rate master's state survives; the flips are what undo it
+
+`branch_m3000_q_dryspend_r512` (master @3000 converted, our rule at 1/4 of the flip rate): val minus master / minus our
+from-scratch run: 3250 -0.058 / -0.132, 3500 -0.049 / -0.120, 3750 -0.042 / -0.116, 4750 -0.005 / -0.096, 5000 +0.006 /
+-0.091. It keeps (and briefly beats) master's level for ~2000 steps, then falls behind as master keeps learning. At the
+full rate (`branch_m3000_dryspend_r512`) the lead was gone within 250 steps (+0.082 vs master at 7250, -0.007 vs ours).
+
+So the flips themselves undo learned structure: at the full rate the flip process holds the loss at an equilibrium
+~0.08 above master; at 1/4 the rate it holds more but learns more slowly (from-scratch 1/4-rate runs ended worse, 3.19).
+The remaining gap is a noise-floor / learning-speed trade-off of the flip rate.
+
+Test of the same on our own run: `own3000_q_dryspend_r512` = our rank-512 run's step-3000 checkpoint (with its momentum)
+continued at 1/4 of the rate. If lowering the rate from the middle of training helps our own run too, the schedule (not
+only the rule) is the lever for the last part of the gap.
+
+Also: `rare256w03` finished 2.8726 (plain rank 256 2.8699: no effect).
