@@ -1326,6 +1326,7 @@ def main():
                     help="master: latent update only where this batch's gradient agrees in sign with m (our gate)")
     ap.add_argument("--m_rank", type=int, default=0, help="master: first moment kept at rank R (like our momentum)")
     ap.add_argument("--m_beta1", type=float, default=0.0, help="master: Adam beta1 for the latent weights (default 0.9)")
+    ap.add_argument("--m_beta2", type=float, default=0.0, help="master: Adam beta2 for the latent weights (default 0.95)")
     ap.add_argument("--m_clamp", type=float, default=0.0, help="master: latent clamped to |W| <= C * gamma after each step")
     ap.add_argument("--m_leak", type=float, default=0.0,
                     help="master: latent's offset from its trit centre decays with a time constant of TAU steps")
@@ -1620,11 +1621,11 @@ def main():
         # rounding anywhere, so the ceiling is not limited by storage precision.
         master, emb, norms = split_params(model)
         tail = master + emb + norms
-        if args.m_factv or args.m_rank or args.m_beta1 or args.m_gate:
+        if args.m_factv or args.m_rank or args.m_beta1 or args.m_gate or args.m_beta2:
             from .master_opt import AdamX
             tail_opt = AdamX(
                 [{"params": master, "weight_decay": tc.weight_decay, "factv": args.m_factv, "rank": args.m_rank, "gate": args.m_gate,
-                  "betas": (args.m_beta1 or tc.beta1, tc.beta2)},
+                  "betas": (args.m_beta1 or tc.beta1, args.m_beta2 or tc.beta2)},
                  {"params": emb, "weight_decay": tc.weight_decay},
                  {"params": norms, "weight_decay": 0.0}],
                 lr=tc.lr, betas=(tc.beta1, tc.beta2))

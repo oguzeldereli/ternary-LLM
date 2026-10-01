@@ -29,7 +29,8 @@ long rank-512 accumulator of Adam-normalized steps, a trit moves when the accumu
 | lamprey | `ts16rs512_s0` | theta 16, short momentum rank 512 | morning |
 | inanga | `fast512_dryspend_s0` | our recipe, saturated weights fire 10x faster (`--rate_peak 0.2 --g_ref 30`, same unsaturated chance) | morning |
 | plaice | `undog512_dryspend_s0` | recipe + undo on this batch's gradient alone (`--undo_g`; bench: -0.0093 vs -0.0078 current undo, -0.0049 none) | morning |
-| hake / koi | `mx_gate` / `mx_b1997` | master from scratch with our sign gate / beta1 0.997 | ~05:00 |
+| hake | `mx_gate` | master from scratch with our sign gate | ~05:00 |
+| koi / quillback | `mx_b1997b2` / `mx_b2999` | master with beta1 0.997 + beta2 0.999 / beta2 0.999 alone (control). `mx_b1997` (beta1 0.997 > beta2 0.95) diverged at step ~450: Adam with beta1 > beta2 is unstable, a confound | ~06:00 |
 | harlequin / pintail | `undo512_dryspend_s0` / `drywarm512_dryspend_s0` | resumed after the reboot (saved at 3112 / 3691) | ~02:40 |
 | Myriad | `mx_leak300` (running), `mx_snap`, `mx_factv`, `mx_rank512`, `ours_vfull_r1024`, `x1b_dryspend_r512_lr75` (queued); `x1b_master_lr75` running | | |
 
