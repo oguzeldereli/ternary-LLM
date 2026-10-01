@@ -2214,3 +2214,29 @@ master at rank 512 stayed 0.064 -> 0.062. Two widths; a third (a cheap narrower 
 
 `own3000_q_dryspend_r512` (our rank-512 run from step 3000 at 1/4 of the flip rate) finished **2.8410**, worse than the
 full-rate runs (2.8215 / 2.8093): lowering the rate mid-run ends worse, not equal.
+
+### 1 Oct 14:30: anatomy of the flips (`scripts/analysis/flip_anatomy.py`, rank 512 @5000, on the 4090)
+
+Expected flips of the full recipe (Adam step, gate), grouped; uphill = move * T > 0 on the true gradient (16 batches):
+
+| group | share of flips | uphill |
+|---|---|---|
+| signal p/rate <=0.1 / 0.1-0.25 / 0.25-0.5 / 0.5-1 / saturated | 3 / 15 / 35 / 38 / 8% | 45.9 / 46.5 / 47.3 / 48.3 / 48.5% |
+| true-gradient size \|T\| quartile Q1 / Q2 / Q3 / Q4 | 28 / 26 / 24 / 22% | 49.2 / 48.2 / 47.1 / 45.5% |
+| leave zero / go to zero | 50 / 50% | 47.4 / 47.9% |
+| wq / wk / wv / wo / gate / up / down | 9 / 9 / 8 / 8 / 23 / 23 / 21% | 48.4 / 47.9 / 45.3 / 45.4 / 48.3 / 47.8 / 48.1% |
+
+Real held-out cost of applying 100k of a group's flips (second order included), the rule's direction vs a random
+direction on the same weights: |T| Q1 +0.0001 / +0.0001, Q2 +0.0002 / +0.0002, Q3 +0.0003 / +0.0006, **Q4 +0.0035 /
++0.0014**; leave zero +0.0005 / +0.0009; to zero +0.0005 / -0.0004; all +0.0002 / +0.0002.
+
+- No group of flips is clearly the bad one: 45-49% uphill everywhere. The rule's most confident flips are no more
+  accurate (48.5% uphill when saturated vs 45.9% for the weakest).
+- **Master has the same uphill share**: its trit changes are 46.5% uphill (47.8 / 48.1 / 46.3 / 42.6% by |T| quartile,
+  29 Sep swing test), and its whole step also overshoots within one step. The uphill share is not what separates us.
+- Where ours differ: on the weights with the largest true gradient (Q4) the rule's flips cost 2.5x more than random
+  flips there (overshoot: a full trit step on a steep weight goes past the minimum), and one step of the rule's flips
+  is on average worth no more than random flips on held-out data.
+
+Next measurement: at the same state (master @3000 and its converted copy), the real held-out cost per flip of master's
+own next-step trit changes against our rule's flips, to see what master's changes do that ours do not.
