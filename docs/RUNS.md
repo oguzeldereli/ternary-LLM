@@ -2015,3 +2015,24 @@ the main one and decides the flips). Running to separate the two causes (memory 
 `rare256same_dryspend_s0` = the second rank 256 with the **same** memory as the main one (dry 1/33), summed (the
 equal-memory split of rank 512), and `rare256w03` (long memory but held at 0.3x). Pair-band analysis of the three
 finished runs is running on shoveler.
+
+### 1 Oct 06:30: pair bands of the extra-momentum runs; rank 512 seed 2
+
+`gvsharp_dryspend_r512_seed2` **2.8093** (seed 1 2.8215; mean 2.8154, gap to master 0.064).
+
+Gap to master by pair count (`rare_pairs_rare_lab.txt`) and position (`pos_gap_rare_lab.txt`):
+
+| run | final | 30-99 all | 30-99 cont. | 300-999 | >10k | pos 0-1 | pos 2-15 | pos 512+ |
+|---|---|---|---|---|---|---|---|---|
+| rank 256 (reference) | 2.8699 | +0.245 | +0.345 | +0.131 | +0.026 | +0.249 ± 0.054 | +0.163 ± 0.020 | +0.111 ± 0.003 |
+| rank 256 + rare 256, own flips | 2.9354 | +0.329 | +0.403 | +0.225 | +0.058 | +0.542 ± 0.070 | +0.324 ± 0.027 | +0.173 ± 0.004 |
+| rank 256 + rare 256, summed | 3.0748 | +0.603 | +0.717 | +0.416 | +0.102 | +1.131 ± 0.087 | +0.771 ± 0.039 | +0.309 ± 0.004 |
+| 4 x rank 64 tiers, summed | 3.1726 | +0.782 | +0.897 | +0.548 | +0.144 | +1.266 ± 0.092 | +0.861 ± 0.042 | +0.410 ± 0.005 |
+
+- The extra long-memory momenta do not help the rare bands at all; they are worse in every band.
+- They hurt most with **little context** (positions 0-1: +0.54 to +1.27 vs +0.25): the prediction from the previous
+  token or two (unigram / bigram statistics) degrades. A momentum that has been accumulating for thousands of steps and
+  dominates the flips keeps pushing towards what the early gradients wanted, and the short-context statistics, which the
+  model refines continuously, suffer most.
+- So "more memory for rare pairs" in a separate, unweighted momentum is the wrong shape; the weighted (`rare256w03`) and
+  same-memory (`rare256same`) runs are the remaining tests of the split.
