@@ -172,6 +172,15 @@ ones: [QUEUE.md](QUEUE.md).
 | `gvsharp_dry05_s0` | sharp base + beta 1 + dry 0.05 | 300M | 2.8875 |
 | `gvsharp_dry02_s0` | sharp base + beta 1 + dry 0.02 | 300M | 2.8970 |
 
+## Flip selection (1 Oct)
+
+| run | what | tokens | val |
+|---|---|---|---|
+| `flat512_dryspend_s0` | dry + spend, rank 512, `--pshape flat` (sign only, same flip count) | running | - |
+| `inv512_dryspend_s0` | the same, `--pshape inv` (prefer small push) | running | - |
+| `cheap512_dryspend_s0` | the same, `--pshape cheap` (prefer small gradient second moment) | running | - |
+| `cheap256_dryspend_s0` | rank 256, `--pshape cheap` | running | - |
+
 ## Running (30 Sep, 14:40)
 
 | run | what | tokens | val |

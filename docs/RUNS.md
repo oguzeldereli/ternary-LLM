@@ -2285,3 +2285,25 @@ Moving the selection away from the steepest weights (flat, inv) makes large flip
 one-batch signal is cheaper than the true gradient (noise spreads the selection), but every variant is still far from
 master. Caveat: master's 10-step changes were made sequentially (each step sees the new state); ours are applied at once
 from one signal; a sequential version of ours is the fair comparison.
+
+### 1 Oct 14:30: sequential selection bench (`scripts/analysis/selection_bench.py`, 4090)
+
+At master's state (@3000), 10 sequential steps of ~205k trit changes each, each step choosing from a signal measured at
+the current state and gated by a fresh batch; held-out change after the 10 steps. With one batch per step (the data master
+uses) / four batches:
+
+| selection | 1 batch | 4 batches |
+|---|---|---|
+| master's own 10 steps of trit changes | **-0.0159** | -0.0157 |
+| prop (the current rule: p ~ \|s\|, saturating) | -0.0074 | -0.0097 |
+| flat (sign only) | -0.0312 | -0.0359 |
+| inv (prefer small \|s\|) | -0.0320 | -0.0378 |
+| cheap (prefer small gradient second moment v) | **-0.0347** | **-0.0424** |
+| gain K = 0.5 / 1 / 2 (\|s\| - K c v) | +0.026 / +0.004 / -0.020 | +0.055 / +0.037 / +0.031 |
+
+Moving the flips off the steepest weights does ~2x better than master's own changes over these 10 steps and ~4x better
+than the current rule. Caveat: the bench starts where master's own drift has brought the right weights to their
+boundaries. Training runs with `--pshape flat / inv / cheap` (same flip count, direction and gate as the rule):
+`flat512`, `inv512`, `cheap512` (rank 512, vs 2.8215 / 2.8093) and `cheap256` (rank 256, vs 2.8699 / 2.8639), ~18:30.
+Running: `master_drift.py` (does master pick its changes by the push accumulated over the previous 1000 / 300 / 100 / 30
+/ 10 steps?).
