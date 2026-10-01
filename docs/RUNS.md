@@ -2151,3 +2151,47 @@ Rank penalty vs full rank (final): 110M (min side 768) rank 64 / 128 / 256 / 512
 (slightly larger at 340M for 128 and 512); if the needed rank grew in proportion to width, 340M rank 512 would match 110M
 rank ~384 (~+0.045) and rank 128 would match ~96 (~+0.19). Measured +0.034 and +0.177: between "constant rank" and
 "proportional to width"; two widths cannot settle it.
+
+### 1 Oct 13:30: how good is each rank? (`scripts/analysis/rank_quality.py`, run on the 4090)
+
+The lab PCs went down for the Thursday reboot at ~12:25 (their `/tmp`, with the rank-32/64/128, seed, int8, rare-momentum
+and branch checkpoints, is wiped; metrics and logs are safe). So ranks are measured by truncating the full-rank run's
+momentum (`gvsharp_dryspend_r1024_s0`) to its top-r directions per layer (an upper bound for a run trained at rank r),
+plus the trained rank-256 and rank-512 runs. True gradient = 64 held-out sequences, split halves (noise cancels); "best
+rank r" = top-r directions of the gradient itself, fitted on two quarters and scored on the other two.
+
+Share of the true held-out gradient (all positions) inside the momentum's rank-r subspace, at step 6000 (mid-run):
+
+| rank r | 32 | 64 | 128 | 256 | 512 | 768 (full) |
+|---|---|---|---|---|---|---|
+| in the momentum's top-r subspace | 25% | 37% | 48% | 60% | 76% | 90% |
+| best any rank-r subspace could hold | 48% | 56% | 64% | 73% | 84% | 91% |
+| momentum / best | 0.52 | 0.66 | 0.75 | 0.82 | 0.90 | 0.98 |
+| random rank-r subspace | 0.1% | 0.6% | 2.3% | 9.2% | 37% | 83% |
+| rare pairs (seen < 1e3 times) in the momentum's subspace | 57% | 65% | 72% | 80% | 88% | 95% |
+| frequent pairs (> 1e4) | 53% | 61% | 69% | 77% | 86% | 94% |
+
+At the end (step 9154) the same shape: 27 / 37 / 48 / 62 / 77 / 87%. The trained runs hold a little more than the
+truncation: rank 256 68% (vs 62%), rank 512 81% (vs 77%).
+
+- **The gradient is not very low-rank**: even the best rank-64 subspace holds only ~56% of it, rank 256 ~73%. Each halving
+  of the rank loses ~10 points of the gradient.
+- **The momentum chooses its directions well once the rank is large**: at rank 512 it holds 90% of what the best rank-512
+  subspace could; at rank 32 only half.
+- Rare-pair gradients are held as well as frequent ones (the earlier "78-89% at rank 256" was this).
+- **cos(M, G)** ~0 overall (-0.04 to +0.007), **positive for rare pairs (+0.07 at the end), negative for frequent pairs
+  (-0.07)**: the momentum points towards what is still being learned (rare pairs) and against the already-learned frequent
+  ones (the swing around a minimum).
+
+**Flip precision** (expected flips of the rule on M, judged on the true gradient):
+
+| rank | 32 | 64 | 128 | 256 | 512 | 768 |
+|---|---|---|---|---|---|---|
+| uphill share, plain / gated, step 6000 | 51.4 / 48.8% | 51.3 / 48.7% | 51.2 / 48.7% | 51.1 / 48.5% | 51.0 / 48.4% | 51.0 / 48.4% |
+| first-order dL (gated), step 6000 | -0.79 | -0.82 | -0.85 | -0.89 | -0.91 | -0.92 |
+| first-order dL (gated), step 9154 | -0.37 | -0.42 | -0.48 | -0.51 | -0.54 | -0.55 |
+
+**Nearly half of all flips go the wrong way at every rank** (48-51% uphill; the gate brings it just below half). Rank
+changes the net benefit by 15-50% but not the precision. This is the mechanism behind the branch result: each step most
+of the good flips are cancelled by almost as many bad ones; facts with a weak, sporadic gradient (rare word
+completions) are rebuilt only as fast as they are knocked out, and the loss settles where the two balance.
