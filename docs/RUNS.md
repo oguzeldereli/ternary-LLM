@@ -2357,3 +2357,69 @@ base = short memory (decay 0.97, `gvsharp_rc_s0`):
      fewer than our ~180k flips per step.
 - Test of part 1: a memory that starts short and lengthens (dry friction strong early, weakening to 1/33; or decay
   0.97 rising to 0.995 over the first ~1500 steps).
+
+### 1 Oct 19:40: why cheap selection fails in training
+
+Training (110M, 300M tokens, same flip count, direction and gate as the rule; only which weights fire changes):
+
+| selection | rank 512 | rank 256 | rank 128 | rank 64 |
+|---|---|---|---|---|
+| prop (the rule, p ~ \|S\|) | **2.8215** | **2.8699** | **2.9501** | **3.0401** |
+| flat (sign only) | 2.8924 (+0.071) | - | - | - |
+| cheap (prefer small v) | 2.9186 (+0.097) | 2.9469 (+0.077) | 3.0045 (+0.054) | 3.0800 (+0.040) |
+| inv (prefer small \|S\|) | 2.9867 (+0.165) | - | - | - |
+| rule blended to cheap on a cosine (4090) | step 8250: +0.037 (equal to the rule up to step 3000, +0.006 at 6000, +0.032 at 8000) | | | |
+
+The training order (prop > flat > cheap > inv) is the reverse of the master-state bench (cheap > inv > flat > master >
+prop). cheap512 vs the rule over training: +0.120 (step 1000), +0.058 (2000), +0.039 (3000), +0.061 (6000), +0.088
+(8000): it is never ahead, and the gap widens late as the flip rate falls. Its share of never-flipped weights stays at
+2.0% (rule 0.6%, flat 0.3%): the steep weights are starved.
+
+Where the loss goes (`rare_pairs.py`, `pos_gap.py`, @9154, minus master; lab):
+
+| | pairs seen 0 | 10-29 | 30-99 | 100-299 | 300-999 | >10k | position 0-1 | 2-15 | 16-127 | 512-2047 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| rule (r512) | +0.022 | +0.076 | +0.153 | +0.125 | +0.080 | +0.010 | +0.250 | +0.154 | +0.096 | +0.063 |
+| flat512 | +0.178 | +0.205 | +0.271 | +0.253 | +0.168 | +0.042 | +0.357 | +0.218 | +0.169 | +0.133 |
+| cheap512 | +0.244 | +0.275 | +0.332 | +0.299 | +0.199 | +0.054 | +0.559 | +0.466 | +0.230 | +0.160 |
+
+cheap loses in every pair band (2-11x the rule's gap; the largest ratio on the rarest pairs) and at every position, and most at the first positions (+0.56 vs +0.25 at position 0-1):
+the local, frequent statistics, which live in the weights with the largest, most consistent gradients (large v), are
+exactly the ones cheap holds back.
+
+Sequential bench from our own mid-training checkpoints (`selection_bench.py -`, @5000, NS=1, ~110k flips per step, about
+the training flip count at that point; held-out change after 1 / 10 steps):
+
+| selection | rule run @5000: 1 step / 10 steps | cheap512 run @5000: 1 step / 10 steps |
+|---|---|---|
+| prop | +0.0092 / +0.0323 | +0.0552 / +0.1675 |
+| flat | -0.0009 / -0.0024 | +0.0067 / +0.0340 |
+| inv | -0.0020 / -0.0074 | -0.0002 / +0.0010 |
+| cheap | -0.0023 / -0.0090 | -0.0016 / -0.0063 |
+| gain K = 0.5 / 1 / 2 | +0.006 / +0.002 / -0.001 (1 step) | +0.013 / +0.002 / -0.001 (1 step) |
+
+(At master's state @3000 the same bench gave cheap -0.035 and master's own changes -0.016 over 10 steps.)
+
+Why the bench and training disagree:
+
+1. **The bench selects from one batch's gradient; training selects from the long-memory momentum.** With a one-batch
+   signal the largest entries are mostly noise, so flipping them hurts (prop: +0.032 over 10 steps from our own state)
+   and any rule that spreads the flips away from them looks better. In training the signal is a momentum with a
+   220-390-step memory: its large entries are the weights whose gradient has agreed for hundreds of steps, the most
+   reliable flips available. Moving flips off them throws away the best evidence; the further a rule moves off them, the
+   worse it trains (inv, which prefers small |S|, is worst).
+2. **At master's state cheap changes were harvesting master's latents.** Master's drift has already brought the right
+   weights to their boundaries, so a small push flips them usefully. From our own state the same bench finds almost
+   nothing (-0.009 per 1M changes, a quarter of what it found at master's state): with no latents, small-v weights are
+   just weights the data rarely uses.
+3. **|S| is our latent.** Master needs no gradient size in its selection because its latent records how much evidence has
+   accumulated (distance to the boundary); its trit changes are spread evenly over |T|. Our rule has no latent: the
+   momentum's size is the only record of accumulated evidence, so a size-proportional choice is the right one for us, and
+   a size-blind one (flat) or size-inverted one (inv, cheap) discards it. Accumulation does matter here.
+4. The cheap512 state is fragile to the rule: from it, one prop step costs +0.055 (6x the rule run's own +0.009). Cheap
+   training leaves large, unspent pushes on the steep weights it skipped (2.0% never flipped), so a size-proportional
+   step from there lands on many steep weights at once.
+
+So the selection side of the gap to master is not "which weights are cheap": with our signal, the rule already picks
+the right weights. What master has that we lack is the latent itself (evidence kept below the flip threshold); the
+remaining levers are the signal (memory length, rank) and the schedule (`drywarm512`: -0.028 vs the rule at step 3000).

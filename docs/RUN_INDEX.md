@@ -176,14 +176,16 @@ ones: [QUEUE.md](QUEUE.md).
 
 | run | what | tokens | val |
 |---|---|---|---|
-| `flat512_dryspend_s0` | dry + spend, rank 512, `--pshape flat` (sign only, same flip count) | running | - |
-| `inv512_dryspend_s0` | the same, `--pshape inv` (prefer small push) | running | - |
-| `cheap512_dryspend_s0` | the same, `--pshape cheap` (prefer small gradient second moment) | running | - |
-| `cheap256_dryspend_s0` | rank 256, `--pshape cheap` | running | - |
-| `drywarm512_dryspend_s0` | dry + spend, rank 512, memory that starts short and lengthens (`--dry_start 0.12 --dry_warm 1500`: friction 0.12 easing to 1/33 over 49M tokens) | queued (pintail) | - |
-| `undo512_dryspend_s0` | dry + spend, rank 512 + undo (`--undo`): undo with the long-memory recipe | queued (harlequin) | - |
-| `cheapcos512_dryspend_s0` | rank 512, flip selection blended from the rule to cheap on a cosine (`--pshape cheap --pshape_sched cos`, 4090) | running | - |
-| `cheap128_dryspend_s0` / `cheap64_dryspend_s0` | rank 128 / 64, `--pshape cheap` (vs plain rank 128 2.9501, rank 64 3.0401) | running | - |
+| `flat512_dryspend_s0` | dry + spend, rank 512, `--pshape flat` (sign only, same flip count) | 300M | 2.8924 (+0.071 vs the rule 2.8215) |
+| `inv512_dryspend_s0` | the same, `--pshape inv` (prefer small push) | 300M | 2.9867 (+0.165) |
+| `cheap512_dryspend_s0` | the same, `--pshape cheap` (prefer small gradient second moment) | 300M | 2.9186 (+0.097) |
+| `cheap256_dryspend_s0` | rank 256, `--pshape cheap` | 300M | 2.9469 (+0.077 vs 2.8699) |
+| `cheap128_dryspend_s0` / `cheap64_dryspend_s0` | rank 128 / 64, `--pshape cheap` | 300M | 3.0045 / 3.0800 (+0.054 vs 2.9501 / +0.040 vs 3.0401) |
+| `cheapcos512_dryspend_s0` | rank 512, flip selection blended from the rule to cheap on a cosine (`--pshape cheap --pshape_sched cos`, 4090) | running | step 8250: 2.8884 (+0.037 vs the rule) |
+| `drywarm512_dryspend_s0` | dry + spend, rank 512, memory that starts short and lengthens (`--dry_start 0.12 --dry_warm 1500`: friction 0.12 easing to 1/33 over 49M tokens) | running (pintail) | step 3000: 3.2321 (-0.028 vs the rule) |
+| `undo512_dryspend_s0` | dry + spend, rank 512 + undo (`--undo`): undo with the long-memory recipe | running (harlequin) | step 2250: 3.3736 (+0.017 vs the rule) |
+
+Every selection that moves flips off the largest momentum loses in training, at every rank; see RUNS.md "1 Oct 19:40".
 
 ## Running (30 Sep, 14:40)
 

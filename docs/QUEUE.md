@@ -6,14 +6,27 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-09-29 22:05
+Last updated: 2026-10-01 19:45
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (1 Oct, 10:50)
+## Now (1 Oct, 19:45)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| pintail | `drywarm512_dryspend_s0` | memory that starts short and lengthens: -0.028 vs the rule at step 3000 | ~22:20 |
+| harlequin | `undo512_dryspend_s0` | undo with the long-memory recipe: +0.017 vs the rule at step 2250 | ~22:40 |
+| 4090 | `cheapcos512_dryspend_s0` | rule blended to cheap on a cosine: +0.037 vs the rule at step 8250 | ~19:55 |
+| Myriad 35762 (V node, 4 A100) | `x1b_dryspend_r512_s0` | 1.3B (d2048_l24) recipe, rank 512: step 1010, 8.6 s/step | Fri 2 Oct ~15:00 |
+| Myriad 35791 (L node, 4 A100) | `x1b_master` | 1.3B master weights (fp32): step 1180, 4.7 s/step | Fri 2 Oct ~06:00 |
+
+Finished today: the six flip-selection runs (flat / inv / cheap at rank 512, cheap at 256 / 128 / 64): all worse than
+the rule; see RUNS.md "1 Oct 19:40".
+
+## Earlier (1 Oct, 10:50)
 
 | machine | run | what | expected |
 |---|---|---|---|
