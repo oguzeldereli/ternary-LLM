@@ -13,7 +13,19 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (1 Oct, 00:40)
+## Now (1 Oct, 01:20)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| shoveler / mandarin | `rare256sum` / `rare256flip_dryspend_s0` | rank 256 + a rare-pattern rank-256 momentum (summed / own flips) vs rank 512 (2.8215) | ~04:35 |
+| pintail | `gvsharp_dryspend_r512_seed2` | the best sublinear run (rank 512), seed 2 | ~05:10 |
+| 4090 | `big_master` | master weights at 340M | ~02:35 |
+
+Finished: best run seed 2 2.7864 (seed 1 2.7998); dry 0.04 + spend + rank 1024 2.8156 (1/33 stays best); int8 rank 128
+2.9541 (fp32 2.9501); rank 64 + refresh 3.0434 (no gain). Prepared, not launched: `--tiers` (2 x / 4 x rank 64), only if
+a two-momentum run beats rank 512. Hourly checks until 10:00; no laptop GPU.
+
+## Earlier (1 Oct, 00:40)
 
 | machine | run | what | expected |
 |---|---|---|---|

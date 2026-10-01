@@ -178,10 +178,11 @@ ones: [QUEUE.md](QUEUE.md).
 |---|---|---|---|
 | `gvsharp_dry_r1024_seed2` | dry + rank 1024, seed 2 (`--seed 2`) | 300M | 2.8088 |
 | **`gvsharp_dryspend_r1024_s0`** | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 1024 | 300M | **2.7998** |
-| `gvsharp_dryspend_r1024_seed2` | the best run, seed 2 | running | - |
-| `rk64_refresh_dryspend_s0` | dry + spend, rank 64 + subspace refresh (`--lr_refresh 8`) | running | - |
-| `rk128_int8_dryspend_s0` | dry + spend, rank 128, momentum rounded to int8 each step (`--mom_int8`) | running | - |
-| `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | running | - |
+| `gvsharp_dryspend_r1024_seed2` | the best run, seed 2 | 300M | 2.7864 |
+| `gvsharp_dryspend_r512_seed2` | dry + spend + rank 512 (the best sublinear run), seed 2 | running | - |
+| `rk64_refresh_dryspend_s0` | dry + spend, rank 64 + subspace refresh (`--lr_refresh 8`) | 300M | 3.0434 |
+| `rk128_int8_dryspend_s0` | dry + spend, rank 128, momentum rounded to int8 each step (`--mom_int8`) | 300M | 2.9541 |
+| `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | 300M | 2.8156 |
 | `rare256sum_dryspend_s0` | dry + spend, rank 256 + a rare-pattern momentum (rank 256, fed the gradient outside the main subspace, dry 0.01), summed into the flip signal (`--rare_rank 256 --rare_mode sum`) | running | - |
 | `rare256flip_dryspend_s0` | the same, but the rare momentum proposes its own flips at 0.5x the rate (`--rare_mode flip`) | running | - |
 
