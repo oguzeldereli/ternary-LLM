@@ -2000,3 +2000,18 @@ logs the raw size ratio `rare_ratio`.
 main one, so in the unweighted summed run (`rare256sum`) it decides most flips. That run keeps getting worse relative to
 the base (+0.013 at 3000, +0.051 at 6000, +0.087 at 8750); the own-flips run (`rare256flip`) improves relative to the base
 (-0.052 at 8750) but stays ~0.06 behind plain rank 256. The weighted run tests whether keeping it at 0.3x helps.
+
+### 1 Oct 05:30: the extra-momentum runs finished worse than plain rank
+
+| run | final | reference |
+|---|---|---|
+| rank 256 + rare 256 (dry 0.01), summed | 3.0748 | rank 256: 2.8699, rank 512: 2.8215 |
+| rank 256 + rare 256 (dry 0.01), own flips at 0.5x | 2.9354 | same |
+| 4 x rank 64 tiers (dry 1/33, 0.016, 0.009, 0.005), summed | 3.1726 | rank 64: 3.0401, rank 256: 2.8699 |
+
+None beats its single-momentum reference at equal memory, so the conditional 2 x rank 64 run is not launched. The
+summed versions are hurt most, consistent with the measured size ratio (the long-memory extra momentum grows to ~4x
+the main one and decides the flips). Running to separate the two causes (memory length vs splitting the subspace):
+`rare256same_dryspend_s0` = the second rank 256 with the **same** memory as the main one (dry 1/33), summed (the
+equal-memory split of rank 512), and `rare256w03` (long memory but held at 0.3x). Pair-band analysis of the three
+finished runs is running on shoveler.

@@ -183,11 +183,13 @@ ones: [QUEUE.md](QUEUE.md).
 | `rk64_refresh_dryspend_s0` | dry + spend, rank 64 + subspace refresh (`--lr_refresh 8`) | 300M | 3.0434 |
 | `rk128_int8_dryspend_s0` | dry + spend, rank 128, momentum rounded to int8 each step (`--mom_int8`) | 300M | 2.9541 |
 | `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | 300M | 2.8156 |
-| `rare256sum_dryspend_s0` | dry + spend, rank 256 + a rare-pattern momentum (rank 256, fed the gradient outside the main subspace, dry 0.01), summed into the flip signal (`--rare_rank 256 --rare_mode sum`) | running | - |
+| `rare256sum_dryspend_s0` | dry + spend, rank 256 + a rare-pattern momentum (rank 256, fed the gradient outside the main subspace, dry 0.01), summed into the flip signal (`--rare_rank 256 --rare_mode sum`) | 300M | 3.0748 |
 | `rare256w03_dryspend_s0` | rank 256 + rare rank 256 summed at 0.3x the main one's size (`--rare_weight 0.3`) | running | - |
 | `rk256_int8_dryspend_s0` | dry + spend, rank 256, int8 momentum | running | - |
-| `tier4x64flip_dryspend_s0` / `tier4x64sum_dryspend_s0` | dry + spend, rank 64 + 3 rank-64 tiers (`--tiers 64:0.016,64:0.009,64:0.005`), own flips at 0.33x / summed | running | - |
-| `rare256flip_dryspend_s0` | the same, but the rare momentum proposes its own flips at 0.5x the rate (`--rare_mode flip`) | running | - |
+| `tier4x64flip_dryspend_s0` / `tier4x64sum_dryspend_s0` | dry + spend, rank 64 + 3 rank-64 tiers (`--tiers 64:0.016,64:0.009,64:0.005`), own flips at 0.33x / summed | running / 300M | - / 3.1726 |
+| `rare256flip_dryspend_s0` | the same, but the rare momentum proposes its own flips at 0.5x the rate (`--rare_mode flip`) | 300M | 2.9354 |
+| `rare256same_dryspend_s0` | rank 256 + a second rank 256 on the residual with the same memory (dry 1/33), summed: the equal-memory split vs rank 512 | running | - |
+| `rk512_int8_dryspend_s0` | dry + spend, rank 512, int8 momentum | queued (shoveler, after analysis) | - |
 
 ## Rank sweep and model width (30 Sep, running)
 
