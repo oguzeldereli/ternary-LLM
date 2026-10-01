@@ -2272,3 +2272,16 @@ Which weights change:
   while random sign-aligned flips help (28-29 Sep).
 
 Running: the same bench with the flip probability's shape changed (sign only, saturating at mean|S|, preferring small |S|).
+
+Flip-probability shape at the same count (held-out change per 100k flips; prop = the rule, p ~ |S| saturating at 3
+mean|S|; flat = sign only; sat1 = saturating at mean|S|; inv = preferring small |S|):
+
+| | prop | flat | sat1 | inv | master |
+|---|---|---|---|---|---|
+| 249k flips, true gradient / one batch | -0.00157 / -0.00359 | -0.00396 / -0.00341 | -0.00156 / -0.00346 | **-0.00424** / -0.00292 | -0.00144 |
+| 2.06M flips, true gradient / one batch | +0.0845 / +0.0285 | +0.0578 / +0.0142 | +0.0780 / +0.0238 | **+0.0455 / +0.0090** | -0.00067 |
+
+Moving the selection away from the steepest weights (flat, inv) makes large flip counts 2-3x cheaper, and a noisy
+one-batch signal is cheaper than the true gradient (noise spreads the selection), but every variant is still far from
+master. Caveat: master's 10-step changes were made sequentially (each step sees the new state); ours are applied at once
+from one signal; a sequential version of ours is the fair comparison.
