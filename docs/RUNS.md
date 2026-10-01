@@ -2331,3 +2331,29 @@ Changes by instantaneous |T| quartile: 24.6 / 24.9 / 25.1 / 25.4%.
 - So at any step most of master's trit changes are weights near their boundary nudged across by a short, size-normalized
   push: cheap changes. Its long-term learning lives in the slow drift of the latents, which our rule has no place to
   keep (the trit and the momentum are all it has).
+
+### 1 Oct 17:30: why the long-memory runs lag in the early phase (2M-30M tokens)
+
+110M, training loss (10-step means) and trit changes per step; M = master (`master_tracked`), ours = dry + spend full rank,
+base = short memory (decay 0.97, `gvsharp_rc_s0`):
+
+| step (tokens) | loss M / ours / base | changes per step M / ours | M's changes that reverse an earlier change |
+|---|---|---|---|
+| 60 (2.0M) | 7.18 / 6.92 / 6.88 | 0.11% / 0.21% | - |
+| 100 (3.3M) | 6.58 / 6.54 / 6.44 | 0.18% / 0.21% | 50% (75k of 151k) |
+| 200 (6.6M) | 5.68 / 5.85 / 5.73 | 0.29% / 0.21% | 66% |
+| 300 (9.8M) | 5.14 / 5.35 / 5.23 | 0.47% / 0.21% | 70% |
+| 400 (13M) | 4.85 / 5.09 / 4.96 | 0.51% / 0.21% | 76% |
+| 800 (26M) | 3.91 / 4.27 / 4.02 | 0.46% / 0.22% | 85% |
+| 1000 (33M) | 3.66 / 3.82 / 3.76 | 0.45% / 0.22% | 90% |
+| 1500 (49M) | 3.49 / 3.52 / 3.62 | 0.39% / 0.22% | - |
+
+- Up to ~3M tokens ours are ahead (more flips early). The bend (5M-30M) has two parts:
+  1. **The long memory**: in this window the long-memory run is 0.12-0.26 behind the short-memory one (5.35 vs 5.23 at
+     step 300, 4.27 vs 4.02 at 800); it carries the first, quickly-outdated gradients of a network that is still
+     reorganising. From ~40M tokens the landscape settles and the long memory wins (3.52 vs 3.62 at 1500).
+  2. **About 0.1 more vs master even with a short memory.** Not the flip budget: master's changes per step rise to
+     0.5%, but 50-90% of them reverse an earlier change (boundary jitter); its net new changes (~70-120k per step) are
+     fewer than our ~180k flips per step.
+- Test of part 1: a memory that starts short and lengthens (dry friction strong early, weakening to 1/33; or decay
+  0.97 rising to 0.995 over the first ~1500 steps).
