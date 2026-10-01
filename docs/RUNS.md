@@ -2307,3 +2307,27 @@ boundaries. Training runs with `--pshape flat / inv / cheap` (same flip count, d
 `flat512`, `inv512`, `cheap512` (rank 512, vs 2.8215 / 2.8093) and `cheap256` (rank 256, vs 2.8699 / 2.8639), ~18:30.
 Running: `master_drift.py` (does master pick its changes by the push accumulated over the previous 1000 / 300 / 100 / 30
 / 10 steps?).
+
+### 1 Oct 15:30: what decides master's trit changes (`scripts/analysis/master_drift.py`, 4090)
+
+Master replayed 1000 steps from @2000 with its AdamW state; its 284k trit changes on the next step compared with each
+weight's latent drift over the preceding window, d_w = (W_S - W_{S-w}) / gamma:
+
+| window w (steps) | 1000 | 300 | 100 | 30 | 10 | 3 | 1 |
+|---|---|---|---|---|---|---|---|
+| share of the changes by \|drift\| quartile, Q1 small ... Q4 large | 29 / 27 / 24 / 20 | 28 / 26 / 24 / 22 | 26 / 26 / 25 / 24 | 25 / 24 / 25 / 27 | 20 / 21 / 24 / 34 | 14 / 18 / 25 / 42 | 12 / 17 / 26 / 46 |
+| change follows the drift's sign | 51.4% | 53.1% | 56.6% | 66.6% | 80.8% | 91.8% | 95.2% |
+| rank correlation \|drift\| vs \|T\| | -0.04 | -0.04 | -0.04 | -0.02 | -0.01 | 0.00 | -0.01 |
+
+Changes by instantaneous |T| quartile: 24.6 / 24.9 / 25.1 / 25.4%.
+
+- **The push accumulated over hundreds of steps does not pick master's changes**: over 1000 / 300 / 100 steps the changed
+  weights are not the most-drifted ones (slightly the opposite) and they follow the long drift's sign only 51-57% of the
+  time, barely above chance.
+- What picks them is the last ~10-30 steps (81% follow the 10-step drift's sign, changes concentrate in its top
+  quartile): Adam's own memory (beta1 = 0.9) moving a latent that already sits at a boundary across it.
+- **Gradient size plays no role**: the drift is uncorrelated with |T| at every window, because Adam normalizes each
+  weight's step (m / sqrt(v)); hence master's changes are spread evenly over the |T| quartiles.
+- So at any step most of master's trit changes are weights near their boundary nudged across by a short, size-normalized
+  push: cheap changes. Its long-term learning lives in the slow drift of the latents, which our rule has no place to
+  keep (the trit and the momentum are all it has).
