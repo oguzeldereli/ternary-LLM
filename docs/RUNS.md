@@ -1957,3 +1957,16 @@ need). Rank 512 is 2/3 of full rank. Read the rank results as:
   run is rank 512: **2.8215** (dry + spend), gap to master 0.070. A second seed of it is running.
 - At 340M (dim 1024, MLP 1024 x 2816) rank 512 is half of full rank.
 - The rank penalty table (rank 64 / 128 vs 512) is unaffected; "1024" in the figures means full rank.
+
+### 1 Oct 02:30: the residual-fed extra momenta hurt (mid-run)
+
+Val minus the reference at the same step:
+- `rare256sum` (rank 256 + rare rank 256 summed): vs plain rank 256 +0.100 / +0.102 / +0.107 / +0.116 at 2500 / 3000 / 4000
+  / 4500; vs rank 512 +0.162 to +0.175. `rare256flip` (own flips at 0.5x): vs rank 256 +0.072 to +0.076.
+- `tier4x64flip` / `tier4x64sum` vs plain rank 64: +0.052 / +0.080 at 2000.
+
+Adding a second momentum fed the residual (the gradient outside the main subspace) with a long memory makes things worse,
+not better, and the gap is not closing. Likely cause, to be checked: the residual is mostly batch noise, and with a long
+memory (dry 0.01 or weaker: an equilibrium size ~1/(2D) times the gradient, i.e. ~50x for D = 0.01 vs ~16x for the main
+momentum at 1/33) the rare momentum grows larger than the main one; in the summed signal it then dominates the flip
+choice with stale noise, and with its own flips it adds noisy flips.

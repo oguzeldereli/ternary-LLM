@@ -13,7 +13,20 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (1 Oct, 01:20)
+## Now (1 Oct, 02:45)
+
+| machine | run | status | expected |
+|---|---|---|---|
+| 4090 | `big_master` then `big_dryspend_r1024_s0` (340M recipe at full rank, `queue_scale2.sh`) | master at step 9070 | ~02:40, then ~11:00 |
+| shoveler / mandarin | `rare256sum` / `rare256flip` | step 4500: +0.116 / +0.073 behind plain rank 256 (2.8699): the rare momentum hurts | ~04:35 |
+| harlequin / mallard | `tier4x64flip` / `tier4x64sum` | step ~2000: +0.052 / +0.080 behind plain rank 64 | ~05:45 |
+| pintail | `gvsharp_dryspend_r512_seed2` | step 2500, -0.008 vs seed 1 | ~05:10 |
+| gadwall | `rk256_int8_dryspend_s0` | int8 momentum at rank 256 (vs fp32 2.8699); shares the GPU with another user's Ray job | ~07:00 |
+| bufflehead | analysis (rare_pairs, pos_gap) of the 4 runs finished overnight; shares with the Ray job | - |
+
+cackling: another user's llama-server. bufflehead, gadwall: another user's Ray worker (1.9 GB).
+
+## Earlier (1 Oct, 01:20)
 
 | machine | run | what | expected |
 |---|---|---|---|
