@@ -22,9 +22,10 @@ from .model import BitTransformer
 from .bitlinear import _act_quant_ste
 
 
-def _ternary_ste(w: torch.Tensor) -> torch.Tensor:
-    """BitNet b1.58 absmean ternary {-1,0,1}*gamma with straight-through."""
-    gamma = w.detach().abs().mean().clamp_min(1e-5)
+def _ternary_ste(w: torch.Tensor, gamma=None) -> torch.Tensor:
+    """BitNet b1.58 absmean ternary {-1,0,1}*gamma with straight-through (gamma: frozen scale, --m_gfix)."""
+    if gamma is None:
+        gamma = w.detach().abs().mean().clamp_min(1e-5)
     t = (w / gamma).round().clamp_(-1, 1) * gamma
     return w + (t - w).detach()
 
@@ -39,15 +40,16 @@ class MasterTernaryLinear(nn.Module):
         w = torch.empty(out_features, in_features, dtype=dtype)
         nn.init.normal_(w, std=1.0 / math.sqrt(in_features))
         self.weight = nn.Parameter(w)
+        self.gamma_fixed = None        # --m_gfix: the absmean scale frozen at a step (a plain attribute, not saved)
 
     def forward(self, x):
         # under autocast both operands go to bf16, matching the kernel path's math
-        return F.linear(_act_quant_ste(x, self.act_bits), _ternary_ste(self.weight))
+        return F.linear(_act_quant_ste(x, self.act_bits), _ternary_ste(self.weight, self.gamma_fixed))
 
     @torch.no_grad()
     def ternary_weight(self):
         w = self.weight.float()
-        gamma = w.abs().mean().clamp_min(1e-5)
+        gamma = self.gamma_fixed if self.gamma_fixed is not None else w.abs().mean().clamp_min(1e-5)
         return (w / gamma).round().clamp_(-1, 1).to(torch.int8), gamma
 
     def extra_repr(self):

@@ -6,22 +6,39 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-01 19:45
+Last updated: 2026-10-01 21:30
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (1 Oct, 19:45)
+## Now (1 Oct, 21:30): what master has that we lack
+
+Master with one ingredient of its update taken away at a time (`bitnet/master_opt.py`, flags `--m_*`): if one
+restriction alone costs master about the gap (0.05-0.07 at 110M), that ingredient is what our rule lacks.
+
+| machine | run | what | expected |
+|---|---|---|---|
+| 4090 | `mbr_*` (`master_branches.sh`, then `after_branches.sh`) | master's step-3000 state continued 500 steps with: nothing (control), leak tau 300 / 100 / 30 / 1000, snap, factored v, rank 512 / 128 first moment, clamp 1.0 / 0.6, frozen gamma, beta1 0.997, gate. Our rule lost master's lead (0.085) within 250 steps | ~23:45 |
+| 4090 | `undo_anatomy.py` on `big_dryspend_r512_s0` @3000 | how many flips undo takes back; how many more a stronger undo would (1 step, and 10 steps per rule) | after the branches |
+| Myriad 36272-36276 (queued) | `mx_leak300`, `mx_snap`, `mx_factv`, `mx_rank512` (master from scratch, one restriction each); `ours_vfull_r1024` (our rule, full rank, per-weight v) | 110M, 300M tokens, `run_110m.sh` | ~4-5 h after start |
+| Myriad 35762 | `x1b_dryspend_r512_s0` | 1.3B recipe, rank 512 | Fri 2 Oct ~15:00 |
+| Myriad 36154 | `x1b_master_lr75` | 1.3B master at peak lr 7.5e-4 (the 1.5e-3 run diverged) | Fri 2 Oct ~08:30 |
+
+Lab PCs: down (Thursday-evening reboot, which wipes /tmp): `drywarm512_dryspend_s0` (last seen step 3662, -0.017 vs the
+rule at 3500) and `undo512_dryspend_s0` (step 3084, +0.010 at 3000) are lost and need a restart; lab121 (31 x 4070 Ti
+Super 16 GB) to be used for the remaining master restrictions once the lab is back.
+
+## Earlier (1 Oct, 19:45)
 
 | machine | run | what | expected |
 |---|---|---|---|
 | pintail | `drywarm512_dryspend_s0` | memory that starts short and lengthens: -0.028 vs the rule at step 3000 | ~22:20 |
 | harlequin | `undo512_dryspend_s0` | undo with the long-memory recipe: +0.017 vs the rule at step 2250 | ~22:40 |
 | 4090 | `cheapcos512_dryspend_s0` | rule blended to cheap on a cosine: +0.037 vs the rule at step 8250 | ~19:55 |
-| Myriad 35762 (V node, 4 A100) | `x1b_dryspend_r512_s0` | 1.3B (d2048_l24) recipe, rank 512: step 1010, 8.6 s/step | Fri 2 Oct ~15:00 |
-| Myriad 35791 (L node, 4 A100) | `x1b_master` | 1.3B master weights (fp32): step 1180, 4.7 s/step | Fri 2 Oct ~06:00 |
+| Myriad 35762 (V node, 1 A100) | `x1b_dryspend_r512_s0` | 1.3B (d2048_l24) recipe, rank 512: step 1010, 8.6 s/step | Fri 2 Oct ~15:00 |
+| Myriad 36154 (queued) | `x1b_master_lr75` | 1.3B master weights at peak lr 7.5e-4 (`run_1b_master_lr75.sh`); `x1b_master` at 1.5e-3 diverged from ~33M tokens (val 4.24 -> 4.53) and was stopped at step ~1600 | ~12 h after start |
 
 Finished today: the six flip-selection runs (flat / inv / cheap at rank 512, cheap at 256 / 128 / 64): all worse than
 the rule; see RUNS.md "1 Oct 19:40".

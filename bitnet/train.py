@@ -209,7 +209,7 @@ def _q8(X):
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
-                 undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0, dry_w=0.0, mom_int8=False,
+                 undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0, dry_w=0.0, mom_int8=False, vfull=False,
                  rare_rank=0, rare_dry=0.01, rare_mode="sum", rare_rate=0.5, tiers=(), rare_weight=0.0,
                  pshape="prop", pshape_T=0, dry_start=0.0, dry_warm=0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
@@ -395,11 +395,17 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             # g^2, N+K numbers per layer); propose from M / sqrt(v), v_ij ~ R_i C_j / mean(R)
             Vs = state.setdefault("_v", {})
             g2 = g.pow(2)
+            if vfull:       # --lr_vfull: one EMA of g^2 per weight (analysis only: N x K floats)
+                Vf = state.setdefault("_vf", {})
+                Vf[key] = g2 if key not in Vf else vnorm * Vf[key] + (1 - vnorm) * g2
+                Vs[key] = (Vf[key].mean(1), Vf[key].mean(0))
+                M = M / Vf[key].sqrt().clamp_min(1e-30)
             R, C = g2.mean(1), g2.mean(0)
             if key in Vs:
                 R = vnorm * Vs[key][0] + (1 - vnorm) * R; C = vnorm * Vs[key][1] + (1 - vnorm) * C
-            Vs[key] = (R, C)
-            M = M / (R[:, None] * C[None, :] / R.mean().clamp_min(1e-30)).sqrt().clamp_min(1e-30)
+            if not vfull:
+                Vs[key] = (R, C)
+                M = M / (R[:, None] * C[None, :] / R.mean().clamp_min(1e-30)).sqrt().clamp_min(1e-30)
         if propose_only:
             gm = M.abs().mean().clamp_min(1e-12)
             if gate:        # --lr_gate: propose only where the current batch gradient agrees in sign
@@ -545,6 +551,8 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     info = {"lr_cos": sum(cs) / len(cs), "lr_cos_layers": cs} if cs else {}
     rr = state.pop("_rare_ratio", None)
     if rr: info["rare_ratio"] = sum(rr) / len(rr)
+    nu = state.pop("_nundo", None)
+    if nu is not None: info["undo_n"] = nu      # --undo: last step's moves flipped back this step
     if diag and cs:
         for k, v in D.items():
             info.update(_diag_agg(k, v))
@@ -1248,6 +1256,22 @@ def main():
     ap.add_argument("--speed_ref", type=float, default=0.0,
                     help="momentum flips: divide M by a slow EMA (this decay, e.g. 0.995) of its mean |M| instead of "
                          "by its current mean, so the flip count follows the momentum's size (0 = off)")
+    ap.add_argument("--m_factv", action="store_true",
+                    help="master: second moment factored (row x column, our rule's normalization) instead of per weight")
+    ap.add_argument("--m_gate", action="store_true",
+                    help="master: latent update only where this batch's gradient agrees in sign with m (our gate)")
+    ap.add_argument("--m_rank", type=int, default=0, help="master: first moment kept at rank R (like our momentum)")
+    ap.add_argument("--m_beta1", type=float, default=0.0, help="master: Adam beta1 for the latent weights (default 0.9)")
+    ap.add_argument("--m_clamp", type=float, default=0.0, help="master: latent clamped to |W| <= C * gamma after each step")
+    ap.add_argument("--m_leak", type=float, default=0.0,
+                    help="master: latent's offset from its trit centre decays with a time constant of TAU steps")
+    ap.add_argument("--m_snap", action="store_true", help="master: a latent whose trit changed is set to the new centre")
+    ap.add_argument("--m_gfix", type=int, default=0, help="master: freeze each matrix's absmean scale at step S")
+    ap.add_argument("--lr_vfull", action="store_true",
+                    help="momentum flips: Adam step normalized by a per-weight EMA of g^2 (N x K floats) instead of "
+                         "the factored row x column one (analysis: is the factored normalization what we lack?)")
+    ap.add_argument("--tf32", action="store_true",
+                    help="allow TF32 for fp32 matmuls (the low-rank momentum's products); A100 fp32 is 19.5 TFLOPs, TF32 156")
     ap.add_argument("--undo", action="store_true",
                     help="momentum flips: flip back last step's moves that this batch's gradient and the updated "
                          "momentum both call uphill (one-step buffer of the moves)")
@@ -1441,6 +1465,9 @@ def main():
     ap.add_argument("--temp_check", type=int, default=4,
                     help="check GPU temp every N steps")
     args = ap.parse_args()
+    if args.tf32:
+        torch.backends.cuda.matmul.allow_tf32 = True
+    TIME = os.environ.get("TERN_TIME") == "1"   # time the forward/backward vs the momentum step (synchronizes)
 
     mc: ModelConfig = PRESETS[args.preset]
     tc = TrainConfig()
@@ -1517,11 +1544,22 @@ def main():
         # rounding anywhere, so the ceiling is not limited by storage precision.
         master, emb, norms = split_params(model)
         tail = master + emb + norms
-        tail_opt = torch.optim.AdamW(
-            [{"params": master, "weight_decay": tc.weight_decay},
-             {"params": emb, "weight_decay": tc.weight_decay},
-             {"params": norms, "weight_decay": 0.0}],
-            lr=tc.lr, betas=(tc.beta1, tc.beta2))
+        if args.m_factv or args.m_rank or args.m_beta1 or args.m_gate:
+            from .master_opt import AdamX
+            tail_opt = AdamX(
+                [{"params": master, "weight_decay": tc.weight_decay, "factv": args.m_factv, "rank": args.m_rank, "gate": args.m_gate,
+                  "betas": (args.m_beta1 or tc.beta1, tc.beta2)},
+                 {"params": emb, "weight_decay": tc.weight_decay},
+                 {"params": norms, "weight_decay": 0.0}],
+                lr=tc.lr, betas=(tc.beta1, tc.beta2))
+            print(f"master optimizer AdamX: factored v {args.m_factv}, first-moment rank {args.m_rank or 'full'}, "
+                  f"beta1 {args.m_beta1 or tc.beta1}, gate {args.m_gate}", flush=True)
+        else:
+            tail_opt = torch.optim.AdamW(
+                [{"params": master, "weight_decay": tc.weight_decay},
+                 {"params": emb, "weight_decay": tc.weight_decay},
+                 {"params": norms, "weight_decay": 0.0}],
+                lr=tc.lr, betas=(tc.beta1, tc.beta2))
         print(f"master mode: {sum(p.numel() for p in master)/1e6:.1f}M latent "
               f"({args.master_dtype}) + {sum(p.numel() for p in emb+norms)/1e6:.1f}M tail, "
               f"AdamW fp32 states", flush=True)
@@ -1797,6 +1835,7 @@ def main():
                            {int(v) for v in args.window_curve_at.split(",") if v} or None)
         mwin.open(model, lr_state, start_step - 1)
     ttrack = TritTracker(model) if (args.mode == "master" and args.track_flips) else None
+    _snap_state = {}                      # --m_snap: each master layer's trits after the last step
     for step in range(start_step, end_step):
         if args.profile and step == start_step + 20:         # after autotune / warm-up
             from torch.profiler import profile, ProfilerActivity
@@ -1877,6 +1916,7 @@ def main():
         if search or args.lookahead or args.lowrank:
             for l in model.modules():
                 if isinstance(l, KernelTernaryLinear): l.capture = True
+        if TIME: torch.cuda.synchronize(); _t0 = time.time()
         for micro in range(tc.grad_accum):
             x, y = get_batch(train_data, tc.batch_size, tc.seq_len, device, sampler)
             with torch.autocast(device_type=device.split(":")[0], dtype=torch.bfloat16):
@@ -1885,6 +1925,7 @@ def main():
             last_loss = loss.item()
         if args.mode in ("kernel", "evidence") and tc.grad_accum > 1:
             flip_accumulated(model)
+        if TIME: torch.cuda.synchronize(); _t1 = time.time()
         if args.lowrank:
             if la_on(step):             # propose from M, keep by the look-ahead test
                 rs_info, Ms = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
@@ -1930,7 +1971,7 @@ def main():
                                        tiers=[(int(a), float(b)) for a, b in (x.split(':') for x in args.tiers.split(','))] if args.tiers else (),
                                        rare_weight=args.rare_weight, pshape=args.pshape,
                                        pshape_T=args.steps if args.pshape_sched == "cos" else 0,
-                                       dry_start=args.dry_start, dry_warm=args.dry_warm)
+                                       dry_start=args.dry_start, dry_warm=args.dry_warm, vfull=args.lr_vfull)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
@@ -1951,6 +1992,17 @@ def main():
             rs_info["rate_mult"] = ar_state["mult"]; rs_info["cos_ema"] = ar_state["ema"]
         torch.nn.utils.clip_grad_norm_(tail, tc.grad_clip)
         tail_opt.step()
+        if TIME:
+            torch.cuda.synchronize(); _t2 = time.time()
+            print(f"time step {step}: forward+backward {_t1 - _t0:.3f}s, update (momentum step / AdamW) {_t2 - _t1:.3f}s",
+                  flush=True)
+        if args.mode == "master" and (args.m_clamp or args.m_leak or args.m_snap or args.m_gfix):
+            from .master import MasterTernaryLinear
+            from .master_opt import latent_ops
+            mlays = [m_ for m_ in model.modules() if isinstance(m_, MasterTernaryLinear)]
+            if args.m_gfix and step == args.m_gfix or (args.m_gfix and step > args.m_gfix and mlays[0].gamma_fixed is None):
+                for m_ in mlays: m_.gamma_fixed = m_.weight.detach().abs().mean().clamp_min(1e-5)
+            latent_ops(mlays, _snap_state, args.m_clamp, args.m_leak, args.m_snap)
         if args.master_bits and args.mode == "master":
             # --master_bits K: master degraded toward us: after every step each latent weight is stored on a
             # (2^K - 1)-level uniform grid over [-2 gamma, 2 gamma] (gamma = the matrix's absmean), with stochastic
