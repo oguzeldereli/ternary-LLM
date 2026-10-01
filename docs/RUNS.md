@@ -2128,3 +2128,26 @@ not hold; what the branches do show stands: the final level is set by the rule a
 
 340M full rank finished **2.6905** (ppl 14.7) vs master 2.6626 (14.3): **gap 0.028** (110M full rank: 0.042; 340M half
 rank: 0.062). The gap to master shrinks with model size at full rank.
+
+### 1 Oct 12:40: where the gap is at 340M; rank vs width
+
+340M (`d1024_l24`), final, minus master (`rare_pairs_340m.txt`, `pos_gap_340m.txt`, run on the 4090):
+
+| run | 0 | 1-2 | 3-9 | 10-29 | 30-99 | 100-299 | 300-999 | 1k-3k | 3k-10k | >10k |
+|---|---|---|---|---|---|---|---|---|---|---|
+| full rank, all | -0.107 | -0.081 | -0.035 | +0.066 | **+0.099** | +0.051 | +0.022 | +0.015 | +0.007 | -0.006 |
+| full rank, word starts | -0.105 | -0.060 | -0.039 | +0.052 | +0.068 | +0.021 | -0.011 | +0.000 | -0.001 | -0.015 |
+| full rank, continuations | -0.12 | -0.28 | -0.011 | +0.123 | **+0.186** | +0.112 | +0.065 | +0.029 | +0.017 | +0.002 |
+| rank 512, all | -0.086 | -0.010 | +0.032 | +0.117 | +0.188 | +0.115 | +0.061 | +0.049 | +0.038 | +0.016 |
+
+Position (192 sequences): full rank +0.273 ± 0.064 / +0.097 ± 0.020 / +0.047 / +0.028 / +0.021 ± 0.002 at 0-1 / 2-15 /
+16-127 / 128-511 / 512+; rank 512 +0.339 / +0.142 / +0.096 / +0.067 / +0.055.
+
+At 340M and full rank the gap is almost only word completions of pairs seen 10-299 times; frequent pairs and word
+starts are matched, and pairs seen < 10 times are better than master. By position it is largest with little context.
+
+Rank penalty vs full rank (final): 110M (min side 768) rank 64 / 128 / 256 / 512 = +0.240 / +0.150 / +0.074 / +0.022;
+340M (min side 1024) rank 64 / 128 / 512 = +0.222 / +0.177 / +0.034. At equal absolute rank the penalty is similar
+(slightly larger at 340M for 128 and 512); if the needed rank grew in proportion to width, 340M rank 512 would match 110M
+rank ~384 (~+0.045) and rank 128 would match ~96 (~+0.19). Measured +0.034 and +0.177: between "constant rank" and
+"proportional to width"; two widths cannot settle it.
