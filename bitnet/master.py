@@ -41,14 +41,21 @@ class MasterTernaryLinear(nn.Module):
         nn.init.normal_(w, std=1.0 / math.sqrt(in_features))
         self.weight = nn.Parameter(w)
         self.gamma_fixed = None        # --m_gfix: the absmean scale frozen at a step (a plain attribute, not saved)
+        self.T = None                  # --m_lag: the trits the forward uses, changed toward round(W / gamma) stochastically
 
     def forward(self, x):
         # under autocast both operands go to bf16, matching the kernel path's math
+        if self.T is not None:
+            w = self.weight
+            gamma = self.gamma_fixed if self.gamma_fixed is not None else w.detach().abs().mean().clamp_min(1e-5)
+            return F.linear(_act_quant_ste(x, self.act_bits), w + (self.T.to(w.dtype) * gamma - w).detach())
         return F.linear(_act_quant_ste(x, self.act_bits), _ternary_ste(self.weight, self.gamma_fixed))
 
     @torch.no_grad()
     def ternary_weight(self):
         w = self.weight.float()
+        if self.T is not None:
+            return self.T.clone(), (self.gamma_fixed if self.gamma_fixed is not None else w.abs().mean().clamp_min(1e-5))
         gamma = self.gamma_fixed if self.gamma_fixed is not None else w.abs().mean().clamp_min(1e-5)
         return (w / gamma).round().clamp_(-1, 1).to(torch.int8), gamma
 

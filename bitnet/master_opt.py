@@ -92,7 +92,7 @@ class AdamX(torch.optim.Optimizer):
 
 
 @torch.no_grad()
-def latent_ops(layers, state, clamp=0.0, leak=0.0, snap=False):
+def latent_ops(layers, state, clamp=0.0, leak=0.0, snap=False, lag=0.0, step=0):
     """after an optimizer step: clamp / leak / snap the latent master weights (see the module docstring)"""
     for i, l in enumerate(layers):
         w = l.weight
@@ -108,3 +108,12 @@ def latent_ops(layers, state, clamp=0.0, leak=0.0, snap=False):
                 ch = t != prev
                 w.copy_(torch.where(ch, t * gam, w))
             state[i] = t.to(torch.int8)
+        if lag:
+            # --m_lag q: the forward's trits T follow round(W / gamma) only stochastically: each weight whose latent says
+            # another trit changes with probability q per step (our rule fires at a rate, not at a threshold)
+            if l.T is None:
+                l.T = t.to(torch.int8)
+            else:
+                g_ = torch.Generator(device=w.device).manual_seed(5_000_000 + 131 * step + i)
+                fire = (t.to(torch.int8) != l.T) & (torch.rand(t.shape, generator=g_, device=w.device) < lag)
+                l.T = torch.where(fire, t.to(torch.int8), l.T)

@@ -1266,6 +1266,8 @@ def main():
     ap.add_argument("--m_leak", type=float, default=0.0,
                     help="master: latent's offset from its trit centre decays with a time constant of TAU steps")
     ap.add_argument("--m_snap", action="store_true", help="master: a latent whose trit changed is set to the new centre")
+    ap.add_argument("--m_lag", type=float, default=0.0,
+                    help="master: the trits follow the latent only with probability Q per step (rate-limited firing)")
     ap.add_argument("--m_gfix", type=int, default=0, help="master: freeze each matrix's absmean scale at step S")
     ap.add_argument("--lr_vfull", action="store_true",
                     help="momentum flips: Adam step normalized by a per-weight EMA of g^2 (N x K floats) instead of "
@@ -1996,13 +1998,13 @@ def main():
             torch.cuda.synchronize(); _t2 = time.time()
             print(f"time step {step}: forward+backward {_t1 - _t0:.3f}s, update (momentum step / AdamW) {_t2 - _t1:.3f}s",
                   flush=True)
-        if args.mode == "master" and (args.m_clamp or args.m_leak or args.m_snap or args.m_gfix):
+        if args.mode == "master" and (args.m_clamp or args.m_leak or args.m_snap or args.m_gfix or args.m_lag):
             from .master import MasterTernaryLinear
             from .master_opt import latent_ops
             mlays = [m_ for m_ in model.modules() if isinstance(m_, MasterTernaryLinear)]
             if args.m_gfix and step == args.m_gfix or (args.m_gfix and step > args.m_gfix and mlays[0].gamma_fixed is None):
                 for m_ in mlays: m_.gamma_fixed = m_.weight.detach().abs().mean().clamp_min(1e-5)
-            latent_ops(mlays, _snap_state, args.m_clamp, args.m_leak, args.m_snap)
+            latent_ops(mlays, _snap_state, args.m_clamp, args.m_leak, args.m_snap, args.m_lag, step)
         if args.master_bits and args.mode == "master":
             # --master_bits K: master degraded toward us: after every step each latent weight is stored on a
             # (2^K - 1)-level uniform grid over [-2 gamma, 2 gamma] (gamma = the matrix's absmean), with stochastic
