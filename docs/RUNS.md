@@ -2240,3 +2240,35 @@ direction on the same weights: |T| Q1 +0.0001 / +0.0001, Q2 +0.0002 / +0.0002, Q
 
 Next measurement: at the same state (master @3000 and its converted copy), the real held-out cost per flip of master's
 own next-step trit changes against our rule's flips, to see what master's changes do that ours do not.
+
+### 1 Oct 15:00: master's trit changes vs our flips at the same state (`scripts/analysis/master_vs_rule.py`, 4090)
+
+State: master @3000 and its exact ternary copy. Master stepped with its saved AdamW state; its trit changes applied to the
+kernel copy; held-out loss change per 100k changes, against our rule's flips at the same count:
+
+| | master | our rule on the true gradient | (no gate) | our rule on one batch | random |
+|---|---|---|---|---|---|
+| 1 step (249k changes) | **-0.00140** | -0.00158 | -0.00560 | -0.00358 | +0.00087 |
+| 10 steps' worth (2.06M changes) | **-0.00067** | **+0.08457** | +0.05752 | +0.02843 | +0.00081 |
+
+Which weights change:
+
+| | uphill | share by \|T\| quartile Q1/Q2/Q3/Q4 | latent distance to its rounding boundary |
+|---|---|---|---|
+| master, 1 step | 46.0% | 25 / 25 / 25 / 25% | median 0.003, 100% within 0.05 |
+| master, 10 steps | 42.8% | 25 / 25 / 25 / 25% | median 0.022, 84% within 0.05 |
+| our rule (true gradient) | 0% (by construction) | 6 / 17 / 29 / 48% | median 0.344, 8% within 0.05 |
+
+- **Master does not choose its changes by gradient size at all**: they are spread evenly over the |T| quartiles and they are
+  the weights whose latent sits right at the rounding boundary, i.e. weights nearly indifferent between two trit
+  values. Each such change is cheap, so master can make millions and they add up (10 steps of changes: still -0.00067 per
+  100k).
+- **Our rule picks the steepest weights** (48% in the top |T| quartile). A few of those help as much per flip as master's
+  changes (-0.0016), but they interact: 2M of them at once cost +0.085 per 100k, 60x worse than random. Even a perfect,
+  noise-free signal (the true gradient) does this.
+- So the gap is in the *selection*, not the direction: master changes the weights that are cheap to change; we change the
+  weights with the largest push, which are the most expensive to change together. This also explains the branch result
+  (our rule moves master's weights that master had settled) and the earlier finding that choosing large entries hurts
+  while random sign-aligned flips help (28-29 Sep).
+
+Running: the same bench with the flip probability's shape changed (sign only, saturating at mean|S|, preferring small |S|).
