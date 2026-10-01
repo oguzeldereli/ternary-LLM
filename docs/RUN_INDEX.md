@@ -184,6 +184,8 @@ ones: [QUEUE.md](QUEUE.md).
 | `rk128_int8_dryspend_s0` | dry + spend, rank 128, momentum rounded to int8 each step (`--mom_int8`) | 300M | 2.9541 |
 | `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | 300M | 2.8156 |
 | `rare256sum_dryspend_s0` | dry + spend, rank 256 + a rare-pattern momentum (rank 256, fed the gradient outside the main subspace, dry 0.01), summed into the flip signal (`--rare_rank 256 --rare_mode sum`) | running | - |
+| `rare256w03_dryspend_s0` | rank 256 + rare rank 256 summed at 0.3x the main one's size (`--rare_weight 0.3`) | running | - |
+| `rk256_int8_dryspend_s0` | dry + spend, rank 256, int8 momentum | running | - |
 | `tier4x64flip_dryspend_s0` / `tier4x64sum_dryspend_s0` | dry + spend, rank 64 + 3 rank-64 tiers (`--tiers 64:0.016,64:0.009,64:0.005`), own flips at 0.33x / summed | running | - |
 | `rare256flip_dryspend_s0` | the same, but the rare momentum proposes its own flips at 0.5x the rate (`--rare_mode flip`) | running | - |
 
@@ -197,4 +199,5 @@ rank needed grow with width? 340M = `--preset d1024_l24`.
 | `rk32_dryspend_s0` / `rk64_dryspend_s0` / `rk128_dryspend_s0` | 110M, rank 32 / 64 / 128 (rank 256: 2.8699, 512: 2.8215) | 300M | 3.1369 / 3.0401 / 2.9501 |
 | `big_rk64_dryspend_s0` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 (lab) | 300M | 2.9121 / 2.8677 |
 | **`big_dryspend_r512_s0`** | 340M, dry + spend, rank 512 (4090) | 300M | **2.7246** (ppl 15.3) |
-| `big_master` | 340M master weights (4090) | running | - |
+| **`big_master`** | 340M master weights (4090) | 300M | **2.6626** (ppl 14.3) |
+| `big_dryspend_r1024_s0` | 340M, dry + spend, rank 1024 (= full rank) (4090) | running | - |

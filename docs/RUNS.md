@@ -1970,3 +1970,25 @@ not better, and the gap is not closing. Likely cause, to be checked: the residua
 memory (dry 0.01 or weaker: an equilibrium size ~1/(2D) times the gradient, i.e. ~50x for D = 0.01 vs ~16x for the main
 momentum at 1/33) the rare momentum grows larger than the main one; in the summed signal it then dominates the flip
 choice with stale noise, and with its own flips it adds noisy flips.
+
+### 1 Oct 03:30: 340M master 2.6626; analysis of the overnight finals
+
+**340M (`d1024_l24`) master weights: 2.6626** (ppl 14.3). Our 340M run (dry + spend, rank 512 = half of full rank there):
+2.7246, **gap 0.062** (110M: rank 512 0.070, full rank 0.035-0.049). The gap to master holds from 110M to 340M at half
+rank. The 340M recipe at full rank (rank 1024) is now training on the 4090 (`queue_scale2.sh`, ~12:00).
+
+Rare pairs / position, on a lab PC (`rare_pairs_wave4_lab.txt`, `pos_gap_wave4_lab.txt`), minus master:
+
+| run | final | 30-99 cont. | 100-299 cont. | 300-999 all | >10k | pos 512+ |
+|---|---|---|---|---|---|---|
+| best, seed 2 (dry + spend, full rank) | 2.7864 | +0.143 | +0.112 | +0.045 | +0.015 | +0.032 ± 0.002 |
+| dry 0.04 + spend, full rank | 2.8156 | +0.218 | +0.152 | +0.076 | +0.017 | +0.061 ± 0.003 |
+| rank 128 int8 | 2.9541 | +0.492 | +0.447 | +0.250 | +0.056 | +0.193 ± 0.004 |
+| rank 64 + refresh | 3.0434 | +0.677 | +0.629 | +0.371 | +0.098 | +0.283 ± 0.004 |
+
+Both seeds of the best run show the same shape: the remaining gap is rare word completions seen 30-299 times
+(+0.13-0.14), frequent pairs ~+0.01. Low rank loses everywhere, most in the same band.
+
+Running: `rare256w03_dryspend_s0` (bufflehead): the rare momentum added at 0.3x the main one's mean size
+(`--rare_weight 0.3`), to test whether the summed version failed because the rare momentum outgrew the main one; it
+logs the raw size ratio `rare_ratio`.
