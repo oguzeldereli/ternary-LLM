@@ -206,4 +206,4 @@ rank needed grow with width? 340M = `--preset d1024_l24`.
 | `big_rk64_dryspend_s0` / `big_rk128_dryspend_s0` | 340M, rank 64 / 128 (lab) | 300M | 2.9121 / 2.8677 |
 | **`big_dryspend_r512_s0`** | 340M, dry + spend, rank 512 (4090) | 300M | **2.7246** (ppl 15.3) |
 | **`big_master`** | 340M master weights (4090) | 300M | **2.6626** (ppl 14.3) |
-| `big_dryspend_r1024_s0` | 340M, dry + spend, rank 1024 (= full rank) (4090) | running | - |
+| **`big_dryspend_r1024_s0`** | 340M, dry + spend, rank 1024 (= full rank) (4090) | 300M | **2.6905** (ppl 14.7) |

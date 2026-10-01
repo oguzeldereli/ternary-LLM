@@ -2125,3 +2125,6 @@ for a while, but the cosine schedule anneals the full-rate run's rate too and it
 not hold; what the branches do show stands: the final level is set by the rule and its schedule, not by the start.
 
 340M full rank: 2.6942 at step 9000 vs master's 2.6687 there (+0.026), finishing now.
+
+340M full rank finished **2.6905** (ppl 14.7) vs master 2.6626 (14.3): **gap 0.028** (110M full rank: 0.042; 340M half
+rank: 0.062). The gap to master shrinks with model size at full rank.
