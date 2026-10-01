@@ -2036,3 +2036,20 @@ Gap to master by pair count (`rare_pairs_rare_lab.txt`) and position (`pos_gap_r
   model refines continuously, suffer most.
 - So "more memory for rare pairs" in a separate, unweighted momentum is the wrong shape; the weighted (`rare256w03`) and
   same-memory (`rare256same`) runs are the remaining tests of the split.
+
+### 1 Oct 07:30: splitting the momentum loses even at equal memory; master-to-our-rule branch started
+
+Val minus the reference at the same step:
+- `rare256same` (second rank 256 on the residual, **same** memory as the main one, summed = the equal-memory split of
+  rank 512): +0.073 / +0.078 / +0.080 vs rank 256 at 3750 / 4000 / 4250, +0.134 to +0.138 vs rank 512. Splitting hurts
+  even without a longer memory: one rank-512 subspace that picks its 512 directions jointly beats a 256 + 256 split
+  where the second half has to track what the first half misses each step.
+- `rare256w03` (long-memory rare momentum held at 0.3x the main one's size): +0.001 / -0.000 / +0.002 vs rank 256: no
+  gain, no harm.
+- int8 momentum: rank 512 +0.005 to +0.009 vs fp32; rank 256 +0.011 to +0.015 (slightly growing late).
+
+**Master-to-our-rule branch** (`scripts/analysis/master_to_kernel.py`): master at step 3000 (`curve_master`, 98M) converted
+to a ternary kernel checkpoint (T = clip(round(W / gamma)), row scales gamma / beta so each layer computes exactly what
+master's forward did; adapter A = 0, head temperatures 0). Converted held-out loss matches master's (3.5423 vs 3.5424 on 8
+sequences). `branch_m3000_dryspend_r512` continues it from step 3001 with our recipe (dry + spend, rank 512). Question:
+does our rule keep master's rare-pair knowledge and fail to add to it, or lose it?

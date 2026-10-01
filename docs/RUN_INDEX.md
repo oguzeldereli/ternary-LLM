@@ -190,7 +190,8 @@ ones: [QUEUE.md](QUEUE.md).
 | `tier4x64flip_dryspend_s0` / `tier4x64sum_dryspend_s0` | dry + spend, rank 64 + 3 rank-64 tiers (`--tiers 64:0.016,64:0.009,64:0.005`), own flips at 0.33x / summed | 300M | 3.0795 / 3.1726 |
 | `rare256flip_dryspend_s0` | the same, but the rare momentum proposes its own flips at 0.5x the rate (`--rare_mode flip`) | 300M | 2.9354 |
 | `rare256same_dryspend_s0` | rank 256 + a second rank 256 on the residual with the same memory (dry 1/33), summed: the equal-memory split vs rank 512 | running | - |
-| `rk512_int8_dryspend_s0` | dry + spend, rank 512, int8 momentum | queued (shoveler, after analysis) | - |
+| `branch_m3000_dryspend_r512` | master @3000 converted to trits (`master_to_kernel.py`), continued with dry + spend, rank 512 | running | - |
+| `rk512_int8_dryspend_s0` | dry + spend, rank 512, int8 momentum | running | - |
 
 ## Rank sweep and model width (30 Sep, running)
 
