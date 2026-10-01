@@ -211,7 +211,7 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
                  undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0, dry_w=0.0, mom_int8=False,
                  rare_rank=0, rare_dry=0.01, rare_mode="sum", rare_rate=0.5, tiers=(), rare_weight=0.0,
-                 pshape="prop"):
+                 pshape="prop", pshape_T=0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -260,7 +260,9 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
             min(|S| / (3 mean|S|), 1)), same direction (-sign S) and the same gate: "flat" every eligible weight equally
             likely (sign only); "inv" preferring the small |S|: p ~ 1 - min(|S| / (3 mean|S|), 1); "cheap" preferring
             weights with a small gradient second moment v = R_i C_j / mean R (the Adam step's factors): p ~ 1 / (1 + v /
-            median v). Master changes the weights nearest a rounding boundary, evenly across gradient sizes; the usual
+            median v). With pshape_T > 0 (--pshape_sched cos) the flips are a blend that moves from the usual rule to the
+            chosen shape over training: p = (1 - lam) p_prop + lam p_shape, lam = (1 - cos(pi t / T)) / 2, both at the
+            same expected count (steep weights first, cheap ones at the end). Master changes the weights nearest a rounding boundary, evenly across gradient sizes; the usual
             rule piles its flips on the steepest weights, where many flips together overshoot (1 Oct bench).
     mom_int8: (--mom_int8) store the momentum factors U, V at 8 bits: after each step every column is rounded
             stochastically to 255 levels of its own absmax (per-column fp32 scale), so the next step reads what an int8
@@ -450,6 +452,9 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                 v_ = R_[:, None] * C_[None, :] / R_.mean().clamp_min(1e-30)
                 w_ = ok / (1 + v_ / v_.median().clamp_min(1e-30))
             p = (w_ * (p0.sum() / w_.sum().clamp_min(1e-12))).clamp(max=1)         # same expected number of flips
+            if pshape_T:                                                           # cosine blend: rule early, shape late
+                lam = 0.5 * (1 - math.cos(math.pi * min(step / pshape_T, 1.0)))
+                p = (1 - lam) * p0 + lam * p
             fire = torch.rand(p.shape, device=p.device, generator=torch.Generator(device=p.device).manual_seed(
                 8_000_000 + step * 131 + i + flip_seed * 1_000_003)) < p
             l.wpacked.copy_(pack_rows(torch.where(fire, (w0 + mv.to(torch.int8)).clamp(-1, 1), w0).to(torch.int8)))
@@ -1257,6 +1262,8 @@ def main():
                     help="momentum flips: chain of extra momenta 'R:D,R:D,...' (rank, dry friction), each fed what the ones before miss")
     ap.add_argument("--pshape", default="prop", choices=["prop", "flat", "inv", "cheap"],
                     help="momentum flips: which weights get the flips (same expected count, direction and gate as prop)")
+    ap.add_argument("--pshape_sched", default="", choices=["", "cos"],
+                    help="--pshape: blend from the usual rule (start) to the shape (end) on a cosine")
     ap.add_argument("--rare_weight", type=float, default=0.0,
                     help="--rare_mode sum: add the extra momenta at this x the main one's mean size (0 = their own size)")
     ap.add_argument("--rare_rate", type=float, default=0.5, help="--rare_mode flip: its flip rate as a share of the rate")
@@ -1913,7 +1920,8 @@ def main():
                                        dry_w=args.dry_w, mom_int8=args.mom_int8, rare_rank=args.rare_rank,
                                        rare_dry=args.rare_dry, rare_mode=args.rare_mode, rare_rate=args.rare_rate,
                                        tiers=[(int(a), float(b)) for a, b in (x.split(':') for x in args.tiers.split(','))] if args.tiers else (),
-                                       rare_weight=args.rare_weight, pshape=args.pshape)
+                                       rare_weight=args.rare_weight, pshape=args.pshape,
+                                       pshape_T=args.steps if args.pshape_sched == "cos" else 0)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
