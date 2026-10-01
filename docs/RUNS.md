@@ -2423,3 +2423,43 @@ Why the bench and training disagree:
 So the selection side of the gap to master is not "which weights are cheap": with our signal, the rule already picks
 the right weights. What master has that we lack is the latent itself (evidence kept below the flip threshold); the
 remaining levers are the signal (memory length, rank) and the schedule (`drywarm512`: -0.028 vs the rule at step 3000).
+
+### 1 Oct 23:45: what master cannot do without (`bitnet/master_opt.py`, branches on the 4090)
+
+Master's step-3000 state (`curve_master`, val 3.186) continued 500 steps with one ingredient of its update changed
+(`scripts/remote/master_branches.sh`, `lag_branches.sh`); val at 3125 / 3250 / 3375 / 3500. For reference our rule from
+the same state lost master's whole lead (+0.085) within 250 steps (`branch_m3000_dryspend_r512`).
+
+| master with ... | 3125 | 3250 | 3375 | 3500 | vs master at 3500 | trit changes / step, reversals |
+|---|---|---|---|---|---|---|
+| nothing (control) | 3.173 | 3.156 | 3.143 | 3.126 | - | 0.28%, 88% |
+| factored v (row x column, our normalization) | 3.175 | 3.161 | 3.143 | 3.127 | +0.001 | 0.28%, 88% |
+| first moment at rank 512 | 3.170 | 3.156 | 3.141 | 3.126 | +0.000 | 0.27%, 88% |
+| first moment at rank 128 | 3.153 | 3.141 | 3.127 | 3.118 | -0.008 | |
+| gamma frozen at 3000 | 3.172 | 3.157 | 3.141 | 3.125 | -0.001 | |
+| snap (no leftover offset after a crossing) | 3.175 | 3.163 | 3.153 | 3.138 | +0.012 | 0.07%, 38% |
+| leak tau 300 (offset forgets in ~300 steps) | 3.120 | 3.093 | 3.081 | 3.071 | **-0.055** | 0.11%, 67% |
+| leak tau 100 | 3.111 | 3.121 | 3.156 | 3.198 | +0.072 (worsening) | |
+| leak tau 30 | 3.322 | 3.573 | 3.687 | 3.712 | +0.586 | |
+| **beta1 0.997 (a long momentum, ~300 steps)** | 3.597 | 3.542 | 3.477 | 3.410 | **+0.284** | |
+| **trits follow the latent with prob. 0.1 / step** | 3.621 | 3.522 | 3.462 | 3.414 | **+0.288** | |
+| **... with prob. 0.02 / step (our peak rate)** | 3.453 | 3.507 | 3.485 | 3.451 | **+0.325** | |
+| clamp \|W\| <= 1.0 / 0.6 gamma | 6.08 ... 5.50 | | | 6.14 | invalid | the clamp lowers gamma = mean\|W\|, which tightens the clamp: collapse |
+
+- **Does not matter to master:** the rank of the first moment (even 128), the factored normalization, the moving
+  gamma. Our low-rank, factored momentum is not, by itself, what we lack.
+- **Matters a lot:** (1) a *short* momentum: beta1 0.997 (a memory like our momentum's) costs +0.28 within 500 steps;
+  (2) *immediate* firing: when the trit follows the latent only at a rate (as our flips do), master loses +0.29 / +0.33,
+  more than our rule's whole gap. While a crossing waits, the straight-through gradient keeps pushing a latent whose trit
+  has not moved, so it overshoots; and the gradient sees a stale trit.
+- **Memory**: the latent's sub-threshold offset must last more than ~100 steps (leak 30 / 100 fail) but nothing past
+  ~300 helps in 500 steps (leak 300 is even better: it cuts the boundary jitter; the full run `mx_leak300` on Myriad
+  says whether that lasts).
+- So master uses **two timescales**: a short momentum (beta1 0.9, ~10 steps) gives the direction, and a long integrator
+  (the latent, ~100-300+ steps) decides when a trit changes, and the change happens the moment the integrator crosses.
+  Our rule has **one** long momentum (memory 220-390 steps) doing both jobs and fires at a **rate** (at most 2% per step):
+  exactly the two changes that hurt master most. The long-memory momentum carries stale direction (the early-phase lag
+  finding) and the rate-limited firing lets evidence pile up past the point of change.
+
+Caveat: these are switches made at step 3000 (a shock to a state built under the other setting); from-scratch runs are
+the test of the steady state (`mx_*` on Myriad; lag and beta1 to follow).
