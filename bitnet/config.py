@@ -96,6 +96,9 @@ PRESETS = {
     "toy2": ModelConfig(vocab_size=2048, dim=256, n_layers=2, n_heads=4, n_kv_heads=4,
                         hidden_dim=768, max_seq_len=256),
     # ~730M params. Pushes a 12GiB card: use batch_size=1, grad_checkpoint, 8bit-adam.
+    # ~1.3B: the 340M shape at twice the width (a third width for the rank-vs-width question).
+    "d2048_l24": ModelConfig(dim=2048, n_layers=24, n_heads=16, n_kv_heads=16,
+                             hidden_dim=5632),
     "d1536_l24": ModelConfig(dim=1536, n_layers=24, n_heads=16, n_kv_heads=8,
                              hidden_dim=4096),
     # ~27B. Deploys ~5.3GiB packed ternary. VERIFIED trainable on a 12GiB laptop
