@@ -211,7 +211,7 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
                  undo=False, slow_rank=0, slow_beta=0.999, dither=False, dry_vec=0.0, spend=0.0, dry_w=0.0, mom_int8=False,
                  rare_rank=0, rare_dry=0.01, rare_mode="sum", rare_rate=0.5, tiers=(), rare_weight=0.0,
-                 pshape="prop", pshape_T=0):
+                 pshape="prop", pshape_T=0, dry_start=0.0, dry_warm=0):
     """Flip from a rank-r momentum of each layer's gradient instead of the current gradient.
 
     Per layer M ~ U V^T with V (K x r) orthonormal and U (N x r): M <- beta*M + g, kept at rank
@@ -242,6 +242,8 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
     dither: (--dither_ld) the flip draw is a low-discrepancy sequence per weight, u_ij = frac(h_ij + step * phi) with
             h_ij a fixed hash of the weight (regenerated each step from a seed, not stored), instead of a fresh random
             number: each weight flips its expected number of times with little sampling noise. No state.
+    dry_start / dry_warm: (--dry_start D0 --dry_warm N) a memory that starts short and lengthens: the friction goes from D0
+            (strong: short memory) to dry_vec over the first N steps on a cosine, then stays at dry_vec.
     dry_vec: (--dry_vec D) dry friction on the whole momentum (all layers as one vector): after each step
             ||M|| -= D x a slow EMA of the total gradient norm (to 0), use with beta 1. Two floats.
     dry_w: (--dry_w D) dry friction per weight: |M_ij| -= D x the layer's mean |g| each step (to 0), on the full M,
@@ -512,7 +514,10 @@ def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_
         state["_gnorm_d"] = gn if "_gnorm_d" not in state else 0.99 * state["_gnorm_d"] + 0.01 * gn
         keys = [id(l) for l in layers if id(l) in state]
         tot = sum(float(state[k][0].pow(2).sum()) for k in keys) ** 0.5
-        f = max(tot - dry_vec * state["_gnorm_d"], 0.0) / max(tot, 1e-30)
+        D_t = dry_vec
+        if dry_warm and dry_start:
+            D_t = dry_vec + (dry_start - dry_vec) * 0.5 * (1 + math.cos(math.pi * min(step / dry_warm, 1.0)))
+        f = max(tot - D_t * state["_gnorm_d"], 0.0) / max(tot, 1e-30)
         for k in keys:
             U, V = state[k]; state[k] = (U * f, V)
         state["_dry_f"] = f
@@ -1269,6 +1274,9 @@ def main():
     ap.add_argument("--rare_rate", type=float, default=0.5, help="--rare_mode flip: its flip rate as a share of the rate")
     ap.add_argument("--mom_int8", action="store_true",
                     help="momentum flips: round the momentum factors U, V to int8 (per-column scale) after every step")
+    ap.add_argument("--dry_start", type=float, default=0.0,
+                    help="--dry_vec: friction at step 0 (strong = short memory), easing to --dry_vec over --dry_warm steps")
+    ap.add_argument("--dry_warm", type=int, default=0, help="steps over which --dry_start eases to --dry_vec (cosine)")
     ap.add_argument("--dry_w", type=float, default=0.0,
                     help="momentum flips: dry friction per weight, |M_ij| -= D x mean|g| per step (full M, then rank r)")
     ap.add_argument("--spend", type=float, default=0.0,
@@ -1921,7 +1929,8 @@ def main():
                                        rare_dry=args.rare_dry, rare_mode=args.rare_mode, rare_rate=args.rare_rate,
                                        tiers=[(int(a), float(b)) for a, b in (x.split(':') for x in args.tiers.split(','))] if args.tiers else (),
                                        rare_weight=args.rare_weight, pshape=args.pshape,
-                                       pshape_T=args.steps if args.pshape_sched == "cos" else 0)
+                                       pshape_T=args.steps if args.pshape_sched == "cos" else 0,
+                                       dry_start=args.dry_start, dry_warm=args.dry_warm)
         elif la_on(step):
             rs_info = lookahead_step(model, x, y, tail, device, step, args.lookahead,
                                      args.flip_seed, la_extra)
