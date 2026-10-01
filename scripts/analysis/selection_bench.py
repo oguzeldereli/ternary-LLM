@@ -10,6 +10,8 @@ the gate batch agrees, blocked at +-1):
   gainK  p ~ max(|s| - K * c * v, 0), c = median|s| / median v   expected gain: first-order push minus a curvature cost
          taken proportional to v (v = factored row x column EMA of g^2, as the Adam step uses), K = 0.5 / 1 / 2
   python -m scripts.analysis.selection_bench MASTER_CKPT CONVERTED_KERNEL_CKPT
+  python -m scripts.analysis.selection_bench - KERNEL_CKPT [PER_STEP]   (no master: from one of our own checkpoints,
+        PER_STEP flips per step, default 180000; also reports one step's first-order gain, real cost and |T| shares)
 """
 import sys, numpy as np, torch
 from bitnet.master import build_master_transformer
@@ -19,29 +21,35 @@ from scripts.analysis.testbench import Bench
 
 mpath, kpath = sys.argv[1], sys.argv[2]
 import os
-NS, K = int(os.environ.get("NS", "4")), 10
+NS, K = int(os.environ.get("NS", "4")), int(os.environ.get("K", "10"))
 tr = np.memmap("data/wiki32k_train.bin", dtype=np.uint16, mode="r")
-b = torch.load(mpath, map_location="cpu", weights_only=False)
-mm = build_master_transformer(b["cfg"], grad_checkpoint=True); mm.load_state_dict(b["model"]); mm = mm.cuda().train()
-master, emb, norms = split_params(mm)
-opt = torch.optim.AdamW([{"params": master, "weight_decay": 0.1}, {"params": emb, "weight_decay": 0.1},
-                         {"params": norms, "weight_decay": 0.0}], lr=1e-3, betas=(0.9, 0.95))
-opt.load_state_dict(b["opt"])
-lin = [m for m in mm.modules() if hasattr(m, "ternary_weight")]
-T0m = [m.ternary_weight()[0].clone() for m in lin]
-for k in range(K):
-    x, y = get_batch(tr, 16, 2048, "cuda", torch.Generator().manual_seed(7000 + k))
-    opt.zero_grad(set_to_none=True)
-    with torch.autocast("cuda", dtype=torch.bfloat16):
-        loss = mm(x, y)[1]
-    loss.backward(); opt.step()
-Dm = [(m.ternary_weight()[0] - t0).to(torch.int8).cuda() for m, t0 in zip(lin, T0m)]
-del mm, opt; torch.cuda.empty_cache()
+OWN = mpath == "-"
+if not OWN:
+  b = torch.load(mpath, map_location="cpu", weights_only=False)
+  mm = build_master_transformer(b["cfg"], grad_checkpoint=True); mm.load_state_dict(b["model"]); mm = mm.cuda().train()
+  master, emb, norms = split_params(mm)
+  opt = torch.optim.AdamW([{"params": master, "weight_decay": 0.1}, {"params": emb, "weight_decay": 0.1},
+                           {"params": norms, "weight_decay": 0.0}], lr=1e-3, betas=(0.9, 0.95))
+  opt.load_state_dict(b["opt"])
+  lin = [m for m in mm.modules() if hasattr(m, "ternary_weight")]
+  T0m = [m.ternary_weight()[0].clone() for m in lin]
+  for k in range(K):
+      x, y = get_batch(tr, 16, 2048, "cuda", torch.Generator().manual_seed(7000 + k))
+      opt.zero_grad(set_to_none=True)
+      with torch.autocast("cuda", dtype=torch.bfloat16):
+          loss = mm(x, y)[1]
+      loss.backward(); opt.step()
+  Dm = [(m.ternary_weight()[0] - t0).to(torch.int8).cuda() for m, t0 in zip(lin, T0m)]
+  del mm, opt; torch.cuda.empty_cache()
 B = Bench(kpath)
 L0 = B.held_out()
-nm = sum(int((d != 0).sum()) for d in Dm)
-print(f"held-out base {L0:.4f}; master's 10 steps: {nm / 1e3:.0f}k net trit changes, held-out {B.held_out(Dm) - L0:+.5f}")
-PER = nm // K
+if OWN:
+    PER = int(sys.argv[3]) if len(sys.argv) > 3 else 180_000
+    print(f"held-out base {L0:.4f}; own checkpoint {kpath}; {PER / 1e3:.0f}k flips per step")
+else:
+    nm = sum(int((d != 0).sum()) for d in Dm)
+    print(f"held-out base {L0:.4f}; master's 10 steps: {nm / 1e3:.0f}k net trit changes, held-out {B.held_out(Dm) - L0:+.5f}")
+    PER = nm // K
 
 
 def run(shape, Kc=1.0, seed=0):
