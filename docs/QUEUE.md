@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-01 21:30
+Last updated: 2026-10-01 22:50
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
@@ -22,8 +22,8 @@ restriction alone costs master about the gap (0.05-0.07 at 110M), that ingredien
 |---|---|---|---|
 | 4090 | `mbr_*` (`master_branches.sh`, then `after_branches.sh`) | master's step-3000 state continued 500 steps with: nothing (control), leak tau 300 / 100 / 30 / 1000, snap, factored v, rank 512 / 128 first moment, clamp 1.0 / 0.6, frozen gamma, beta1 0.997, gate. Our rule lost master's lead (0.085) within 250 steps | ~23:45 |
 | 4090 | `undo_anatomy.py` on `big_dryspend_r512_s0` @3000 | how many flips undo takes back; how many more a stronger undo would (1 step, and 10 steps per rule) | after the branches |
-| Myriad 36272-36276 (queued) | `mx_leak300`, `mx_snap`, `mx_factv`, `mx_rank512` (master from scratch, one restriction each); `ours_vfull_r1024` (our rule, full rank, per-weight v) | 110M, 300M tokens, `run_110m.sh` | ~4-5 h after start |
-| Myriad 35762 | `x1b_dryspend_r512_s0` | 1.3B recipe, rank 512 | Fri 2 Oct ~15:00 |
+| Myriad 36272 (running), 36273-36276 (queued) | `mx_leak300`, `mx_snap`, `mx_factv`, `mx_rank512` (master from scratch, one restriction each); `ours_vfull_r1024` (our rule, full rank, per-weight v) | 110M, 300M tokens, `run_110m.sh` | ~4-5 h after start |
+| Myriad 36472 (queued) | `x1b_dryspend_r512_lr75` | 1.3B recipe, rank 512, float tail at peak lr 7.5e-4 (matched to master). `x1b_dryspend_r512_s0` (lr 1.5e-3) stopped 22:50 at step ~2300: +0.65 behind master at step 1750 | ~22 h after start |
 | Myriad 36154 | `x1b_master_lr75` | 1.3B master at peak lr 7.5e-4 (the 1.5e-3 run diverged) | Fri 2 Oct ~08:30 |
 
 Lab PCs: down (Thursday-evening reboot, which wipes /tmp): `drywarm512_dryspend_s0` (last seen step 3662, -0.017 vs the
