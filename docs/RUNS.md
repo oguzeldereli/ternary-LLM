@@ -2053,3 +2053,24 @@ to a ternary kernel checkpoint (T = clip(round(W / gamma)), row scales gamma / b
 master's forward did; adapter A = 0, head temperatures 0). Converted held-out loss matches master's (3.5423 vs 3.5424 on 8
 sequences). `branch_m3000_dryspend_r512` continues it from step 3001 with our recipe (dry + spend, rank 512). Question:
 does our rule keep master's rare-pair knowledge and fail to add to it, or lose it?
+
+### 1 Oct 08:30: master switched onto our rule loses its lead within 250 steps
+
+`branch_m3000_dryspend_r512` = master's step-3000 weights (98M tokens, val 3.186) converted to trits, continued with our
+rule (dry + spend, rank 512). Val against master and against our own from-scratch run (same recipe) at the same step:
+
+| step | branch | master | branch - master | ours from scratch | branch - ours |
+|---|---|---|---|---|---|
+| 3000 | (3.186, master's) | 3.193 | - | 3.260 | -0.07 |
+| 3250 | 3.249 | 3.165 | +0.085 | 3.239 | +0.011 |
+| 4000 | 3.151 | 3.071 | +0.080 | 3.152 | -0.000 |
+| 5000 | 3.071 | 2.980 | +0.092 | 3.076 | -0.005 |
+
+Within 250 steps the branch gives up master's whole lead and from then on tracks our from-scratch curve to within 0.01.
+Our rule does not keep master's state: the loss our runs reach is a property of the update rule at that point of the
+schedule (an equilibrium between what the flips learn and what they undo), not of where training started. So the gap
+to master is not something our runs failed to learn early; it is what the rule can hold.
+
+Open: how much of the drop is the flips themselves and how much the fresh tail optimizer (the converter starts AdamW for
+the tail from zero). `branch_m3000_q_dryspend_r512` (mallard) repeats the branch at 1/4 of the flip rate
+(`--rate_peak 0.005`): if it keeps master's lead longer, the flips are what undo it.
