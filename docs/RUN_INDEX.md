@@ -180,6 +180,8 @@ ones: [QUEUE.md](QUEUE.md).
 | `inv512_dryspend_s0` | the same, `--pshape inv` (prefer small push) | running | - |
 | `cheap512_dryspend_s0` | the same, `--pshape cheap` (prefer small gradient second moment) | running | - |
 | `cheap256_dryspend_s0` | rank 256, `--pshape cheap` | running | - |
+| `drywarm512_dryspend_s0` | dry + spend, rank 512, memory that starts short and lengthens (`--dry_start 0.12 --dry_warm 1500`: friction 0.12 easing to 1/33 over 49M tokens) | queued (pintail) | - |
+| `cheapcos512_dryspend_s0` | rank 512, flip selection blended from the rule to cheap on a cosine (`--pshape cheap --pshape_sched cos`, 4090) | running | - |
 | `cheap128_dryspend_s0` / `cheap64_dryspend_s0` | rank 128 / 64, `--pshape cheap` (vs plain rank 128 2.9501, rank 64 3.0401) | running | - |
 
 ## Running (30 Sep, 14:40)
