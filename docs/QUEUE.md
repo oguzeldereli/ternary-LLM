@@ -13,7 +13,18 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (1 Oct, 02:45)
+## Now (1 Oct, 10:50)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| bufflehead | `own3000_q_dryspend_r512` | our rank-512 run from its step 3000 at 1/4 of the flip rate: -0.052 vs its full-rate self at 5750 | ~12:25 |
+| mallard | `branch_m3000_q_dryspend_r512` | master @3000 on our rule at 1/4 rate | ~11:30 |
+| 4090 | `big_dryspend_r1024_s0` | 340M, full rank: +0.036 vs master at step 8000 | ~11:50 |
+
+Finished overnight: see RUNS.md "1 Oct 10:50: morning summary". Free: harlequin, shoveler, mandarin, pintail, gadwall
+(Ray job), cackling (other user's server).
+
+## Earlier (1 Oct, 02:45)
 
 | machine | run | status | expected |
 |---|---|---|---|

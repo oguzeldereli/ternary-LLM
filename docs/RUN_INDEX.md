@@ -180,7 +180,7 @@ ones: [QUEUE.md](QUEUE.md).
 | **`gvsharp_dryspend_r1024_s0`** | sharp base + beta 1 + dry 0.0303 + spend 3 + rank 1024 | 300M | **2.7998** |
 | `gvsharp_dryspend_r1024_seed2` | the best run, seed 2 | 300M | 2.7864 |
 | `gvsharp_dryspend_r512_seed2` | dry + spend + rank 512, seed 2 | 300M | 2.8093 |
-| `gvsharp_dryspend_seed2` | dry + spend + rank 256, seed 2 | running | - |
+| `gvsharp_dryspend_seed2` | dry + spend + rank 256, seed 2 | 300M | 2.8639 |
 | `rk64_refresh_dryspend_s0` | dry + spend, rank 64 + subspace refresh (`--lr_refresh 8`) | 300M | 3.0434 |
 | `rk128_int8_dryspend_s0` | dry + spend, rank 128, momentum rounded to int8 each step (`--mom_int8`) | 300M | 2.9541 |
 | `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | 300M | 2.8156 |
@@ -190,10 +190,10 @@ ones: [QUEUE.md](QUEUE.md).
 | `rk256_int8_dryspend_s0` | dry + spend, rank 256, int8 momentum | 300M | 2.8884 |
 | `tier4x64flip_dryspend_s0` / `tier4x64sum_dryspend_s0` | dry + spend, rank 64 + 3 rank-64 tiers (`--tiers 64:0.016,64:0.009,64:0.005`), own flips at 0.33x / summed | 300M | 3.0795 / 3.1726 |
 | `rare256flip_dryspend_s0` | the same, but the rare momentum proposes its own flips at 0.5x the rate (`--rare_mode flip`) | 300M | 2.9354 |
-| `rare256same_dryspend_s0` | rank 256 + a second rank 256 on the residual with the same memory (dry 1/33), summed: the equal-memory split vs rank 512 | running | - |
-| `branch_m3000_dryspend_r512` | master @3000 converted to trits (`master_to_kernel.py`), continued with dry + spend, rank 512 | running | - |
+| `rare256same_dryspend_s0` | rank 256 + a second rank 256 on the residual with the same memory (dry 1/33), summed: the equal-memory split vs rank 512 | 300M | 2.9657 |
+| `branch_m3000_dryspend_r512` | master @3000 converted to trits (`master_to_kernel.py`), continued with dry + spend, rank 512 | 300M | 2.8091 |
 | `branch_m3000_q_dryspend_r512` | the same at 1/4 of the flip rate (`--rate_peak 0.005`) | running | - |
-| `rk512_int8_dryspend_s0` | dry + spend, rank 512, int8 momentum | running | - |
+| `rk512_int8_dryspend_s0` | dry + spend, rank 512, int8 momentum | 300M | 2.8346 |
 
 ## Rank sweep and model width (30 Sep, running)
 

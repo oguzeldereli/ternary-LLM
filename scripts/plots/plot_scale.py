@@ -15,7 +15,7 @@ from scripts.plots.plot_best import load, SURFACE, INK, INK2, GRID
 RANKS = [(32, "rk32_dryspend_s0"), (64, "rk64_dryspend_s0"), (128, "rk128_dryspend_s0"), (256, "gvsharp_dryspend_s0"),
          (512, "gvsharp_dryspend_r512_s0"), (1024, "gvsharp_dryspend_r1024_s0")]
 EXTRA = [("rk128_int8_dryspend_s0", "rank 128, int8 momentum"), ("rk64_refresh_dryspend_s0", "rank 64 + subspace refresh")]
-BIG = [(64, "big_rk64_dryspend_s0"), (128, "big_rk128_dryspend_s0"), (512, "big_dryspend_r512_s0")]
+BIG = [(64, "big_rk64_dryspend_s0"), (128, "big_rk128_dryspend_s0"), (512, "big_dryspend_r512_s0"), (1024, "big_dryspend_r1024_s0")]
 SHADE = {32: 0.25, 64: 0.38, 128: 0.52, 256: 0.66, 512: 0.82, 1024: 1.0}
 C110, C340 = "#b3261e", "#1565c0"
 MASTER = "#eb6834"

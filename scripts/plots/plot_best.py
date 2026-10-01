@@ -15,9 +15,9 @@ REFS = {"fp32_baseline", "master_tracked"}
 RUNS = [  # (run, label, colour)
     ("fp32_baseline", "full precision (fp32 + AdamW), reference", "#757575"),
     ("master_tracked", "master weights (ternary forward, fp32 latent), reference", "#eb6834"),
-    ("gvsharp_dryspend_r1024_s0", "long memory (dry friction) + spend + rank 1024", "#4a0000"),
-    ("gvsharp_dry_r1024_seed2", "long memory (dry friction) + rank 1024, seed 2", "#8d1c1c"),
-    ("gvsharp_dry_r1024_s0", "long memory (dry friction) + rank 1024", "#b3261e"),
+    ("gvsharp_dryspend_r1024_seed2", "long memory (dry friction) + spend, full-rank momentum, seed 2", "#2b0000"),
+    ("gvsharp_dryspend_r1024_s0", "long memory (dry friction) + spend, full-rank momentum", "#4a0000"),
+    ("gvsharp_dryspend_r512_seed2", "long memory (dry friction) + spend + rank 512, seed 2", "#8d1c1c"),
     ("gvsharp_dryspend_r512_s0", "long memory (dry friction) + spend + rank 512", "#d84315"),
     ("gvsharp_b0995_r512_s0", "long memory (decay 0.995) + rank 512", "#0d47a1"),
     ("gvsharp_dryspend_s0", "long memory (dry friction) + spend, rank 256", "#ef6c00"),

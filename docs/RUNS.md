@@ -2091,3 +2091,26 @@ continued at 1/4 of the rate. If lowering the rate from the middle of training h
 only the rule) is the lever for the last part of the gap.
 
 Also: `rare256w03` finished 2.8726 (plain rank 256 2.8699: no effect).
+
+### 1 Oct 10:50: morning summary of the night 30 Sep - 1 Oct
+
+**Seeds** (dry friction + spend): rank 256 2.8699 / 2.8639 (mean 2.867, gap to master 0.116); rank 512 2.8215 / 2.8093
+(mean 2.815, gap 0.064); full rank 2.7998 / 2.7864 (mean 2.793, gap 0.042). Seed spread 0.006-0.014.
+
+**Extra momenta for rare words: no.** Every split lost to a single momentum of the same memory, in every pair band:
+rank 256 + rare 256 (long memory) summed 3.0748, own flips 2.9354, held at 0.3x 2.8726 (= rank 256), same memory
+2.9657; 4 x rank 64 tiers 3.0795 / 3.1726 (rank 64 alone 3.0401). The long-memory extra momentum grows to ~4x the main one
+and its stale push degrades even the short-context statistics.
+
+**int8 momentum**: rank 128 2.9541 vs 2.9501, rank 256 2.8884 vs 2.867, rank 512 2.8346 vs 2.815: costs 0.004-0.02.
+
+**340M**: master 2.6626; ours rank 512 (half rank) 2.7246 (gap 0.062); full rank 2.736 at step 8000 vs master 2.700
+(+0.036; rank 512 was +0.071 there), finishing ~11:50.
+
+**The main finding of the night: the flip rate holds the gap.** Master's step-3000 weights continued with our rule at the
+full rate lose master's lead within 250 steps and end at 2.8091, the same as our own from-scratch run (2.8093, seed 2):
+the loss is set by the rule, not by the starting point. At 1/4 of the rate they keep master's level for ~2000 steps.
+Our own rank-512 run continued from its step 3000 at 1/4 of the rate (`own3000_q_dryspend_r512`) is ahead of its
+full-rate self by -0.063 / -0.056 / -0.052 at 5250 / 5500 / 5750 (gap to master +0.048 instead of +0.10 at the same
+step), finishing ~12:25. If it holds, a flip rate that drops in the second half of training closes a large part of the
+remaining gap.
