@@ -150,7 +150,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <div><span class="v">3.077</span><span class="l">gate + Adam step + row/column scales (2 seeds 3.0773 / 3.0699)</span></div>
     <div><span class="v">3.131</span><span class="l">rank-256 momentum + row/column scales</span></div>
   </div>
-  <p>340M: master 2.6626, ours at half rank 2.7246 (gap 0.062), full rank finishing. Master's weights continued with our rule lose master's lead within 250 steps and end where our own runs end: the flip rate, not the starting point, sets the level; a lower rate in the second half is being tested (−0.05 so far). All from scratch, no look-ahead, one seed unless noted. "Sharp" = additive rank-16 float term + its weight decay + per-head attention temperature. The lever of 29–30 Sep was the momentum's <b>memory length</b> (33 → ~200–400 steps): the gap to master fell from 0.33 to 0.07. Every formula: <code>docs/FORMULAS.md</code>.</p>
+  <p>340M: master 2.6626, ours at half rank 2.7246 (gap 0.062), full rank finishing. Master's weights continued with our rule lose master's lead within 250 steps and end where our own runs end: the rule and its schedule, not the starting point, set the level; a lower flip rate in the second half led by 0.05 mid-run but ended equal. All from scratch, no look-ahead, one seed unless noted. "Sharp" = additive rank-16 float term + its weight decay + per-head attention temperature. The lever of 29–30 Sep was the momentum's <b>memory length</b> (33 → ~200–400 steps): the gap to master fell from 0.33 to 0.07. Every formula: <code>docs/FORMULAS.md</code>.</p>
 </section>
 
 <section>

@@ -2114,3 +2114,14 @@ Our own rank-512 run continued from its step 3000 at 1/4 of the rate (`own3000_q
 full-rate self by -0.063 / -0.056 / -0.052 at 5250 / 5500 / 5750 (gap to master +0.048 instead of +0.10 at the same
 step), finishing ~12:25. If it holds, a flip rate that drops in the second half of training closes a large part of the
 remaining gap.
+
+### 1 Oct 11:50: the lower flip rate's lead does not last
+
+`own3000_q_dryspend_r512` (our rank-512 run from step 3000 at 1/4 of the rate) vs its full-rate self: -0.063 at 5250,
+-0.052 at 5750, **+0.000 at 8000**. `branch_m3000_q_dryspend_r512` (master @3000 at 1/4 rate) ended **2.8197**, the
+same as our full-rate runs (2.8215 / 2.8093) and the full-rate master branch (2.8091). A lower rate holds the state better
+for a while, but the cosine schedule anneals the full-rate run's rate too and it catches up: the end point is the same
+(as with every rate change before, 27-28 Sep). So the morning summary's "a dropping rate closes much of the gap" does
+not hold; what the branches do show stands: the final level is set by the rule and its schedule, not by the start.
+
+340M full rank: 2.6942 at step 9000 vs master's 2.6687 there (+0.026), finishing now.
