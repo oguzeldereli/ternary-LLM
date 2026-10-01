@@ -2154,8 +2154,8 @@ rank ~384 (~+0.045) and rank 128 would match ~96 (~+0.19). Measured +0.034 and +
 
 ### 1 Oct 13:30: how good is each rank? (`scripts/analysis/rank_quality.py`, run on the 4090)
 
-The lab PCs went down for the Thursday reboot at ~12:25 (their `/tmp`, with the rank-32/64/128, seed, int8, rare-momentum
-and branch checkpoints, is wiped; metrics and logs are safe). So ranks are measured by truncating the full-rank run's
+(Correction: at ~12:25 every lab PC was unreachable, which I took for the Thursday reboot; they were not rebooted
+(uptime 2.5 days at 13:25) and their checkpoints are intact. It was a network outage.) Ranks are measured by truncating the full-rank run's
 momentum (`gvsharp_dryspend_r1024_s0`) to its top-r directions per layer (an upper bound for a run trained at rank r),
 plus the trained rank-256 and rank-512 runs. True gradient = 64 held-out sequences, split halves (noise cancels); "best
 rank r" = top-r directions of the gradient itself, fitted on two quarters and scored on the other two.
@@ -2211,3 +2211,6 @@ At the same absolute rank the 340M momentum holds 3-10 points less of its gradie
 **By the gradient share, the rank needed grows roughly in proportion to width.** The loss cost grew less: rank 512's penalty
 vs full rank went +0.022 -> +0.034 (proportional would be ~+0.045), rank 64's went +0.240 -> +0.222, and the gap to
 master at rank 512 stayed 0.064 -> 0.062. Two widths; a third (a cheap narrower model) is needed before extrapolating.
+
+`own3000_q_dryspend_r512` (our rank-512 run from step 3000 at 1/4 of the flip rate) finished **2.8410**, worse than the
+full-rate runs (2.8215 / 2.8093): lowering the rate mid-run ends worse, not equal.

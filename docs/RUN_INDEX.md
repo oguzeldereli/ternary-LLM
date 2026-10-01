@@ -186,7 +186,7 @@ ones: [QUEUE.md](QUEUE.md).
 | `gvsharp_dry04spend_r1024_s0` | dry 0.04 + spend + rank 1024 | 300M | 2.8156 |
 | `rare256sum_dryspend_s0` | dry + spend, rank 256 + a rare-pattern momentum (rank 256, fed the gradient outside the main subspace, dry 0.01), summed into the flip signal (`--rare_rank 256 --rare_mode sum`) | 300M | 3.0748 |
 | `rare256w03_dryspend_s0` | rank 256 + rare rank 256 summed at 0.3x the main one's size (`--rare_weight 0.3`) | 300M | 2.8726 |
-| `own3000_q_dryspend_r512` | our rank-512 run's step-3000 checkpoint continued at 1/4 of the flip rate | running | - |
+| `own3000_q_dryspend_r512` | our rank-512 run's step-3000 checkpoint continued at 1/4 of the flip rate | 300M | 2.8410 |
 | `rk256_int8_dryspend_s0` | dry + spend, rank 256, int8 momentum | 300M | 2.8884 |
 | `tier4x64flip_dryspend_s0` / `tier4x64sum_dryspend_s0` | dry + spend, rank 64 + 3 rank-64 tiers (`--tiers 64:0.016,64:0.009,64:0.005`), own flips at 0.33x / summed | 300M | 3.0795 / 3.1726 |
 | `rare256flip_dryspend_s0` | the same, but the rare momentum proposes its own flips at 0.5x the rate (`--rare_mode flip`) | 300M | 2.9354 |
