@@ -20,6 +20,8 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 | shoveler / mandarin | `rare256sum` / `rare256flip_dryspend_s0` | rank 256 + a rare-pattern rank-256 momentum (summed / own flips) vs rank 512 (2.8215) | ~04:35 |
 | pintail | `gvsharp_dryspend_r512_seed2` | the best sublinear run (rank 512), seed 2 | ~05:10 |
 | 4090 | `big_master` | master weights at 340M | ~02:35 |
+| harlequin | `tier4x64flip_dryspend_s0` | rank 64 (dry 1/33) + three rank-64 tiers with longer memories (dry 0.016 / 0.009 / 0.005), each fed what the earlier ones miss; each tier flips on its own at 0.33x the rate (2x the flips in total). Same memory as rank 256 (2.8699) | ~05:45 |
+| mallard | `tier4x64sum_dryspend_s0` | the same, summed into one flip signal | ~05:45 |
 
 Finished: best run seed 2 2.7864 (seed 1 2.7998); dry 0.04 + spend + rank 1024 2.8156 (1/33 stays best); int8 rank 128
 2.9541 (fp32 2.9501); rank 64 + refresh 3.0434 (no gain). Prepared, not launched: `--tiers` (2 x / 4 x rank 64), only if
