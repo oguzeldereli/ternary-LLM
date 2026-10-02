@@ -2578,3 +2578,15 @@ Master, finished: leak tau 1000 **2.7298 (-0.021)**: a 1000-step memory is all m
 
 Started: rank sweep of the best setting (both ranks 256 / 128; accumulator 256 + short 512; short 256 + accumulator
 512), tau 3000, theta 24, seed 2, and the setting at 340M (4090, after `ts16full_tau1000_s0`).
+
+### 2 Oct 07:35: two `--ts` runs finish below master
+
+- **`ts16rs512tau1000_s0` 2.7328** (master 2.7513: **-0.019**; our rule at the same rank 2.8215: -0.089). Short momentum
+  rank 512 (beta 0.9), accumulator rank 512 with leak tau 1000, fire at theta 16, spend theta, steps scaled by lr_t / lr_peak.
+- **`ts16full_tau1000_s0` 2.6982** (-0.053 vs master; our full-rank rule 2.7998: -0.102). The full-precision reference
+  (`fp32_baseline`) is 2.683.
+- `ts16rs512sp2_s0` 2.8138 (spend 2 theta: worse than spend theta).
+- Rank sweep (same setting, @1750 / 1500 vs master): both ranks 256 -0.063; both 128 +0.011; accumulator 256 + short 512
+  -0.088; accumulator 512 + short 256 -0.088 (both ranks matter about equally); tau 3000 -0.118; theta 24 -0.073; seed 2
+  -0.123 (seed 1 -0.12 there). Annealed-leak variants at 3000-3250: -0.084 to -0.118 (their late phase decides).
+- Started: both ranks 64; accumulator 128 + short 512. 340M of the best setting running on the 4090 (~18:00).
