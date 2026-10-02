@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 12:20
+Last updated: 2026-10-02 13:10
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
@@ -22,6 +22,7 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 | flounder / barbel | `ts16rs512tau1000an05_seed2` / `ts16rs512la1000_seed2` | seed 2 of the rank-512 `--ts` runs (2.7067 / 2.7115) | ~16:00-17:00 |
 | harlequin / pintail / uaru | `ts16fulltau1000an05_s0` / `ts16rs512tau1000an075_s0` / `ts16r256rs256tau1000an05_s0` | annealing variants | ~13:30 |
 | skate | `ts16r128rs512tau1000_s0` | accumulator 128 + short 512 | ~14:00 |
+| albacore / elver | `ts16rs512la1000an05_s0` / `ts16r256rs256la1000an05_s0` | `--ts` ranks 512 / 256 with both late-phase fixes: leak and steps scaled by (lr ratio)^0.5. The fixed-leak runs end at a third of master's slope (0.010 vs 0.029 per 1000 steps), the scaled leak 0.020, steps x ratio^0.5 0.034 | ~18:00 |
 | 4090 | `big_ts16rs512tau1000_s0` | `--ts` 512 / 512 at 340M: -0.138 vs 340M master at 4500 | ~18:00 |
 | Myriad 36472 | `x1b_dryspend_r512_lr75` | 1.3B old rule at lr 7.5e-4 (1.3B master 2.5868) | Sat |
 

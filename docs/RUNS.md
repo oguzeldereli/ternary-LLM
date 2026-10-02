@@ -2702,3 +2702,12 @@ temperature. Alone they reach only 3.1725 (no flips), so the gains are the flips
 fair reference: `mx_extras_s0` / `_seed2` (master mode now supports `--rc_scale`, `--lowrank_mag add:R`, `--qk_temp`;
 running on tope / lamprey, ~16:30). Until then "beats master" means "beats the plain master reference". Also running:
 seed 2 of the full-rank and rank-512 headline runs (four runs), and 340M (~18:00).
+
+### 2 Oct 13:10: the `--ts` curves flatten late; why
+
+Validation drop per 1000 steps, 8000 -> 9155: master 0.029, full precision 0.028; `--ts` with a fixed leak 0.008-0.010
+(full rank and rank 512, both seeds), with the leak scaled by the lr ratio 0.020-0.021, with steps x ratio^0.5 (fixed
+leak) 0.034. The cause is the step annealing: steps shrink to 0.1x, and with a fixed leak the accumulator settles below
+theta, so flips nearly stop. The scaled leak removes that floor (slope doubles); milder step annealing keeps the slope at
+master's. Combined (leak and steps both x ratio^0.5, so the accumulator's equilibrium level stays constant):
+`ts16rs512la1000an05_s0`, `ts16r256rs256la1000an05_s0` (ranks 512 / 256; full rank left out: it is no memory saving).
