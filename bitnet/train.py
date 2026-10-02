@@ -206,7 +206,7 @@ def _q8(X):
     return (X / s + torch.rand_like(X)).floor().clamp_(-127, 127) * s
 
 
-def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False):
+def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0):
     """--ts: master's two timescales with sublinear state (the mechanism the 1 Oct master branches point to).
     Per layer:
       v      factored row x column EMA of g^2 (decay b2), v_ij ~ R_i C_j / mean(R)          (N + K floats)
@@ -215,8 +215,10 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
       A      long accumulator, rank r: A <- (1 - 1/tau) A + lr_ratio * u  (the latent's sub-threshold position;
              lr_ratio = lr_t / lr_peak, so steps shrink as the schedule decays, as master's latent steps do)
       fire   a trit moves by d = sign(A_ij) the step |A_ij| >= theta (deterministic, no rate), unless blocked at +-1
-             (optionally only where this batch's gradient agrees: gate); the move spends theta: A -= theta * D
-             (kept low-rank: U -= theta * (D V)). theta ~ half a bin in latent units over the peak lr (~16)."""
+             (optionally only where this batch's gradient agrees: gate); the move spends spend * theta:
+             A -= spend * theta * D (kept low-rank: U -= ... (D V)). spend 1 puts the weight at its new trit's centre
+             (master with --m_snap); spend 2 leaves it at the boundary it just crossed, as master's latent does.
+             theta ~ half a bin in latent units over the peak lr (~16)."""
     from .kernel import unpack_rows, pack_rows
     layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
     nf = nt = 0
@@ -260,7 +262,7 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
         D = torch.where(fire, d, torch.zeros_like(d))
         if fire.any():
             l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
-            U = U - theta * (D @ V)
+            U = U - spend * theta * (D @ V)
         state[key] = (U, V)
         nf += int(fire.sum()); nt += fire.numel()
         if before is not None:
@@ -1341,6 +1343,9 @@ def main():
                     help="two timescales (ts_step): short low-rank momentum for the direction, long low-rank accumulator "
                          "of Adam-normalized steps, a trit moves when the accumulator crosses theta (no flip rate)")
     ap.add_argument("--ts_theta", type=float, default=16.0, help="--ts: firing threshold (latent half-bin / peak lr)")
+    ap.add_argument("--ts_spend", type=float, default=1.0,
+                    help="--ts: a move spends this x theta (1: to the new trit's centre, like master --m_snap; 2: stays at "
+                         "the boundary it crossed, like master)")
     ap.add_argument("--ts_tau", type=float, default=300.0, help="--ts: the accumulator's leak time constant (steps)")
     ap.add_argument("--ts_rank_s", type=int, default=128, help="--ts: rank of the short momentum")
     ap.add_argument("--ts_b1", type=float, default=0.9, help="--ts: decay of the short momentum")
@@ -2035,7 +2040,7 @@ def main():
                 rs_info = multibeta_step(model, mb_states, mb_betas, mb_scores, args.lowrank, step, args.flip_seed)
             elif args.ts:
                 rs_info = ts_step(model, lr_state, args.lowrank, step, lr / tc.lr, args.ts_theta, args.ts_tau,
-                                  args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate)
+                                  args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate, spend=args.ts_spend)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)

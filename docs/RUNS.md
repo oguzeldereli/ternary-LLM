@@ -2477,3 +2477,39 @@ recall 40%); its momentum condition holds for 69% of moves with spend and 0.4% w
 sequential steps, held-out change: no undo -0.0049, current undo -0.0078, batch gradient alone -0.0093, gradient of 4
 batches -0.0119, oracle (16 batches) -0.0139; undoing moves of the last 4 steps hurts (+0.0024 with 4 batches). So a
 stronger undo is free: drop the momentum condition (`--undo_g`, running as `undog512_dryspend_s0`).
+
+### 2 Oct 01:40: from scratch, master needs its leftover offset and its long memory; first `--ts` numbers
+
+Master from scratch (110M, 300M tokens) with one ingredient removed, vs master 2.7513 and our rule at rank 512 2.8215:
+
+| run | final / latest | vs master | |
+|---|---|---|---|
+| `mx_snap` (Myriad): a latent whose trit changes is set to the new trit's centre | **2.8225** | **+0.071** | = our rule r512 |
+| `mx_leak300` (Myriad): the latent's offset forgets with tau 300 | **2.8479** | **+0.097** | |
+| `mx_b1997b2` (lab): beta1 0.997 (beta2 0.999) | 4.845 @1750 | +1.43 | collapses |
+| `mx_b2999` (lab): beta2 0.999 alone (control) | 3.491 @1500 | +0.011 | |
+| `mx_b1997` (lab): beta1 0.997 with beta2 0.95 | diverged @~450 | | beta1 > beta2: a confound, replaced by the two above |
+| `mx_factv` (Myriad): factored v | 3.132 @3500 | -0.001 | no effect |
+| `mx_rank512` (Myriad): first moment rank 512 | 3.374 @2000 | +0.013 | ~no effect |
+| `mx_gate` (lab): our sign gate on master's update | 3.266 @2250 | **-0.048** | helps master |
+| `mx_lag02` (4090): trits follow the latent with prob. 0.02 / step | 4.98 @1500 | +1.5 | collapses |
+
+The 500-step branches understated snap (+0.012 there) and got leak 300 backwards (-0.055 there): over a whole run
+**each alone costs master about our whole gap**, and master with snap ends exactly where our rule does (2.8225 vs
+2.8215). Our rule has neither: a flip lands the weight at its new trit's centre (no leftover offset: reversing it costs a
+full push) and the momentum's memory is 220-390 steps. The two hard failures (long beta1, rate-limited firing) are the
+two other structural differences: master's direction is a ~10-step momentum and its trits change the step the latent
+crosses.
+
+**`--ts` (our rule rebuilt this way; short rank-128 momentum, long rank-512 accumulator, fire at theta, spend theta)**,
+val at step 1750 vs master / vs our rule r512: theta 16 **-0.010 / -0.054**; theta 16 + gate -0.012 / -0.055; tau 1000
+**-0.033 / -0.076**; full-rank accumulator -0.018 / -0.062; short momentum rank 512 **-0.103 / -0.140 (@1500)**; theta 8
++0.106 / +0.062; theta 32 +0.252 / +0.209 (hardly flips). Caveats: the `--ts` runs carry our float extras (row/column
+scales, rank-16 magnitude adapter, qk temperature) that master lacks, and they flip little (theta 16: 0.017% / step,
+67% never flipped at 1850), so the end of the run decides. `--ts` spends theta per move = master's snap; master without
+snap keeps the weight at the boundary it crossed, which in `--ts` units is spend 2 theta: `ts16sp2_s0`,
+`ts16rs512sp2_s0` started, plus `ts16rs512tau1000_s0` and `mx_leak1000` (does a 1000-step memory suffice for master?).
+
+Also: `undog512_dryspend_s0` (undo on the batch gradient alone) diverged (+1.26 at 1500, 0.52% flips per step: undo and
+flip chase each other), stopped. `undo512` (current undo) +0.007 vs the rule at 5500 (neutral); `drywarm512` -0.006 at
+6250 (its early lead fades); `fast512` (saturated weights fire 10x faster) +0.019 at 1750.

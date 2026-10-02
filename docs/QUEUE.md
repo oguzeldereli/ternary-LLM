@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 00:50
+Last updated: 2026-10-02 01:45
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
@@ -28,7 +28,9 @@ long rank-512 accumulator of Adam-normalized steps, a trit moves when the accumu
 | goldeye | `ts16r1024_s0` | theta 16, full-rank accumulator | morning |
 | lamprey | `ts16rs512_s0` | theta 16, short momentum rank 512 | morning |
 | inanga | `fast512_dryspend_s0` | our recipe, saturated weights fire 10x faster (`--rate_peak 0.2 --g_ref 30`, same unsaturated chance) | morning |
-| plaice | `undog512_dryspend_s0` | recipe + undo on this batch's gradient alone (`--undo_g`; bench: -0.0093 vs -0.0078 current undo, -0.0049 none) | morning |
+| plaice | `ts16sp2_s0` | `--ts` theta 16, a move spends 2 theta (stays at the crossed boundary, like master without snap). Replaced `undog512_dryspend_s0`, which diverged (+1.26 at 1500) | ~06:30 |
+| rudd / skate | `ts16rs512tau1000_s0` / `ts16rs512sp2_s0` | `--ts` short momentum rank 512 + leak 1000 / + spend 2 | ~06:30 |
+| tope | `mx_leak1000` | master, offset forgets with tau 1000 (tau 300 cost +0.097) | ~05:30 |
 | hake | `mx_gate` | master from scratch with our sign gate | ~05:00 |
 | koi / quillback | `mx_b1997b2` / `mx_b2999` | master with beta1 0.997 + beta2 0.999 / beta2 0.999 alone (control). `mx_b1997` (beta1 0.997 > beta2 0.95) diverged at step ~450: Adam with beta1 > beta2 is unstable, a confound | ~06:00 |
 | harlequin / pintail | `undo512_dryspend_s0` / `drywarm512_dryspend_s0` | resumed after the reboot (saved at 3112 / 3691) | ~02:40 |
