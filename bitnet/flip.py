@@ -348,6 +348,12 @@ class _KernelTernFn(torch.autograd.Function):
             return gx.view(ctx.xshape).to(gy.dtype), None, None
 
         gx = _grad_x(layer, gyf, wpacked).view(ctx.xshape)
+        if layer.capture and getattr(layer, "on_grad", None) is not None:
+            # --ts_fused: the layer's update runs here, after its input gradient (gx) is computed, so this layer's
+            # trits are not needed again in this step (earlier layers recompute with their own, unchanged trits)
+            layer.on_grad(layer, gw.detach().float())
+            del gw
+            return gx.to(gy.dtype), None, None
         if layer.capture:
             layer.gw = gw.detach().float()      # diagnostics (diag_snr.py): keep grad, no flip
             if getattr(layer, "capture_stats", False):

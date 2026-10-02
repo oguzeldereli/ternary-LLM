@@ -206,7 +206,67 @@ def _q8(X):
     return (X / s + torch.rand_like(X)).floor().clamp_(-127, 127) * s
 
 
-def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0, tau_anneal=False):
+def ts_layer(l, g, state, c):
+    """one layer of --ts (see ts_step): g is this layer's gradient (fp32); c holds the settings and lr_ratio.
+    Called from ts_step after the backward, or from the layer's backward itself (--ts_fused), right after its input
+    gradient is computed, so only one layer's fp32 gradient exists at a time."""
+    from .kernel import unpack_rows, pack_rows
+    r, lr_ratio, theta, tau, b1, b2 = c["r"], c["lr_ratio"], c["theta"], c["tau"], c["b1"], c["b2"]
+    q = _q8 if c.get("int8") else (lambda X: X)
+    st = state.setdefault("_ts", {})
+    key = id(l); t = st.get(("t", key), 0) + 1; st[("t", key)] = t
+    g2 = g * g
+    if ("v", key) in st:
+        R, C = st[("v", key)]; R = b2 * R + (1 - b2) * g2.mean(1); C = b2 * C + (1 - b2) * g2.mean(0)
+    else:
+        R, C = (1 - b2) * g2.mean(1), (1 - b2) * g2.mean(0)
+    st[("v", key)] = (R, C)
+    v = R[:, None] * C[None, :] / R.mean().clamp_min(1e-30) / (1 - b2 ** t)
+    del g2
+    rs = min(c["rank_s"], l.N, l.K)
+    if ("m", key) not in st:
+        gen = torch.Generator(device=g.device).manual_seed(4_000_000 + 2 * getattr(l, "_ts_idx", 0))
+        Vm = torch.linalg.qr(g.T @ torch.randn(l.N, rs, device=g.device, generator=gen))[0]
+        Um = (1 - b1) * g @ Vm
+    else:
+        Um, Vm = st[("m", key)]
+        Vn = torch.linalg.qr(b1 * Vm @ (Um.T @ Um) + (1 - b1) * g.T @ Um)[0]
+        Um = b1 * Um @ (Vm.T @ Vn) + (1 - b1) * g @ Vn; Vm = Vn
+    st[("m", key)] = (q(Um), q(Vm))           # --ts_int8: both matrices on an int8 grid (per-column absmax)
+    u = -(Um @ Vm.T) / (1 - b1 ** t) / (v.sqrt() + 1e-8) * lr_ratio
+    del v
+    ra = min(r, l.N, l.K)
+    if key not in state:
+        gen = torch.Generator(device=g.device).manual_seed(4_000_001 + 2 * getattr(l, "_ts_idx", 0))
+        V = torch.linalg.qr(u.T @ torch.randn(l.N, ra, device=g.device, generator=gen))[0]
+        U = u @ V
+    else:
+        U, V = state[key]
+        U = U * (1 - (lr_ratio if c["tau_anneal"] else 1.0) / tau)   # --ts_tau_anneal: memory in distance, not steps
+        Vn = torch.linalg.qr(V @ (U.T @ U) + u.T @ U)[0]
+        U = U @ (V.T @ Vn) + u @ Vn; V = Vn
+    del u
+    A = U @ V.T
+    w0 = unpack_rows(l.wpacked, l.K).to(torch.int8)
+    d = A.sign()
+    fire = (A.abs() >= theta) & ((w0.float() + d).abs() <= 1)
+    del A
+    if c["gate"]:
+        fire &= (d == -g.sign())
+    before = l.wpacked.clone() if l.track else None
+    D = torch.where(fire, d, torch.zeros_like(d))
+    nf = int(fire.sum())
+    if nf:
+        l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
+        U = U - c["spend"] * theta * (D @ V)
+    state[key] = (q(U), q(V))
+    st["_nf"] = st.get("_nf", 0) + nf; st["_nt"] = st.get("_nt", 0) + fire.numel()
+    if before is not None:
+        l._record_flips(before, l.wpacked)
+
+
+def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0,
+            tau_anneal=False, int8=False, fused=False):
     """--ts: master's two timescales with sublinear state (the mechanism the 1 Oct master branches point to).
     Per layer:
       v      factored row x column EMA of g^2 (decay b2), v_ij ~ R_i C_j / mean(R)          (N + K floats)
@@ -219,55 +279,16 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
              A -= spend * theta * D (kept low-rank: U -= ... (D V)). spend 1 puts the weight at its new trit's centre
              (master with --m_snap); spend 2 leaves it at the boundary it just crossed, as master's latent does.
              theta ~ half a bin in latent units over the peak lr (~16)."""
-    from .kernel import unpack_rows, pack_rows
-    layers = [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]
-    nf = nt = 0
+    c = dict(r=r, lr_ratio=lr_ratio, theta=theta, tau=tau, rank_s=rank_s, b1=b1, b2=b2, gate=gate, spend=spend,
+             tau_anneal=tau_anneal, int8=int8)
     st = state.setdefault("_ts", {})
-    for i, l in enumerate(layers):
-        g = l.gw.float(); l.gw = None; l.capture = False
-        key = id(l); t = st.get(("t", key), 0) + 1; st[("t", key)] = t
-        g2 = g * g
-        if ("v", key) in st:
-            R, C = st[("v", key)]; R = b2 * R + (1 - b2) * g2.mean(1); C = b2 * C + (1 - b2) * g2.mean(0)
-        else:
-            R, C = (1 - b2) * g2.mean(1), (1 - b2) * g2.mean(0)
-        st[("v", key)] = (R, C)
-        v = R[:, None] * C[None, :] / R.mean().clamp_min(1e-30) / (1 - b2 ** t)
-        rs = min(rank_s, l.N, l.K)
-        if ("m", key) not in st:
-            Vm = torch.linalg.qr(g.T @ torch.randn(l.N, rs, device=g.device))[0]
-            Um = (1 - b1) * g @ Vm
-        else:
-            Um, Vm = st[("m", key)]
-            Vn = torch.linalg.qr(b1 * Vm @ (Um.T @ Um) + (1 - b1) * g.T @ Um)[0]
-            Um = b1 * Um @ (Vm.T @ Vn) + (1 - b1) * g @ Vn; Vm = Vn
-        st[("m", key)] = (Um, Vm)
-        u = -(Um @ Vm.T) / (1 - b1 ** t) / (v.sqrt() + 1e-8) * lr_ratio
-        ra = min(r, l.N, l.K)
-        if key not in state:
-            V = torch.linalg.qr(u.T @ torch.randn(l.N, ra, device=g.device))[0]
-            U = u @ V
-        else:
-            U, V = state[key]
-            U = U * (1 - (lr_ratio if tau_anneal else 1.0) / tau)   # --ts_tau_anneal: memory in distance, not steps
-            Vn = torch.linalg.qr(V @ (U.T @ U) + u.T @ U)[0]
-            U = U @ (V.T @ Vn) + u @ Vn; V = Vn
-        A = U @ V.T
-        w0 = unpack_rows(l.wpacked, l.K).to(torch.int8)
-        d = A.sign()
-        fire = (A.abs() >= theta) & ((w0.float() + d).abs() <= 1)
-        if gate:
-            fire &= (d == -g.sign())
-        before = l.wpacked.clone() if l.track else None
-        D = torch.where(fire, d, torch.zeros_like(d))
-        if fire.any():
-            l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
-            U = U - spend * theta * (D @ V)
-        state[key] = (U, V)
-        nf += int(fire.sum()); nt += fire.numel()
-        if before is not None:
-            l._record_flips(before, l.wpacked)
-        del g, g2, v, u, A, w0, d, fire, D
+    if not fused:
+        for i, l in enumerate([l for l in model.modules() if isinstance(l, KernelTernaryLinear)]):
+            l._ts_idx = i
+            g = l.gw.float(); l.gw = None; l.capture = False
+            ts_layer(l, g, state, c)
+            del g
+    nf, nt = st.pop("_nf", 0), st.pop("_nt", 0)
     return {"ts_frac": nf / max(nt, 1)}
 
 
@@ -1346,6 +1367,11 @@ def main():
     ap.add_argument("--ts_spend", type=float, default=1.0,
                     help="--ts: a move spends this x theta (1: to the new trit's centre, like master --m_snap; 2: stays at "
                          "the boundary it crossed, like master)")
+    ap.add_argument("--ts_int8", action="store_true",
+                    help="--ts: both low-rank matrices (short momentum and accumulator) kept on an int8 grid (per column)")
+    ap.add_argument("--ts_fused", action="store_true",
+                    help="--ts: each layer's update runs inside the backward, right after the layer's input gradient, so "
+                         "the fp32 gradient of only one layer exists at a time (saves N*K*4 bytes over all layers)")
     ap.add_argument("--ts_anneal", type=float, default=1.0,
                     help="--ts: the accumulator's steps scale with (lr_t / lr_peak)^P (1: like master's latent; 0.5 milder)")
     ap.add_argument("--ts_tau_anneal", action="store_true",
@@ -1934,6 +1960,16 @@ def main():
         mwin.open(model, lr_state, start_step - 1)
     ttrack = TritTracker(model) if (args.mode == "master" and args.track_flips) else None
     _snap_state = {}                      # --m_snap: each master layer's trits after the last step
+    ts_cfg = None
+    if args.ts and args.ts_fused:         # --ts_fused: each layer's update inside its backward (ts_layer)
+        assert tc.grad_accum == 1, "--ts_fused needs grad_accum 1 (the update uses one step's whole gradient)"
+        ts_cfg = dict(r=args.lowrank, lr_ratio=1.0, theta=args.ts_theta, tau=args.ts_tau, rank_s=args.ts_rank_s,
+                      b1=args.ts_b1, b2=args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
+                      tau_anneal=args.ts_tau_anneal, int8=args.ts_int8)
+        for i_, m_ in enumerate([m_ for m_ in model.modules() if isinstance(m_, KernelTernaryLinear)]):
+            m_._ts_idx = i_
+            m_.on_grad = lambda layer, g, _c=ts_cfg: ts_layer(layer, g, lr_state, _c)
+        print("--ts_fused: the update runs inside each layer's backward", flush=True)
     for step in range(start_step, end_step):
         if args.profile and step == start_step + 20:         # after autotune / warm-up
             from torch.profiler import profile, ProfilerActivity
@@ -1975,6 +2011,8 @@ def main():
         if args.flip_lockout > 0 and step % args.flip_lockout == 0:
             reset_lockout(model)
         lr = lr_at(step, tc)
+        if ts_cfg is not None:
+            ts_cfg["lr_ratio"] = (lr / tc.lr) ** args.ts_anneal
         rate_now = args.rate
         if args.rate_schedule != "const":
             prog = min(1.0, step / max(1, tc.max_steps))
@@ -2059,7 +2097,7 @@ def main():
             elif args.ts:
                 rs_info = ts_step(model, lr_state, args.lowrank, step, (lr / tc.lr) ** args.ts_anneal, args.ts_theta, args.ts_tau,
                                   args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
-                                  tau_anneal=args.ts_tau_anneal)
+                                  tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, fused=args.ts_fused)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)

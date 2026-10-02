@@ -2737,3 +2737,16 @@ freed per layer if the momentum step ran inside the backward), activations of 32
 queued) measures time and memory per phase (step timer now prints allocated / peak GiB) and the top GPU kernels for
 master, the old rule and `--ts` at 1.3B on one A100: why our step is 9.2 s vs master's 4.7 s (on the 4090 at 340M our
 forward+backward was only 10% slower than master's; the update 0.49 s).
+
+### 2 Oct 13:50: fused update and int8 for `--ts`
+
+`--ts_fused` runs each layer's `--ts` update inside its backward (after the layer's input gradient), so only one layer's
+fp32 gradient exists at a time; `--ts_int8` keeps both low-rank matrices on a per-column int8 grid (simulated, as
+`--mom_int8`). 200-step test at 110M (plaice, ranks 512, both late fixes): plain 5.6813, fused 5.6781 (same math; the
+state is seeded per layer so the visit order does not matter), fused + int8 5.6994. Same step time (2.0 s). **Peak memory
+unchanged at 110M (7.68 GiB)**: the peak is set by activations early in the backward, before the gradient copies pile
+up, so fusing frees memory only late in the backward; the 1.3B profile shows whether the same holds there. Full runs:
+`ts16rs512la1000an05int8_s0`, `ts16r256rs256la1000an05int8_s0` (fp32 twins on albacore / elver).
+
+Fair-reference progress: master + our float extras (`mx_extras_s0` / `_seed2`) is -0.042 / -0.060 vs plain master at
+1750: the extras help master by ~0.05, so `--ts` vs the fair reference will be closer than vs plain master.
