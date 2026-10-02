@@ -6,14 +6,26 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 23:25
+Last updated: 2026-10-02 23:50
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (2 Oct, 23:25)
+## Now (2 Oct, 23:50): three more storage runs
+
+Same `--ts` ranks 512 recipe (fp32 twin 2.7067), started 23:40, ETA ~04:30:
+
+| machine | run | storage | compare with |
+|---|---|---|---|
+| 4090 | `qfp16s_s0` | fp16 with a per-column scale (column absmax to 2^15) everywhere, `--ts_qfmt fp16s` | `qfp16_s0` (+0.012 at 8000): is the fp16 cost underflow? |
+| harlequin | `qm8a16v8_s0` | direction int8, accumulator U fp16 and V int8 (`--ts_qfmt_aV int8`) | `qm8a16_s0` (+0.002): 1.11 instead of 1.27 bytes per parameter at 27B |
+| pintail | `qm8a8det_s0` | direction int8, accumulator int8 rounded to nearest | `q8all_s0` (+0.023), `q8det_s0` (+0.017): the all-8-bit 0.94 bytes per parameter |
+
+Finished since 23:25: `q8a_s0` 2.7184 (+0.012), `q8noV_s0` 2.7157 (+0.009).
+
+## Earlier (2 Oct, 23:25)
 
 Storage-format runs (`--ts` ranks 512, fp32 twin 2.7067; the fp32 rerun with diagnostics is -0.001, so noise is about
 +-0.005), gap to the fp32 twin at step 8000 (7750 where marked):

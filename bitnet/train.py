@@ -210,6 +210,8 @@ def _qfmt(name):
         return lambda X: (X / (s := X.abs().amax(1, keepdim=True).clamp_min(1e-30) / 127) + torch.rand_like(X)).floor().clamp_(-127, 127) * s
     if name == "bf16": return lambda X: X.to(torch.bfloat16).float()                  # 8 exp, 7 mantissa bits
     if name == "fp16": return lambda X: X.to(torch.float16).float()                   # 5 exp, 10 mantissa bits
+    if name == "fp16s":                                       # fp16 with a per-column scale (column absmax -> 2^15)
+        return lambda X: (X / (s := X.abs().amax(0, keepdim=True).clamp_min(1e-30) / 32768)).to(torch.float16).float() * s
     if name == "fp8":                                                                 # e4m3 with a per-column scale
         return lambda X: (X / (s := X.abs().amax(0, keepdim=True).clamp_min(1e-30) / 448)).to(torch.float8_e4m3fn).float() * s
     raise ValueError(name)
@@ -256,6 +258,7 @@ def ts_layer(l, g, state, c):
     if c.get("qfmt_m"): qm = _qfmt(c["qfmt_m"]) or ident                               # --ts_qfmt_m: own format
     if c.get("qfmt_a"): qa = _qfmt(c["qfmt_a"]) or ident                               # --ts_qfmt_a: own format
     qVm, qV = (ident, ident) if c.get("qnoV") else (qm, qa)                             # --ts_qnoV: bases kept fp32
+    if c.get("qfmt_aV"): qV = _qfmt(c["qfmt_aV"]) or ident                             # --ts_qfmt_aV: accumulator's V
     st = state.setdefault("_ts", {})
     key = id(l); t = st.get(("t", key), 0) + 1; st[("t", key)] = t
     g2 = g * g
@@ -331,7 +334,7 @@ def _qdiag(st, key, which, U, V, t):
 
 def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0,
             tau_anneal=False, int8=False, fused=False, qfmt="", qwhich="all", qnoV=False, qdiag=False,
-            qfmt_m="", qfmt_a=""):
+            qfmt_m="", qfmt_a="", qfmt_aV=""):
     """--ts: master's two timescales with sublinear state (the mechanism the 1 Oct master branches point to).
     Per layer:
       v      factored row x column EMA of g^2 (decay b2), v_ij ~ R_i C_j / mean(R)          (N + K floats)
@@ -346,7 +349,7 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
              theta ~ half a bin in latent units over the peak lr (~16)."""
     c = dict(r=r, lr_ratio=lr_ratio, theta=theta, tau=tau, rank_s=rank_s, b1=b1, b2=b2, gate=gate, spend=spend,
              tau_anneal=tau_anneal, int8=int8, qfmt=qfmt, qwhich=qwhich, qnoV=qnoV, qdiag=qdiag,
-             qfmt_m=qfmt_m, qfmt_a=qfmt_a)
+             qfmt_m=qfmt_m, qfmt_a=qfmt_a, qfmt_aV=qfmt_aV)
     st = state.setdefault("_ts", {})
     if not fused:
         for i, l in enumerate([l for l in model.modules() if isinstance(l, KernelTernaryLinear)]):
@@ -1442,9 +1445,10 @@ def main():
     ap.add_argument("--ts_orth", default="qr", choices=["qr", "chol"],
                     help="--ts: subspace orthonormalisation by Householder QR or two-pass Cholesky-QR (faster)")
     ap.add_argument("--ts_qfmt", default="", help="--ts: storage format of the low-rank matrices: int8 | int8det | "
-                    "int8row | bf16 | fp16 | fp8 (simulated; --ts_int8 = int8)")
+                    "int8row | bf16 | fp16 | fp16s (per-column scale) | fp8 (simulated; --ts_int8 = int8)")
     ap.add_argument("--ts_qfmt_m", default="", help="--ts: storage format of the short momentum (direction) alone")
     ap.add_argument("--ts_qfmt_a", default="", help="--ts: storage format of the accumulator alone")
+    ap.add_argument("--ts_qfmt_aV", default="", help="--ts: storage format of the accumulator's basis V alone")
     ap.add_argument("--ts_qwhich", default="all", choices=["all", "m", "a"],
                     help="--ts_qfmt applies to both matrices / the short momentum only / the accumulator only")
     ap.add_argument("--ts_qnoV", action="store_true", help="--ts_qfmt: keep the orthonormal bases V in fp32")
@@ -2066,7 +2070,7 @@ def main():
         ts_cfg = dict(r=args.lowrank, lr_ratio=1.0, theta=args.ts_theta, tau=args.ts_tau, rank_s=args.ts_rank_s,
                       b1=args.ts_b1, b2=args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
                       tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, qfmt=args.ts_qfmt, qwhich=args.ts_qwhich,
-                      qnoV=args.ts_qnoV, qdiag=False, qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a)
+                      qnoV=args.ts_qnoV, qdiag=False, qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a, qfmt_aV=args.ts_qfmt_aV)
         for i_, m_ in enumerate([m_ for m_ in model.modules() if isinstance(m_, KernelTernaryLinear)]):
             m_._ts_idx = i_
             m_.on_grad = lambda layer, g, _c=ts_cfg: ts_layer(layer, g, lr_state, _c)
@@ -2206,7 +2210,7 @@ def main():
                                   tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, fused=args.ts_fused,
                                   qfmt=args.ts_qfmt, qwhich=args.ts_qwhich, qnoV=args.ts_qnoV,
                                   qdiag=bool(args.ts_qdiag) and step % args.ts_qdiag in (0, 1),
-                                  qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a)
+                                  qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a, qfmt_aV=args.ts_qfmt_aV)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
