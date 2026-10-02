@@ -1346,6 +1346,8 @@ def main():
     ap.add_argument("--ts_spend", type=float, default=1.0,
                     help="--ts: a move spends this x theta (1: to the new trit's centre, like master --m_snap; 2: stays at "
                          "the boundary it crossed, like master)")
+    ap.add_argument("--ts_anneal", type=float, default=1.0,
+                    help="--ts: the accumulator's steps scale with (lr_t / lr_peak)^P (1: like master's latent; 0.5 milder)")
     ap.add_argument("--ts_tau", type=float, default=300.0, help="--ts: the accumulator's leak time constant (steps)")
     ap.add_argument("--ts_rank_s", type=int, default=128, help="--ts: rank of the short momentum")
     ap.add_argument("--ts_b1", type=float, default=0.9, help="--ts: decay of the short momentum")
@@ -2039,7 +2041,7 @@ def main():
             elif args.multibeta:
                 rs_info = multibeta_step(model, mb_states, mb_betas, mb_scores, args.lowrank, step, args.flip_seed)
             elif args.ts:
-                rs_info = ts_step(model, lr_state, args.lowrank, step, lr / tc.lr, args.ts_theta, args.ts_tau,
+                rs_info = ts_step(model, lr_state, args.lowrank, step, (lr / tc.lr) ** args.ts_anneal, args.ts_theta, args.ts_tau,
                                   args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate, spend=args.ts_spend)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,

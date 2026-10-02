@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 02:40
+Last updated: 2026-10-02 03:45
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
@@ -21,7 +21,7 @@ long rank-512 accumulator of Adam-normalized steps, a trit moves when the accumu
 
 | machine | run | what | expected |
 |---|---|---|---|
-| 4090 | `mx_lag02` | master from scratch, trits follow the latent with prob. 0.02 / step: val 4.98 at 1500 (master 3.49) | ~02:45 |
+| 4090 | `ts16full_tau1000_s0` | `--ts`, all full rank (accumulator and short momentum), tau 1000. `mx_lag02` finished 3.5214 (+0.77) | ~07:00 |
 | albacore / barbel / dory | `ts16_s0` / `ts8_s0` / `ts32_s0` | `--ts`, theta 16 / 8 / 32 | morning |
 | elver | `ts16gate_s0` | theta 16 + sign gate | morning |
 | flounder | `ts16tau1000_s0` | theta 16, accumulator leak 1000 steps | morning |
@@ -34,7 +34,7 @@ long rank-512 accumulator of Adam-normalized steps, a trit moves when the accumu
 | tope | `mx_leak1000` | master, offset forgets with tau 1000 (tau 300 cost +0.097) | ~05:30 |
 | hake | `mx_gate` | master from scratch with our sign gate | ~05:00 |
 | koi / quillback | `mx_b1997b2` / `mx_b2999` | master with beta1 0.997 + beta2 0.999 / beta2 0.999 alone (control). `mx_b1997` (beta1 0.997 > beta2 0.95) diverged at step ~450: Adam with beta1 > beta2 is unstable, a confound | ~06:00 |
-| harlequin / pintail | `undo512_dryspend_s0` / `drywarm512_dryspend_s0` | resumed after the reboot (saved at 3112 / 3691) | ~02:40 |
+| harlequin / pintail | `ts16rs1024tau1000_s0` / `ts16rs512tau1000an05_s0` | `--ts` full-rank short momentum + tau 1000 / short rank 512 + tau 1000 + milder annealing (the `--ts` leads fade as flips get rare late). Finished before: `undo512` 2.8360, `drywarm512` 2.8199 | ~08:30 |
 | Myriad | `mx_leak300` (running), `mx_snap`, `mx_factv`, `mx_rank512`, `ours_vfull_r1024`, `x1b_dryspend_r512_lr75` (queued); `x1b_master_lr75` running | | |
 
 ## Earlier (1 Oct, 21:30): what master has that we lack

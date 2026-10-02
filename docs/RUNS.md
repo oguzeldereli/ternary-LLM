@@ -2524,3 +2524,12 @@ started to measure what the float extras learn alone. Recipe tweaks are dead end
 `drywarm512` -0.002 vs the rule late in the run. Master: gate -0.029 @4500 (narrowing), leak 1000 -0.013 @2000, beta2
 0.999 +0.018 @3750, beta1 0.997 +0.96 @4000, rate-limited firing +0.79 @8750; factored v -0.001 @8000, rank 512 +0.017
 @5000.
+
+### 2 Oct 03:35
+
+Finished: `undo512` 2.8360 (+0.015 vs the rule), `drywarm512` 2.8199 (-0.002), `mx_lag02` 3.5214 (+0.77 vs master),
+`mx_factv` 2.7513 (= master). `tsnoflip_s0` (no flips, float extras only) +0.398 vs master at 1500: the `--ts` gains are
+the flips. `--ts` vs master at 5000-5250: short momentum rank 512 **-0.075** (from -0.10 early), tau 1000 +0.012,
+theta 16 +0.069: every `--ts` lead fades as the schedule decays, since the accumulator's steps shrink with lr_t / lr_peak
+and flips get very rare (theta 16: 0.005% / step). Started: `ts16rs1024tau1000_s0` (full-rank short momentum),
+`ts16rs512tau1000an05_s0` (milder annealing, (lr_t / lr_peak)^0.5), `ts16full_tau1000_s0` (4090, all full rank).
