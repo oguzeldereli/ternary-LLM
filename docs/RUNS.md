@@ -2513,3 +2513,14 @@ snap keeps the weight at the boundary it crossed, which in `--ts` units is spend
 Also: `undog512_dryspend_s0` (undo on the batch gradient alone) diverged (+1.26 at 1500, 0.52% flips per step: undo and
 flip chase each other), stopped. `undo512` (current undo) +0.007 vs the rule at 5500 (neutral); `drywarm512` -0.006 at
 6250 (its early lead fades); `fast512` (saturated weights fire 10x faster) +0.019 at 1750.
+
+### 2 Oct 02:35
+
+`--ts` vs master / vs our rule r512 at step 3500 (3250): theta 16 +0.016 / -0.055 (its early lead over master fades);
+tau 1000 -0.009 / -0.080; full-rank accumulator (3250) +0.002 / -0.072; short momentum rank 512 (3250) **-0.091 /
+-0.165, holding**; spend 2 (1500) -0.007 / -0.044; rank-512 short + tau 1000 (1250) -0.124 / -0.180. They flip very
+little (theta 16: 0.005% / step at 3600, 58% never flipped), so `tsnoflip_s0` (theta 1e9: same setup, no flips) was
+started to measure what the float extras learn alone. Recipe tweaks are dead ends: `fast512` +0.009, `undo512` +0.010,
+`drywarm512` -0.002 vs the rule late in the run. Master: gate -0.029 @4500 (narrowing), leak 1000 -0.013 @2000, beta2
+0.999 +0.018 @3750, beta1 0.997 +0.96 @4000, rate-limited firing +0.79 @8750; factored v -0.001 @8000, rank 512 +0.017
+@5000.
