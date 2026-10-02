@@ -137,23 +137,20 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <section>
   <span class="eyebrow">Validation loss at 300M tokens (lower is better; perplexity = e^loss)</span>
   <div class="score">
-    <div class="best"><span class="v">2.675</span><span class="l"><b>ours, two-timescale rule (--ts), full rank</b>: short momentum + 1000-step accumulator + fire at a threshold (ppl 14.5; 2 Oct, one seed)</span></div>
+    <div class="best"><span class="v">2.670</span><span class="l"><b>ours, two-timescale threshold flips (TTF / --ts), full rank</b>, leak scaled with the lr (2 seeds 2.6746 / 2.6645; ppl 14.4)</span></div>
     <div class="ref"><span class="v">2.683</span><span class="l">full precision fp32 + AdamW (ppl 14.6)</span></div>
+    <div class="best"><span class="v">2.702</span><span class="l"><b>ours, TTF ranks 512</b>, steps × (lr ratio)^0.5 (2 seeds 2.7067 / 2.6978; ppl 14.9): <b>−0.028 vs the fair master</b></span></div>
+    <div class="ref"><span class="v">2.730</span><span class="l"><b>fair reference</b>: master weights + the same float extras as our runs (scales, additive rank-16 adapter, head temperature; 2 seeds 2.7321 / 2.7279)</span></div>
     <div class="ref"><span class="v">2.751</span><span class="l">master weights: ternary forward, fp32 latent copy + AdamW (ppl 15.7)</span></div>
-    <div class="best"><span class="v">2.707</span><span class="l"><b>ours, --ts, both ranks 512</b> (ppl 15.0; 2.7115 / 2.7191 for other settings and seeds)</span></div>
-    <div><span class="v">2.814</span><span class="l">ours, --ts, both ranks 256 (128: 2.909, 64: 3.018)</span></div>
-    <div class="best"><span class="v">2.793</span><span class="l"><b>ours, full-rank momentum: dry friction + spend</b> (2 seeds 2.7998 / 2.7864; ppl 16.3, gap 0.042)</span></div>
-    <div class="best"><span class="v">2.815</span><span class="l"><b>ours, rank 512: dry friction + spend</b> (2 seeds 2.8215 / 2.8093; ppl 16.7, gap 0.064)</span></div>
-    <div><span class="v">2.867</span><span class="l">ours, rank 256 (clearly below a full momentum's size at 110M; 2 seeds 2.8699 / 2.8639)</span></div>
-    <div><span class="v">2.834</span><span class="l">long memory (decay 0.995) + rank 512</span></div>
-    <div><span class="v">2.870</span><span class="l">long memory (dry friction) + spend, rank 256</span></div>
-    <div><span class="v">2.878</span><span class="l">long memory (decay 0.995), rank 256</span></div>
+    <div><span class="v">2.783</span><span class="l">ours, TTF ranks 256, steps × ratio^0.5 (128: 2.909, 64: 3.018 with the older annealing)</span></div>
+    <div><span class="v">2.793</span><span class="l">old rule, full-rank momentum: dry friction + spend (2 seeds 2.7998 / 2.7864)</span></div>
+    <div><span class="v">2.815</span><span class="l">old rule, rank 512: dry friction + spend (2 seeds 2.8215 / 2.8093)</span></div>
+    <div><span class="v">2.867</span><span class="l">old rule, rank 256 (2 seeds 2.8699 / 2.8639)</span></div>
     <div><span class="v">2.9875</span><span class="l">gate + Adam step + sharp, short memory (decay 0.97): the base of 29–30 Sep</span></div>
     <div><span class="v">2.9925</span><span class="l">look-ahead + sharp (3 passes per step)</span></div>
-    <div><span class="v">3.077</span><span class="l">gate + Adam step + row/column scales (2 seeds 3.0773 / 3.0699)</span></div>
     <div><span class="v">3.131</span><span class="l">rank-256 momentum + row/column scales</span></div>
   </div>
-  <p><b>2 Oct:</b> master trained with one ingredient removed showed what it needs: a short momentum (beta1 0.997 instead of 0.9: +0.49), an integrator with a ~1000-step memory (300 steps: +0.097; master without its leftover offset after a crossing lands exactly on our old rule, +0.071) and immediate firing (trits that follow the latent at a rate: +0.77); rank and factored normalization do not matter (+0.02 / 0.00). The rule rebuilt that way (<code>--ts</code>) beats plain master; master given the same float extras as our runs (scales, additive rank-16 adapter, head temperature) is the fair reference and is running. 340M --ts: -0.14 vs 340M master at 4500 (running). Before: 340M master 2.6626, ours at half rank 2.7246 (gap 0.062), full rank 2.6905. Master's weights continued with our rule lose master's lead within 250 steps and end where our own runs end: the rule and its schedule, not the starting point, set the level; a lower flip rate in the second half led by 0.05 mid-run but ended equal. All from scratch, no look-ahead, one seed unless noted. "Sharp" = additive rank-16 float term + its weight decay + per-head attention temperature. The lever of 29–30 Sep was the momentum's <b>memory length</b> (33 → ~200–400 steps): the gap to master fell from 0.33 to 0.07. Every formula: <code>docs/FORMULAS.md</code>.</p>
+  <p><b>2 Oct:</b> master trained with one ingredient removed showed what it needs: a short momentum (beta1 0.997 instead of 0.9: +0.49), an integrator with a ~1000-step memory (300 steps: +0.097; master without its leftover offset after a crossing lands exactly on our old rule, +0.071) and immediate firing (trits that follow the latent at a rate: +0.77); rank and factored normalization do not matter (+0.02 / 0.00). The rule rebuilt that way (<b>two-timescale threshold flips, TTF</b>: short low-rank momentum → Adam step → long low-rank accumulator → flip when it crosses a threshold) beats master even when master gets our float extras. <b>340M</b>: TTF ranks 512 <b>2.6268</b> vs 340M master 2.6626 (−0.036) and our old rule 2.7246. <b>1.3B</b> (Myriad): master 2.5868; TTF at step 1500 is +0.011 behind it, where the old rule was +0.93 at step 1000 (still running). In bits per byte (3.58 bytes per token): 110M master 1.108, TTF 512 1.088, 340M TTF 1.058. Open: int8 storage of the TTF state costs ~0.03 (ablation running), the rank needed at large width, and the late flattening of the curves (steps annealed with the lr: milder annealing keeps master's late slope). Memory: at 27B, ranks 1024 in int8 is ~0.94 bytes per parameter for weights + optimizer state (master 16). Every formula: <code>docs/FORMULAS.md</code>.</p>
 </section>
 
 <section>
@@ -161,10 +158,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>tope / lamprey</td><td class="mono">mx_extras_s0 / _seed2</td><td>fair reference: master + the same float extras as our runs</td><td class="num">~16:30</td></tr>
-    <tr><td>dory / goldeye / flounder / barbel</td><td class="mono">ts16full*_seed2, ts16rs512*_seed2</td><td>seed 2 of the four headline --ts runs</td><td class="num">~16:00–17:00</td></tr>
-    <tr><td>4090</td><td class="mono">big_ts16rs512tau1000_s0</td><td>--ts at 340M, both ranks 512</td><td class="num">~18:00</td></tr>
-    <tr><td>Myriad</td><td class="mono">x1b_dryspend_r512_lr75</td><td>1.3B, old rule at lr 7.5e-4 (1.3B master 2.5868)</td><td class="num">Sat</td></tr>
+    <tr><td>10 lab121 PCs</td><td class="mono">q8all, q8m, q8a, q8noV, q8det, q8row, qbf16, qfp16, qfp8, qdiag_fp32</td><td>why int8 storage of the TTF state costs ~0.03: which matrix, which rounding, which format (bf16 / fp16 / fp8), and diagnostics of the stored numbers (crest factor, sub-resolution updates, dynamic range)</td><td class="num">~23:45</td></tr>
+    <tr><td>Myriad</td><td class="mono">x1b_ts512_la1000an05</td><td>1.3B, TTF ranks 512 (on master's curve at step 1500)</td><td class="num">Sat ~14:45</td></tr>
+    <tr><td>Myriad</td><td class="mono">x1b_dryspend_r512_lr75</td><td>1.3B, old rule (+0.19 vs 1.3B master at 6000)</td><td class="num">Sat ~01:20</td></tr>
+    <tr><td>Myriad</td><td class="mono">prof1b_master / old / ts</td><td>why 1.3B steps are slow on the A100s: time and memory per phase, top kernels</td><td class="num">queued</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
@@ -172,7 +169,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <section>
   <span class="eyebrow">What we asked and what each answer led to</span>
   <h2>The story so far</h2>
-  <div class="diagram"><div class="threads" style="grid-template-columns:repeat(6,minmax(230px,1fr))">
+  <div class="diagram"><div class="threads" style="grid-template-columns:repeat(7,minmax(230px,1fr))">
     <div class="thread"><h3>1 · Momentum fixes</h3><div class="chain">
       <div class="node">Momentum is noise-level (|M|/|g| ≈ 4.1); its flips are ~50% right</div><div class="down">↓</div>
       <div class="node good">20M screens: additive magnitude −0.052, sign gate −0.026</div><div class="down">↓</div>
@@ -240,7 +237,9 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node lead"><b>Master with one ingredient removed</b>: rank 512 / factored v / frozen scale: no effect. Snap (no leftover offset) +0.071 = our rule; offset forgets in 300 steps +0.097 (1000: fine); long first moment +0.49; firing at a rate +0.77</div><div class="down">↓</div>
       <div class="node">So master = a short momentum for the direction + a long per-weight integrator + a change the moment it crosses; our rule had one long momentum and fired at a rate</div><div class="down">↓</div>
       <div class="node good"><b>--ts</b>: short low-rank momentum (beta 0.9) → Adam step → long low-rank accumulator (leak ~1000 steps, steps × lr ratio) → flip at |A| ≥ 16, spend 16. Full rank <b>2.6746</b>, ranks 512 <b>2.7067</b> (master 2.7513)</div><div class="down">↓</div>
-      <div class="node">Short momentum rank matters (128 → 512: 2.856 → 2.733); ranks 256: 2.814, 128: 2.909; the lead fades in the cosine tail unless the annealing is milder</div>
+      <div class="node">Short momentum rank matters (128 → 512: 2.856 → 2.733); ranks 256: 2.78, 128: 2.909; the lead fades in the cosine tail unless the annealing is milder (√ ratio: master's late slope)</div><div class="down">↓</div>
+      <div class="node good"><b>Fair check</b>: master + our float extras 2.730 (2 seeds); TTF 512 2.702 (2 seeds), full rank 2.670 (2 seeds). 340M TTF 2.6268 vs master 2.6626</div><div class="down">↓</div>
+      <div class="node lead">int8 storage of the TTF state costs ~0.03: likely the accumulator's tiny per-step changes (~1/1000) under the int8 step; testing formats</div>
     </div></div>
   </div></div>
 </section>
