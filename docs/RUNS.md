@@ -2729,7 +2729,7 @@ finished 110M / 340M old-rule runs with the same window: the straight line overe
 +0.062). With the later window (3000-4250) the line gives 2.732 -> ~2.68 (+0.09), so the range is 2.62-2.68; the early
 lag at 1.3B is large but closing fast (gap +0.93 / +0.36 / +0.24 / +0.21 at 1000 / 2000 / 3000 / 4000).
 
-**Memory at 1.3B (measured peak 22.9 GiB, old rule).** Persistent: packed trits 0.29 GiB, float tail + scales + rank-16
+**Memory at 1.3B (measured peak 22.9 GiB, old rule).** Persistent: packed trits 0.23 GiB (1.6 bits each: 5 trits per byte, base 3), float tail + scales + rank-16
 adapter with AdamW states 1.23 GiB, rank-512 momentum 1.80 GiB (`--ts`: 3.61) -> **~3.3 GiB** (master: latents + grad +
 Adam 18.4 GiB). Transient: the fp32 copy of every layer's gradient, held until the momentum step (4.59 GiB, could be
 freed per layer if the momentum step ran inside the backward), activations of 32k tokens per step (layer inputs alone
@@ -2750,3 +2750,15 @@ up, so fusing frees memory only late in the backward; the 1.3B profile shows whe
 
 Fair-reference progress: master + our float extras (`mx_extras_s0` / `_seed2`) is -0.042 / -0.060 vs plain master at
 1750: the extras help master by ~0.05, so `--ts` vs the fair reference will be closer than vs plain master.
+
+### 2 Oct 13:55: 27B on one 16 GB card (estimate)
+
+Trits are stored at 1.6 bits (`pack_rows`: 5 per byte, base 3; 99% of the 1.58-bit ideal): 27B (`b27`, 22.85B ternary
+weights) = **4.26 GiB**. Float tail (164M embedding + scales + rank-16 adapter) in bf16 with 8-bit Adam 1.63 GiB; fused
+per-layer update buffers ~1.3 GiB (largest layer 13824 x 5120); activations at 2048 tokens per step, every layer
+checkpointed ~1.9 GiB; CUDA context ~1 GiB: **~10.1 GiB before the optimizer state, ~4.6 GiB left** on 16 GB. `--ts`
+state (two rank-r matrices per layer): ranks 256 int8 3.55 GiB (fits), 128 bf16 3.55 / int8 1.77, 64 int8 0.89 (also
+12 GB). Open: whether rank 128-256 is good enough at width 5120 (at 110M ranks 256 / 128 end +0.03 / +0.16 vs master);
+real int8 storage (`--ts_int8` simulates it); batch size (gradient accumulation of a full fp32 gradient is 85 GiB, so
+update per micro-batch or accumulate projections); `--track_flips` must be off (its touched mask is another 4.26 GiB);
+and compute (~6 x 23B x tokens per step: days per 300M tokens).
