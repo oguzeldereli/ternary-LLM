@@ -2793,3 +2793,23 @@ Finals ~18:15.
 **1.3B `--ts`** (`x1b_ts512_la1000an05`, Myriad V node, 9.7 s/step, peak 24.7 GiB): 3.971 / 3.673 / 3.502 / 3.376 at
 750 / 1000 / 1250 / 1500; 1.3B master 3.856 / 3.616 / 3.465 / 3.365 (+0.011 at 1500); our old rule at 1000 4.542
 (+0.93). The old rule's early lag at 1.3B is gone. Finishes Sat ~14:45. Old rule 1.3B: +0.187 vs 1.3B master at 6000.
+
+### 2 Oct 18:25: finals (the 17:20 entry above was pulled at 17:16)
+
+Master + float extras **2.7321 / 2.7279 (mean 2.730)**. `--ts` vs that fair reference, two seeds each: full rank with
+annealed leak 2.6746 / **2.6645** (-0.060), full rank 2.6982 / 2.6865 (-0.038), ranks 512 steps x ratio^0.5 2.7067 /
+2.6978 (-0.028), ranks 512 annealed leak 2.7115 / 2.7002 (-0.024). Both late fixes together: ranks 512 2.7224 (worse than
+either alone), ranks 256 2.7827 (= ratio^0.5 alone 2.7824). int8 + fused: ranks 512 2.7995 at 8000 (~+0.035 vs its fp32
+twin), ranks 256 2.8303 at 8750 (~+0.04).
+
+Bits per byte (Llama-2 32k tokenizer on this Wikipedia: 3.58 bytes per token): 110M master 1.108, full precision 1.080,
+`--ts` ranks 512 1.088, 340M `--ts` 1.058, 1.3B master 1.041.
+
+### 2 Oct 18:45: why int8 costs (hypotheses and ablation)
+
+One rounding of a matrix costs little (relative error: int8 per column 0.8%, bf16 0.15%, fp16 0.02%, fp8 2.3%), so the
+cost must come from rounding every step. The accumulator has a ~1000-step memory: its per-step change is ~1/1000 of its
+size, far below an int8 step (column absmax / 127), so stochastic rounding adds noise every step that integrates over the
+memory (an equilibrium of order sqrt(tau) int8 steps); nearest rounding would freeze it instead. bf16 (7 mantissa bits)
+may fail the same way, fp16 (10) may not; the short momentum (beta 0.9, ~10% change per step) should be fine in int8.
+Ablation: QUEUE.md "Now (2 Oct, 18:45)" (10 runs, flags `--ts_qfmt`, `--ts_qwhich`, `--ts_qnoV`, `--ts_qdiag`).

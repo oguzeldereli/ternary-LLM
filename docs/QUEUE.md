@@ -6,14 +6,29 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 17:20
+Last updated: 2026-10-02 18:45
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (2 Oct, 17:20)
+## Now (2 Oct, 18:45): why int8 costs (storage-format ablation)
+
+`--ts` ranks 512, steps x ratio^0.5, tau 1000, fused (fp32 reference 2.7067 / 2.6978), one storage change each:
+
+| machine | run | storage of the low-rank matrices |
+|---|---|---|
+| dory | `q8all_s0` | int8 (per column, stochastic) everywhere |
+| flounder / harlequin | `q8m_s0` / `q8a_s0` | int8 on the short momentum only / the accumulator only |
+| pintail | `q8noV_s0` | int8, the orthonormal bases V kept fp32 |
+| uaru / inanga | `q8det_s0` / `q8row_s0` | int8 rounded to nearest / scaled per row |
+| quillback / rudd / tope | `qbf16_s0` / `qfp16_s0` / `qfp8_s0` | bf16 (8 exp + 7 mantissa) / fp16 (5 + 10) / fp8 e4m3 with a per-column scale |
+| lamprey | `qdiag_fp32_s0` | fp32, logging every 250 steps: crest factor, share of per-step changes below half an int8 step, change / int8 step, log2 dynamic range |
+
+All ~23:45. Myriad: `x1b_ts512_la1000an05` (Sat ~14:45), `x1b_dryspend_r512_lr75` (Sat ~01:20), profile jobs queued.
+
+## Earlier (2 Oct, 17:20)
 
 | machine | run | what | expected |
 |---|---|---|---|

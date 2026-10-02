@@ -200,6 +200,21 @@ def _diag_agg(name, vals, per_block=7):
             name + "_types": [t[j::per_block].mean().item() for j in range(per_block)]}
 
 
+def _qfmt(name):
+    """--ts_qfmt: how a stored low-rank matrix is rounded after each update (simulated storage formats)"""
+    if name in ("", "none"): return None
+    if name == "int8": return _q8                                                     # per column, stochastic
+    if name == "int8det":                                                             # per column, nearest
+        return lambda X: (X / (s := X.abs().amax(0, keepdim=True).clamp_min(1e-30) / 127)).round().clamp_(-127, 127) * s
+    if name == "int8row":                                                             # per row, stochastic
+        return lambda X: (X / (s := X.abs().amax(1, keepdim=True).clamp_min(1e-30) / 127) + torch.rand_like(X)).floor().clamp_(-127, 127) * s
+    if name == "bf16": return lambda X: X.to(torch.bfloat16).float()                  # 8 exp, 7 mantissa bits
+    if name == "fp16": return lambda X: X.to(torch.float16).float()                   # 5 exp, 10 mantissa bits
+    if name == "fp8":                                                                 # e4m3 with a per-column scale
+        return lambda X: (X / (s := X.abs().amax(0, keepdim=True).clamp_min(1e-30) / 448)).to(torch.float8_e4m3fn).float() * s
+    raise ValueError(name)
+
+
 def _q8(X):
     """Stochastic rounding of each column to 255 levels of its absmax (what an int8 store + fp32 column scale holds)."""
     s = X.abs().amax(0, keepdim=True).clamp_min(1e-30) / 127
@@ -212,7 +227,11 @@ def ts_layer(l, g, state, c):
     gradient is computed, so only one layer's fp32 gradient exists at a time."""
     from .kernel import unpack_rows, pack_rows
     r, lr_ratio, theta, tau, b1, b2 = c["r"], c["lr_ratio"], c["theta"], c["tau"], c["b1"], c["b2"]
-    q = _q8 if c.get("int8") else (lambda X: X)
+    ident = lambda X: X
+    qf = _qfmt(c.get("qfmt") or ("int8" if c.get("int8") else ""))
+    qm = qf if qf is not None and c.get("qwhich", "all") in ("all", "m") else ident    # the short momentum
+    qa = qf if qf is not None and c.get("qwhich", "all") in ("all", "a") else ident    # the accumulator
+    qVm, qV = (ident, ident) if c.get("qnoV") else (qm, qa)                             # --ts_qnoV: bases kept fp32
     st = state.setdefault("_ts", {})
     key = id(l); t = st.get(("t", key), 0) + 1; st[("t", key)] = t
     g2 = g * g
@@ -232,7 +251,8 @@ def ts_layer(l, g, state, c):
         Um, Vm = st[("m", key)]
         Vn = torch.linalg.qr(b1 * Vm @ (Um.T @ Um) + (1 - b1) * g.T @ Um)[0]
         Um = b1 * Um @ (Vm.T @ Vn) + (1 - b1) * g @ Vn; Vm = Vn
-    st[("m", key)] = (q(Um), q(Vm))           # --ts_int8: both matrices on an int8 grid (per-column absmax)
+    if c.get("qdiag"): _qdiag(st, key, "m", Um, Vm, t)
+    st[("m", key)] = (qm(Um), qVm(Vm))        # --ts_int8 / --ts_qfmt: the stored matrices on a coarser grid
     u = -(Um @ Vm.T) / (1 - b1 ** t) / (v.sqrt() + 1e-8) * lr_ratio
     del v
     ra = min(r, l.N, l.K)
@@ -259,14 +279,35 @@ def ts_layer(l, g, state, c):
     if nf:
         l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
         U = U - c["spend"] * theta * (D @ V)
-    state[key] = (q(U), q(V))
+    if c.get("qdiag"): _qdiag(st, key, "a", U, V, t)
+    state[key] = (qa(U), qV(V))
     st["_nf"] = st.get("_nf", 0) + nf; st["_nt"] = st.get("_nt", 0) + fire.numel()
     if before is not None:
         l._record_flips(before, l.wpacked)
 
 
+def _qdiag(st, key, which, U, V, t):
+    """--ts_qdiag: what the stored numbers look like (accumulated per step, read and reset at logging):
+    crest = column absmax / column rms (int8 per column spends log2(127 / crest) bits on a typical entry);
+    sub = share of this step's changes of U smaller than half an int8 step (absmax / 254), i.e. below resolution;
+    rel = median |change| / (absmax / 127); range = log2(99.9th / 0.1th percentile of |U|) (exponent bits needed)."""
+    D = st.setdefault("_qd", {})
+    pt, prev = st.get(("prevU", which, key), (None, None))
+    a = U.abs(); amax = a.amax(0, keepdim=True).clamp_min(1e-30)
+    rec = D.setdefault(which, {"crest": 0.0, "sub": 0.0, "rel": 0.0, "range": 0.0, "n": 0})
+    rec["crest"] += float((amax / a.pow(2).mean(0, keepdim=True).sqrt().clamp_min(1e-30)).median())
+    smp = a.flatten()[:: max(1, a.numel() // 200_000)].float()
+    q = torch.quantile(smp[smp > 0], torch.tensor([0.001, 0.999], device=smp.device)) if (smp > 0).any() else None
+    if q is not None: rec["range"] += float(torch.log2(q[1] / q[0].clamp_min(1e-30)))
+    if prev is not None and pt == t - 1 and prev.shape == U.shape:
+        dU = (U - prev).abs()
+        rec["sub"] += float((dU < amax / 254).float().mean()); rec["rel"] += float((dU / (amax / 127)).median())
+    rec["n"] += 1
+    st[("prevU", which, key)] = (t, U.detach().clone())
+
+
 def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0,
-            tau_anneal=False, int8=False, fused=False):
+            tau_anneal=False, int8=False, fused=False, qfmt="", qwhich="all", qnoV=False, qdiag=False):
     """--ts: master's two timescales with sublinear state (the mechanism the 1 Oct master branches point to).
     Per layer:
       v      factored row x column EMA of g^2 (decay b2), v_ij ~ R_i C_j / mean(R)          (N + K floats)
@@ -280,7 +321,7 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
              (master with --m_snap); spend 2 leaves it at the boundary it just crossed, as master's latent does.
              theta ~ half a bin in latent units over the peak lr (~16)."""
     c = dict(r=r, lr_ratio=lr_ratio, theta=theta, tau=tau, rank_s=rank_s, b1=b1, b2=b2, gate=gate, spend=spend,
-             tau_anneal=tau_anneal, int8=int8)
+             tau_anneal=tau_anneal, int8=int8, qfmt=qfmt, qwhich=qwhich, qnoV=qnoV, qdiag=qdiag)
     st = state.setdefault("_ts", {})
     if not fused:
         for i, l in enumerate([l for l in model.modules() if isinstance(l, KernelTernaryLinear)]):
@@ -289,7 +330,11 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
             ts_layer(l, g, state, c)
             del g
     nf, nt = st.pop("_nf", 0), st.pop("_nt", 0)
-    return {"ts_frac": nf / max(nt, 1)}
+    info = {"ts_frac": nf / max(nt, 1)}
+    for w, rec in st.pop("_qd", {}).items():
+        n = max(rec["n"], 1)
+        info.update({f"qd_{w}_{k}": rec[k] / n for k in ("crest", "sub", "rel", "range")})
+    return info
 
 
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
@@ -1367,6 +1412,14 @@ def main():
     ap.add_argument("--ts_spend", type=float, default=1.0,
                     help="--ts: a move spends this x theta (1: to the new trit's centre, like master --m_snap; 2: stays at "
                          "the boundary it crossed, like master)")
+    ap.add_argument("--ts_qfmt", default="", help="--ts: storage format of the low-rank matrices: int8 | int8det | "
+                    "int8row | bf16 | fp16 | fp8 (simulated; --ts_int8 = int8)")
+    ap.add_argument("--ts_qwhich", default="all", choices=["all", "m", "a"],
+                    help="--ts_qfmt applies to both matrices / the short momentum only / the accumulator only")
+    ap.add_argument("--ts_qnoV", action="store_true", help="--ts_qfmt: keep the orthonormal bases V in fp32")
+    ap.add_argument("--ts_qdiag", type=int, default=0,
+                    help="--ts: every N steps log the stored numbers' crest factor, sub-resolution change share, "
+                         "change / int8 step and log2 dynamic range (qd_* in metrics.jsonl)")
     ap.add_argument("--ts_int8", action="store_true",
                     help="--ts: both low-rank matrices (short momentum and accumulator) kept on an int8 grid (per column)")
     ap.add_argument("--ts_fused", action="store_true",
@@ -1965,7 +2018,8 @@ def main():
         assert tc.grad_accum == 1, "--ts_fused needs grad_accum 1 (the update uses one step's whole gradient)"
         ts_cfg = dict(r=args.lowrank, lr_ratio=1.0, theta=args.ts_theta, tau=args.ts_tau, rank_s=args.ts_rank_s,
                       b1=args.ts_b1, b2=args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
-                      tau_anneal=args.ts_tau_anneal, int8=args.ts_int8)
+                      tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, qfmt=args.ts_qfmt, qwhich=args.ts_qwhich,
+                      qnoV=args.ts_qnoV, qdiag=False)
         for i_, m_ in enumerate([m_ for m_ in model.modules() if isinstance(m_, KernelTernaryLinear)]):
             m_._ts_idx = i_
             m_.on_grad = lambda layer, g, _c=ts_cfg: ts_layer(layer, g, lr_state, _c)
@@ -2013,6 +2067,7 @@ def main():
         lr = lr_at(step, tc)
         if ts_cfg is not None:
             ts_cfg["lr_ratio"] = (lr / tc.lr) ** args.ts_anneal
+            ts_cfg["qdiag"] = bool(args.ts_qdiag) and step % args.ts_qdiag in (0, 1)   # two steps: a change to measure
         rate_now = args.rate
         if args.rate_schedule != "const":
             prog = min(1.0, step / max(1, tc.max_steps))
@@ -2097,7 +2152,9 @@ def main():
             elif args.ts:
                 rs_info = ts_step(model, lr_state, args.lowrank, step, (lr / tc.lr) ** args.ts_anneal, args.ts_theta, args.ts_tau,
                                   args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
-                                  tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, fused=args.ts_fused)
+                                  tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, fused=args.ts_fused,
+                                  qfmt=args.ts_qfmt, qwhich=args.ts_qwhich, qnoV=args.ts_qnoV,
+                                  qdiag=bool(args.ts_qdiag) and step % args.ts_qdiag in (0, 1))
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
