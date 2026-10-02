@@ -2533,3 +2533,15 @@ the flips. `--ts` vs master at 5000-5250: short momentum rank 512 **-0.075** (fr
 theta 16 +0.069: every `--ts` lead fades as the schedule decays, since the accumulator's steps shrink with lr_t / lr_peak
 and flips get very rare (theta 16: 0.005% / step). Started: `ts16rs1024tau1000_s0` (full-rank short momentum),
 `ts16rs512tau1000an05_s0` (milder annealing, (lr_t / lr_peak)^0.5), `ts16full_tau1000_s0` (4090, all full rank).
+
+### 2 Oct 04:35: the `--ts` leads fade late
+
+`--ts` vs master: short momentum rank 512 -0.099 (1000) -0.087 (4000) -0.044 (6000) **-0.013 (6750)**; theta 16 -0.019
+(1000) +0.061 (5000) +0.144 (7250), now behind our rule; theta 8 +0.108 (1000) +0.057 (6000) +0.069 (7250). Lower theta is
+better late: the accumulator's steps scale with lr_t / lr_peak, so late in the cosine the effective threshold is ~10x
+higher and flips almost stop, while master's latents still sit near boundaries and keep crossing. Early, newer variants
+lead: full-rank short momentum + tau 1000 -0.122 @1750, all full rank -0.129 @2250, rank-512 short + tau 1000 -0.096
+@4750. Testing the late phase: milder annealing (`...an05`, (lr ratio)^0.5) and none (`...an0`, hake).
+
+Finished: master + our sign gate `mx_gate` **2.7325 (-0.019 vs master)**: the gate also helps master; master with a
+rank-512 first moment `mx_rank512` 2.7710 (+0.020). `tsnoflip_s0` stays +0.35 behind master (flips are the gains).

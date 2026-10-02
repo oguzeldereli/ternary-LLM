@@ -177,7 +177,7 @@ ones: [QUEUE.md](QUEUE.md).
 | run | what | tokens | val |
 |---|---|---|---|
 | `mx_factv` (Myriad) | factored (row x column) second moment | 300M | 2.7513 (+0.000) |
-| `mx_rank512` (Myriad) | first moment at rank 512 | running | +0.020 @8250 |
+| `mx_rank512` (Myriad) | first moment at rank 512 | 300M | 2.7710 (+0.020) |
 | `mx_snap` (Myriad) | a latent whose trit changes is set to the new trit's centre | 300M | **2.8225 (+0.071; = our rule r512)** |
 | `mx_leak300` (Myriad) | the latent's offset forgets with tau 300 | 300M | **2.8479 (+0.097)** |
 | `mx_leak1000` (lab121) | ... tau 1000 | running | -0.011 @4250 |
@@ -185,7 +185,7 @@ ones: [QUEUE.md](QUEUE.md).
 | `mx_b1997b2` (lab121) | beta1 0.997 (beta2 0.999) | running | +0.607 @6250 |
 | `mx_b2999` (lab121) | beta2 0.999 alone (control) | running | +0.024 @6000 |
 | `mx_b1997` (lab121) | beta1 0.997, beta2 0.95 | diverged | (beta1 > beta2 confound) |
-| `mx_gate` (lab121) | our sign gate on master's update | running | -0.021 @6750 |
+| `mx_gate` (lab121) | our sign gate on master's update | 300M | **2.7325 (-0.019)** |
 
 ## Two timescales, threshold firing (`--ts`, 2 Oct; lab121 4070 Ti Super)
 
@@ -199,7 +199,8 @@ ones: [QUEUE.md](QUEUE.md).
 | `ts16sp2_s0` / `ts16rs512sp2_s0` | spend 2 theta (stay at the crossed boundary) / + short rank 512 | running | +0.019 @3500 / -0.082 @3000 |
 | `ts16rs512tau1000_s0` | short rank 512 + tau 1000 | running | **-0.103 @3000** |
 | `ts16rs1024tau1000_s0` (harlequin) / `ts16rs512tau1000an05_s0` (pintail) | full-rank short momentum + tau 1000 / short rank 512 + tau 1000 + milder annealing (lr ratio^0.5) | running | - |
-| `ts16full_tau1000_s0` (4090) | everything full rank, tau 1000 | running | - |
+| `ts16full_tau1000_s0` (4090) | everything full rank, tau 1000 | running | -0.129 @2250 |
+| `ts16rs512tau1000an0_s0` (hake) | short rank 512 + tau 1000, no annealing (steps not scaled by the lr) | running | - |
 | `tsnoflip_s0` | control: theta 1e9 (no flips; float extras only) | running | +0.398 @1500 |
 
 ## Recipe tweaks (1-2 Oct, finished; vs the rule r512 2.8215)
