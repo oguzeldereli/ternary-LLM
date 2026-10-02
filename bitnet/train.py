@@ -1832,8 +1832,10 @@ def main():
                 if args.lookahead_xbatch else None)
     rs_state = {"mult": 1.0}
     rs_gen = torch.Generator().manual_seed(tc.seed + 777)
-    if (args.lookahead or args.lowrank) and (args.mode != "kernel" or tc.grad_accum != 1 or args.rate_search):
-        raise SystemExit("--lookahead requires --mode kernel, --grad_accum 1, no --rate_search")
+    if (args.lookahead or args.lowrank) and (args.mode != "kernel" or args.rate_search
+                                             or (tc.grad_accum != 1 and not args.ts)):
+        # (--ts sums the captured micro-batch gradients, so it allows --grad_accum > 1)
+        raise SystemExit("--lookahead / --lowrank require --mode kernel, --grad_accum 1 (except --ts), no --rate_search")
     if args.rate_search:
         if args.mode != "kernel" or tc.grad_accum != 1:
             raise SystemExit("--rate_search requires --mode kernel and --grad_accum 1")
@@ -1876,7 +1878,11 @@ def main():
                     "ef_alpha": args.ef_alpha,
                     # low-rank momentum (U, V) per ternary layer, in module order
                     "lowrank": [lr_state.get(id(m)) for m in model.modules()
-                                if isinstance(m, KernelTernaryLinear)] if lr_state else None}, tmp)
+                                if isinstance(m, KernelTernaryLinear)] if lr_state else None,
+                    # --ts: the rest of the per-layer state (update count, factored v, short momentum), module order
+                    "ts_state": [{k[0]: st_[k] for k in (("t", id(m)), ("v", id(m)), ("m", id(m))) if k in st_}
+                                 for m in model.modules() if isinstance(m, KernelTernaryLinear)]
+                                if (st_ := lr_state.get("_ts")) else None}, tmp)
         os.replace(tmp, ckpt_path)
 
     la_off = tuple(int(x) for x in args.lookahead_off.split(":")) if args.lookahead_off else (0, 0)
@@ -1952,6 +1958,13 @@ def main():
                 if uv is not None:
                     lr_state[id(m)] = tuple(t.to(device) for t in uv)
             print(f"resumed low-rank momentum for {len(lr_state)} layers", flush=True)
+        if blob.get("ts_state"):
+            lays = [m for m in model.modules() if isinstance(m, KernelTernaryLinear)]
+            st_ = lr_state.setdefault("_ts", {})
+            for m, d_ in zip(lays, blob["ts_state"]):
+                for k_, v_ in d_.items():
+                    st_[(k_, id(m))] = tuple(x.to(device) for x in v_) if isinstance(v_, tuple) else v_
+            print(f"resumed --ts state (short momentum, v, step counts) for {len(lays)} layers", flush=True)
         tmask = blob.get("touched") or {}
         nres = 0
         for n, m in model.named_modules():
@@ -2021,7 +2034,6 @@ def main():
     _snap_state = {}                      # --m_snap: each master layer's trits after the last step
     ts_cfg = None
     if args.ts and args.ts_fused:         # --ts_fused: each layer's update inside its backward (ts_layer)
-        assert tc.grad_accum == 1, "--ts_fused needs grad_accum 1 (the update uses one step's whole gradient)"
         ts_cfg = dict(r=args.lowrank, lr_ratio=1.0, theta=args.ts_theta, tau=args.ts_tau, rank_s=args.ts_rank_s,
                       b1=args.ts_b1, b2=args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
                       tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, qfmt=args.ts_qfmt, qwhich=args.ts_qwhich,
@@ -2115,6 +2127,10 @@ def main():
                 if isinstance(l, KernelTernaryLinear): l.capture = True
         if TIME: torch.cuda.synchronize(); _t0 = time.time()
         for micro in range(tc.grad_accum):
+            if args.ts and tc.grad_accum > 1:      # --ts with accumulation: sum the captured micro-batch gradients
+                for l_ in model.modules():
+                    if isinstance(l_, KernelTernaryLinear):
+                        l_.cap_accum = True; l_.cap_final = micro == tc.grad_accum - 1
             x, y = get_batch(train_data, tc.batch_size, tc.seq_len, device, sampler)
             with torch.autocast(device_type=device.split(":")[0], dtype=torch.bfloat16):
                 _, loss = model(x, y)

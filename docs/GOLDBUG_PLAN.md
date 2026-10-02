@@ -26,9 +26,9 @@ Both GPUs run the pair side by side (GPU 0: TTF, GPU 1: master + extras); no exp
 | when | what | why / done when |
 |---|---|---|
 | Sat 3 | storage-format ablation results (17 runs, ~00:15); 1.3B TTF final (~14:45); 1.3B A100 profile | pick the state format; confirm the 1.3B result; know the slow kernels |
-| Sat 3 | **save the full TTF state in checkpoints** (short momentum m and v are not saved now: a resume re-initialises them) and test resume mid-run | a 66-hour run must survive a crash |
-| Sat 3 | **gradient accumulation for TTF** (capture mode keeps only the last micro-batch's gradient now) or confirm 64k tokens fit without it | bigger batches if wanted |
-| Sat-Sun | **FineWeb-Edu data**: `prep_fineweb.py` (from `prep_wiki.py`, Llama-2 tokenizer), tokenize ~2B tokens (sample-10BT) on a lab PC's /tmp (~4 GB uint16), plus a held-out validation shard; keep the wiki val for continuity | data ready, bits per byte comparable |
+| done 2 Oct | **full TTF state in checkpoints** (`ts_state`: short momentum, factored v, step counts); resume test: steps 50 / 60 7.286 / 6.999 uninterrupted vs 7.288 / 6.998 resumed at 40 | a 66-hour run must survive a crash |
+| done 2 Oct | **gradient accumulation for TTF** (captured micro-batch gradients summed; with `--ts_fused` the update runs on the last micro-batch); 2 x 8 vs 1 x 16: same flip rates, fused = unfused | bigger batches if wanted |
+| done 2 Oct | **FineWeb-Edu data**: `scripts/data/prep_fineweb.py` (Llama-2 tokenizer, sample-10BT): 2.0B train + 10M val tokens in 9.7 min on zander; copied to the laptop (`data/fwedu32k_*.bin`, lab /tmp is wiped on reboot) | data ready |
 | Sun 4 | 340M TTF ranks 256 / 128 (two runs) | does the rank penalty shrink with width (the 27B question) |
 | Sun 4 | **Blackwell environment**: setup script with a CUDA 12.8+ torch build (the cu126 wheels we use do not support sm_120) and a Triton smoke test of our kernels; fallback flags (`--dw_mode` / no `--int8`) if a kernel fails | the booking cannot be lost to setup |
 | Mon 5 | speed fixes from the profile (e.g. batched QR over layers, TF32, kernel configs) | more tokens per hour |

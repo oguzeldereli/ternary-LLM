@@ -348,6 +348,17 @@ class _KernelTernFn(torch.autograd.Function):
             return gx.view(ctx.xshape).to(gy.dtype), None, None
 
         gx = _grad_x(layer, gyf, wpacked).view(ctx.xshape)
+        if layer.capture and getattr(layer, "cap_accum", False):
+            # gradient accumulation with a captured gradient (--ts, grad_accum > 1): sum the micro-batches (each
+            # loss is already divided by grad_accum); with --ts_fused the update runs on the last micro-batch only
+            g = gw.detach().float() if layer.gw is None else layer.gw + gw.float()
+            del gw
+            if getattr(layer, "on_grad", None) is not None and getattr(layer, "cap_final", True):
+                layer.gw = None
+                layer.on_grad(layer, g)
+            else:
+                layer.gw = g
+            return gx.to(gy.dtype), None, None
         if layer.capture and getattr(layer, "on_grad", None) is not None:
             # --ts_fused: the layer's update runs here, after its input gradient (gx) is computed, so this layer's
             # trits are not needed again in this step (earlier layers recompute with their own, unchanged trits)
