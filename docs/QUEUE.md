@@ -6,14 +6,26 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 08:45
+Last updated: 2026-10-02 10:55
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (2 Oct, 05:45)
+## Now (2 Oct, 10:55)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| dory / flounder | `ts16full_tau1000_seed2` / `ts16rs512tau1000an05_seed2` | seed 2 of the two headline `--ts` runs (2.6982 / 2.7067) | ~15:45 |
+| elver / quillback / inanga / albacore | `ts16fullla1000_s0` / `ts16rs1024la1000_s0` / `ts16rs512la1000gate_s0` / `ts16rs512la300_s0` | annealed-leak `--ts` runs, at 8500-9000 | ~11:15 |
+| harlequin / pintail / uaru | `ts16fulltau1000an05_s0` / `ts16rs512tau1000an075_s0` / `ts16r256rs256tau1000an05_s0` | annealing ^0.5 full rank / ^0.75 rank 512 / ^0.5 ranks 256 | ~13:30 |
+| lamprey / goldeye / tope / koi / rudd / skate | rank sweep (256/256, 128/128, 256/512, 512/256, 64/64, 128/512) | `--ts` rank sweep at tau 1000 | ~11:30-14:00 |
+| barbel / hake / plaice | `ts16rs512tau3000_s0` / `ts24rs512tau1000_s0` / `ts16rs512tau1000_seed2` | tau 3000 / theta 24 / seed 2 | ~11:30 |
+| 4090 | `big_ts16rs512tau1000_s0` | best `--ts` at 340M: -0.162 vs 340M master at 3000 | ~18:00 |
+| Myriad 36472 | `x1b_dryspend_r512_lr75` | 1.3B recipe at lr 7.5e-4 (1.3B master finished 2.5868) | Sat |
+
+## Earlier (2 Oct, 05:45)
 
 The first `--ts` runs ended behind our rule: their leads fade late because the accumulator leaks at a fixed rate while its
 steps shrink with the lr, so late in the schedule it settles below theta and flips stop. Six new runs make the leak shrink

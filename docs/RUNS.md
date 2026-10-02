@@ -2604,3 +2604,74 @@ Started: rank sweep of the best setting (both ranks 256 / 128; accumulator 256 +
 - 1.3B master at lr 7.5e-4 (`x1b_master_lr75`) finished 2.5868; our 1.3B rule (`x1b_dryspend_r512_lr75`) +0.154 vs 110M
   master at 2500, still far behind the 1.3B master.
 - Started: annealing ^0.5 on all full rank, ^0.75 at rank 512, ^0.5 at ranks 256.
+
+## 2 Oct morning summary: what master has that we lacked, and the rule that closes the gap
+
+### What master cannot do without (master from scratch, one ingredient removed; master 2.7513, our rule r512 2.8215)
+
+| removed from master | final | vs master |
+|---|---|---|
+| per-weight second moment (factored instead, like ours) | 2.7513 | 0.000 |
+| full-rank first moment (rank 512 instead, like ours) | 2.7710 | +0.020 |
+| our sign gate added | 2.7325 | -0.019 (helps) |
+| offset forgets with tau 1000 | 2.7298 | -0.021 |
+| **leftover offset after a crossing (snap to the new trit's centre)** | **2.8225** | **+0.071 (= our rule)** |
+| **offset forgets with tau 300 (our momentum's memory)** | **2.8479** | **+0.097** |
+| **long first moment (beta1 0.997, like our momentum; beta2 0.999)** | **3.2446** | **+0.493** (beta2 0.999 alone +0.017) |
+| **rate-limited firing (trit follows the latent with prob. 0.02 / step, like our flips)** | **3.5214** | **+0.770** |
+
+Master needs (1) a **short momentum** for the direction (~10 steps), (2) a **long, per-weight integrator** of the
+normalized steps whose memory reaches ~1000 steps (300 is too short), (3) **immediate firing** when the integrator crosses,
+and (it matters less) (4) the integrator's level after a crossing. It does not need full rank in its first moment or a
+per-weight second moment. Our rule did the opposite on (1)-(3): one long momentum (memory 220-390 steps) served as both
+direction and integrator, and flips fired at a rate (at most 2% per step).
+
+### The rule rebuilt on master's pattern (`--ts`, sublinear state)
+
+Per layer: factored second moment v (row x column); short momentum m (rank r_s, beta 0.9); u = -m / sqrt(v); accumulator
+A (rank r, leak tau) += u * (lr_t / lr_peak)^p; a trit moves the step |A_ij| >= theta (16), unless blocked at +-1; the move
+spends theta (A -= theta * D, kept low-rank). Plus the usual float extras (row/column scales, rank-16 magnitude adapter,
+qk temperature; alone, with no flips, they reach only 3.1725).
+
+| run | ranks (accumulator / short) | tau | p | final | vs master | vs our rule at that rank |
+|---|---|---|---|---|---|---|
+| `ts16full_tau1000_s0` | full / full | 1000 | 1 | **2.6982** | **-0.053** | -0.102 (rule full 2.7998) |
+| `ts16fullla1000_s0` (leak annealed) | full / full | 1000 | 1 | -0.083 @8500 | | |
+| `ts16rs512tau1000an05_s0` | 512 / 512 | 1000 | 0.5 | **2.7067** | **-0.045** | -0.115 (rule r512 2.8215) |
+| `ts16rs512la1000_s0` (leak annealed) | 512 / 512 | 1000 | 1 | 2.7115 | -0.040 | -0.110 |
+| `ts16rs1024tau1000_s0` | 512 / full | 1000 | 1 | 2.7203 | -0.031 | |
+| `ts16rs512tau1000_s0` | 512 / 512 | 1000 | 1 | 2.7328 | -0.019 | -0.089 |
+| `ts16rs512_s0` | 512 / 512 | 300 | 1 | 2.8054 | +0.054 | -0.016 |
+| `ts16tau1000_s0` | 512 / 128 | 1000 | 1 | 2.8561 | +0.105 | |
+| `ts16_s0` | 512 / 128 | 300 | 1 | 2.9415 | +0.190 | |
+
+Seed 2 of the 512/512 tau 1000 run tracks seed 1 to within 0.02-0.06 better (-0.081 vs -0.06 at 7250).
+
+**Rank** (tau 1000, p 1), vs master late in the run: 256/512 -0.008 @7500, 512/256 -0.009 @7500, 256/256 +0.041 @8000,
+128/512 +0.026 @6000, 128/128 +0.141 @8250, 64/64 +0.207 @6500. At 110M, ranks 256 and below finish behind master; 256/256
+is still ~0.04 ahead of our current rule at rank 512 at the same step (2.8258 vs 2.8664 at 8000). Every `--ts` run leads
+master by 0.1-0.13 for the first half and gives part of it back in the cosine tail; slower annealing of the steps (p 0.5)
+or of the leak keeps more of it.
+
+**340M** (`big_ts16rs512tau1000_s0`, 512/512, tau 1000, p 1): vs 340M master -0.147 / -0.175 / -0.172 / -0.162 at
+500 / 1000 / 2000 / 3000; vs our 340M rule -0.216 at 3000 (finishes ~18:00).
+
+### Other findings of the night
+
+- Our sign gate improves master too (2.7325, -0.019). In `--ts` it changes nothing (-0.043 vs -0.043 at 9000).
+- Recipe tweaks to the old rule are dead ends: undo 2.8360, memory warm-up 2.8199, faster firing of saturated weights
+  2.8201, per-weight v at full rank 2.8019 (vs 2.7998), undo on the batch gradient alone diverged.
+- 1.3B: master at lr 1.5e-3 diverged; at 7.5e-4 it finished 2.5868. Our old rule at 1.3B (lr 7.5e-4) is still far behind
+  it (3.2186 at 3500; 1.3B master was ~2.98 there).
+- Home quota: overflowed at 11 GB from mirrored metrics files; fixed (1.6 GB), sync loops no longer copy metrics.jsonl.
+
+### Next
+
+1. Seeds of the two headline runs (running) and the 340M result (~18:00).
+2. Rank: the memory budget for 27B needs low rank; at 110M rank 256 is the floor for matching master. Measure the rank
+   penalty at 340M (rank 256 and 128) to see if it shrinks with width as the old rule's did.
+3. The late fade: p 0.5 and the annealed leak help; combine them (and test p 0.75, running) on the full-rank and
+   rank-512 runs.
+4. Replace the old rule at 1.3B with `--ts` for the goldbug booking (Oct 8).
+5. Memory: `--ts` keeps two low-rank matrices per layer (rank r + r_s) plus factored v: at 512/512 the state is ~2x the
+   old rule's. The rank sweep says the short momentum's rank matters as much as the accumulator's.
