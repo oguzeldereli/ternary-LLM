@@ -223,6 +223,7 @@ ones: [QUEUE.md](QUEUE.md).
 | `ts16full_tau1000_seed2` / `ts16rs512tau1000an05_seed2` (dory / flounder) | seed 2 of the two headline runs | running | - |
 | `ts16fullla1000_seed2` / `ts16rs512la1000_seed2` (goldeye / barbel) | seed 2 of the annealed-leak runs | running | - |
 | `ts16rs512la1000an05_s0` / `ts16r256rs256la1000an05_s0` (albacore / elver) | ranks 512 / 256, leak and steps scaled by (lr ratio)^0.5 | running | - |
+| `x1b_ts512_la1000an05` (Myriad, queued) | `--ts` at 1.3B, ranks 512, leak and steps x ratio^0.5, lr 7.5e-4 (1.3B master 2.5868; old rule +0.208 at 4000) | queued | - |
 | `mx_extras_s0` / `mx_extras_seed2` (tope / lamprey) | **fair reference**: master + the same float extras (row/col scales, additive rank-16 adapter, qk temperature) | running | - |
 | `tsnoflip_s0` | control: theta 1e9 (no flips; float extras only) | 300M | 3.1725 (+0.421) |
 

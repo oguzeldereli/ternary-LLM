@@ -2711,3 +2711,11 @@ leak) 0.034. The cause is the step annealing: steps shrink to 0.1x, and with a f
 theta, so flips nearly stop. The scaled leak removes that floor (slope doubles); milder step annealing keeps the slope at
 master's. Combined (leak and steps both x ratio^0.5, so the accumulator's equilibrium level stays constant):
 `ts16rs512la1000an05_s0`, `ts16r256rs256la1000an05_s0` (ranks 512 / 256; full rank left out: it is no memory saving).
+
+### 2 Oct 13:15: 1.3B
+
+`x1b_master_lr75` finished **2.5868** (340M master 2.6626, 110M 2.7513). Our old rule at the same lr
+(`x1b_dryspend_r512_lr75`, step 4340, 9.2 s/step) trails it by +0.93 / +0.36 / +0.235 / +0.207 at 1000 / 2000 / 3000 /
+4000, worse than at 340M (+0.09 at the same point). Its training curve is the same at lr 1.5e-3 and 7.5e-4, so the
+early lag at 1.3B is the rule, not the tail lr (figure `runs_1b.png`). Kept running as the old-rule baseline;
+`x1b_ts512_la1000an05` (`--ts`, ranks 512, leak and steps x ratio^0.5, lr 7.5e-4) submitted (Myriad 40267).
