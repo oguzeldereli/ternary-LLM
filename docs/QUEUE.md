@@ -6,14 +6,29 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 13:50
+Last updated: 2026-10-02 17:20
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (2 Oct, 12:20)
+## Now (2 Oct, 17:20)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| Myriad 40267 | `x1b_ts512_la1000an05` | 1.3B `--ts` ranks 512: +0.011 vs 1.3B master at 1500 (old rule was +0.93 at 1000); 9.7 s/step, 24.7 GiB | Sat ~14:45 |
+| Myriad 36472 | `x1b_dryspend_r512_lr75` | 1.3B old rule: +0.187 vs 1.3B master at 6000 | Sat ~01:20 |
+| Myriad 40272-40274 | `prof1b_*` | 1.3B A100 profile (master / old / --ts) | queued |
+| plaice / hake | `ts16rs512la1000an05int8_s0` / `ts16r256rs256la1000an05int8_s0` | int8 + fused: ~0.03 behind their fp32 twins | ~18:15 |
+| albacore / elver | `ts16rs512la1000an05_s0` / `ts16r256rs256la1000an05_s0` | both late fixes (fp32 twins) | ~17:45 |
+| tope / lamprey | `mx_extras_s0` / `_seed2` | master + extras (fair reference), at 9000 | ~17:30 |
+| goldeye / barbel | `ts16fullla1000_seed2` / `ts16rs512la1000_seed2` | seed 2 of the annealed-leak runs | ~17:45 |
+
+Finished today: 340M `--ts` 2.6268; seed 2s 2.6865 (full) / 2.6978 (rank 512, ^0.5); ^0.5 full 2.6804; ^0.75 rank 512
+2.7138; ranks 256 ^0.5 2.7824. Free: 4090, dory, flounder, harlequin, pintail, uaru, inanga, quillback, rudd, koi.
+
+## Earlier (2 Oct, 12:20)
 
 | machine | run | what | expected |
 |---|---|---|---|

@@ -2762,3 +2762,34 @@ state (two rank-r matrices per layer): ranks 256 int8 3.55 GiB (fits), 128 bf16 
 real int8 storage (`--ts_int8` simulates it); batch size (gradient accumulation of a full fp32 gradient is 85 GiB, so
 update per micro-batch or accumulate projections); `--track_flips` must be off (its touched mask is another 4.26 GiB);
 and compute (~6 x 23B x tokens per step: days per 300M tokens).
+
+### 2 Oct 17:20: the fair reference, seeds, 340M, int8, 1.3B
+
+**Master + our float extras** (`mx_extras_s0` / `_seed2`, row/col scales + additive rank-16 adapter + qk temperature):
+2.7362 / 2.7309 at 9000 (-0.021 / -0.026 vs plain master): finals ~2.730 / ~2.725, **fair reference ~2.728**.
+
+| `--ts` (110M) | seed 1 | seed 2 | mean | vs plain master 2.7513 | vs fair reference ~2.728 |
+|---|---|---|---|---|---|
+| ranks 512, tau 1000, steps x ratio^0.5 | 2.7067 | 2.6978 | **2.702** | -0.049 | **-0.026** |
+| full rank, tau 1000 | 2.6982 | 2.6865 | 2.692 | -0.059 | -0.036 |
+| full rank, tau 1000, steps x ratio^0.5 | 2.6804 | - | | -0.071 | -0.048 |
+| full rank, annealed leak | 2.6746 | 2.6977 @7750 (-0.101) | | | |
+| ranks 512, annealed leak | 2.7115 | 2.7147 @8250 (-0.061) | | | |
+| ranks 256, steps x ratio^0.5 | 2.7824 | - | | +0.031 | +0.054 |
+
+So with two seeds each and the extras given to master too, `--ts` at rank 512 still finishes ~0.026 below master
+(seed spread 0.009); at full rank ~0.04-0.05 below. Rank 256 is +0.05 behind the fair reference.
+
+**340M** `big_ts16rs512tau1000_s0` finished **2.6268**: 340M master 2.6626 (**-0.036**), our old 340M rule r512 2.7246
+(-0.098). (No 340M master + extras yet.)
+
+**Both late fixes together** (leak and steps x ratio^0.5) are no better than ratio^0.5 alone: ranks 512 -0.024 vs plain
+master at 7500 (ratio^0.5 alone -0.039 at 7000); ranks 256 +0.033 at 8250 (alone +0.030 at 8000).
+
+**int8** (simulated, both matrices, with the fused update): ranks 512 +0.001 vs master at 6000 against its fp32 twin's
+-0.030; ranks 256 +0.054 at 6750 against ~+0.02: **int8 costs ~0.03 here**, more than for the old rule (0.004-0.02).
+Finals ~18:15.
+
+**1.3B `--ts`** (`x1b_ts512_la1000an05`, Myriad V node, 9.7 s/step, peak 24.7 GiB): 3.971 / 3.673 / 3.502 / 3.376 at
+750 / 1000 / 1250 / 1500; 1.3B master 3.856 / 3.616 / 3.465 / 3.365 (+0.011 at 1500); our old rule at 1000 4.542
+(+0.93). The old rule's early lag at 1.3B is gone. Finishes Sat ~14:45. Old rule 1.3B: +0.187 vs 1.3B master at 6000.
