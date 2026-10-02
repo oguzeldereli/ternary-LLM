@@ -2645,7 +2645,7 @@ qk temperature; alone, with no flips, they reach only 3.1725).
 | `ts16tau1000_s0` | 512 / 128 | 1000 | 1 | 2.8561 | +0.105 | |
 | `ts16_s0` | 512 / 128 | 300 | 1 | 2.9415 | +0.190 | |
 
-Seed 2 of the 512/512 tau 1000 run tracks seed 1 to within 0.02-0.06 better (-0.081 vs -0.06 at 7250).
+Seed 2 of the 512/512 tau 1000 run is 0.016 ahead of seed 1 at 7250 (2.7433 vs 2.7594; master 2.8245).
 
 **Rank** (tau 1000, p 1), vs master late in the run: 256/512 -0.008 @7500, 512/256 -0.009 @7500, 256/256 +0.041 @8000,
 128/512 +0.026 @6000, 128/128 +0.141 @8250, 64/64 +0.207 @6500. At 110M, ranks 256 and below finish behind master; 256/256
@@ -2662,7 +2662,7 @@ or of the leak keeps more of it.
 - Recipe tweaks to the old rule are dead ends: undo 2.8360, memory warm-up 2.8199, faster firing of saturated weights
   2.8201, per-weight v at full rank 2.8019 (vs 2.7998), undo on the batch gradient alone diverged.
 - 1.3B: master at lr 1.5e-3 diverged; at 7.5e-4 it finished 2.5868. Our old rule at 1.3B (lr 7.5e-4) is still far behind
-  it (3.2186 at 3500; 1.3B master was ~2.98 there).
+  it (3.2186 at 3500; 1.3B master 3.0032 there: +0.215, down from +0.93 at 1000).
 - Home quota: overflowed at 11 GB from mirrored metrics files; fixed (1.6 GB), sync loops no longer copy metrics.jsonl.
 
 ### Next
