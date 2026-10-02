@@ -20,6 +20,24 @@ _P3 = [1, 3, 9, 27, 81]
 _P3_DEV = {}
 
 
+# --gemm cublas: the ternary GEMMs go through cuBLAS in bf16 on weights unpacked per call (transient [N, K] bf16).
+# int8 codes and trits are exact in bf16 and cuBLAS accumulates in fp32, so the result matches the Triton kernels up
+# to the order of summation; on the A100 the Triton kernels were ~4x slower than cuBLAS (1.3B profile, 2 Oct).
+GEMM_BACKEND = ["triton"]
+
+
+def _mm_f32(a, b):
+    """bf16 a @ b with an fp32 result (no bf16 rounding before the scales are applied)"""
+    try:
+        return torch.mm(a, b, out_dtype=torch.float32)
+    except TypeError:
+        return torch.mm(a, b).float()
+
+
+def _w_bf16(wpacked, K):
+    return unpack_rows(wpacked, K).to(torch.bfloat16)
+
+
 def pack_rows(w: torch.Tensor) -> torch.Tensor:
     """int8 {-1,0,1} [N,K] -> uint8 [N, ceil(K/5)] base-3, per row along K."""
     N, K = w.shape
@@ -203,6 +221,8 @@ def _dx_kernel(gy_ptr, w_ptr, gx_ptr, M, N, K, K5,
 
 def tern_gemm_dx(gy: torch.Tensor, wpacked: torch.Tensor, K: int) -> torch.Tensor:
     """grad_x = gy @ decode(wpacked), gy [M,N] -> [M,K]. Packed weight, no unpack."""
+    if GEMM_BACKEND[0] == "cublas":
+        return torch.mm(gy.contiguous().to(torch.bfloat16), _w_bf16(wpacked, K))
     M, N = gy.shape
     Nw, K5 = wpacked.shape
     gy = gy.contiguous().to(torch.bfloat16)
@@ -384,6 +404,8 @@ def fused_flip_ev(wpacked, grad_w, evidence, rate, g_ref, seed, smax=1, gmean=No
 
 def tern_gemm(x: torch.Tensor, wpacked: torch.Tensor, K: int) -> torch.Tensor:
     """x [M,K] (fp16/bf16) @ decode(wpacked)^T -> y [M,N] fp16."""
+    if GEMM_BACKEND[0] == "cublas":
+        return torch.mm(x.contiguous().to(torch.bfloat16), _w_bf16(wpacked, K).t())
     M, Kx = x.shape
     assert Kx == K, (Kx, K)
     N, K5 = wpacked.shape
@@ -464,6 +486,9 @@ def tern_gemm_i8(xq: torch.Tensor, xs: torch.Tensor, wpacked: torch.Tensor, K: i
                  beta=1.0) -> torch.Tensor:
     """int8 x [M,K] (codes) @ decode(wpacked)^T * xs[:,None] * beta -> bf16 [M,N].
     beta: float or a 0-dim device tensor (read in the kernel, so no host sync)."""
+    if GEMM_BACKEND[0] == "cublas":
+        y = _mm_f32(xq.to(torch.bfloat16), _w_bf16(wpacked, K).t()) * xs.float()[:, None] * beta
+        return y.to(torch.bfloat16)
     M, Kx = xq.shape
     assert Kx == K, (Kx, K)
     N, K5 = wpacked.shape
@@ -518,6 +543,8 @@ def tern_gemm_dx_i8(gy: torch.Tensor, wpacked: torch.Tensor, K: int) -> torch.Te
     """grad_x = gy @ decode(wpacked) with gy quantized int8 per row. [M,N] -> [M,K]."""
     M, N = gy.shape
     gq, gs = act_quant_i8(gy)
+    if GEMM_BACKEND[0] == "cublas":
+        return (_mm_f32(gq.to(torch.bfloat16), _w_bf16(wpacked, K)) * gs.float()[:, None]).to(torch.bfloat16)
     gx = torch.empty(M, K, dtype=torch.bfloat16, device=gy.device)
     K5 = wpacked.shape[1]
     grid = lambda meta: (triton.cdiv(M, meta["BM"]), triton.cdiv(K5, meta["BK5"]))

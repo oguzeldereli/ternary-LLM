@@ -221,6 +221,28 @@ def _q8(X):
     return (X / s + torch.rand_like(X)).floor().clamp_(-127, 127) * s
 
 
+def _orth(X):
+    """orthonormal basis of the columns of X (tall, K x r): two-pass Cholesky-QR (GEMMs plus an r x r Cholesky in
+    fp64, no host sync) instead of a Householder QR, which was 1.6 s per 1.3B step. Only the span matters to --ts
+    (A = U V^T does not depend on the basis chosen)."""
+    if not ORTH_CHOL[0]:
+        return torch.linalg.qr(X)[0]
+    Q = X
+    eye = None
+    for _ in range(2):
+        G = (Q.T @ Q).double()
+        G.diagonal().add_(G.diagonal().mean().clamp_min(1e-300) * 1e-12)
+        L = torch.linalg.cholesky_ex(G)[0]
+        if eye is None:
+            eye = torch.eye(G.shape[0], dtype=torch.float64, device=G.device)
+        Linv = torch.linalg.solve_triangular(L, eye, upper=False)
+        Q = Q @ Linv.T.to(Q.dtype)
+    return torch.nan_to_num(Q)
+
+
+ORTH_CHOL = [False]
+
+
 def ts_layer(l, g, state, c):
     """one layer of --ts (see ts_step): g is this layer's gradient (fp32); c holds the settings and lr_ratio.
     Called from ts_step after the backward, or from the layer's backward itself (--ts_fused), right after its input
@@ -247,11 +269,11 @@ def ts_layer(l, g, state, c):
     rs = min(c["rank_s"], l.N, l.K)
     if ("m", key) not in st:
         gen = torch.Generator(device=g.device).manual_seed(4_000_000 + 2 * getattr(l, "_ts_idx", 0))
-        Vm = torch.linalg.qr(g.T @ torch.randn(l.N, rs, device=g.device, generator=gen))[0]
+        Vm = _orth(g.T @ torch.randn(l.N, rs, device=g.device, generator=gen))
         Um = (1 - b1) * g @ Vm
     else:
         Um, Vm = st[("m", key)]
-        Vn = torch.linalg.qr(b1 * Vm @ (Um.T @ Um) + (1 - b1) * g.T @ Um)[0]
+        Vn = _orth(b1 * Vm @ (Um.T @ Um) + (1 - b1) * g.T @ Um)
         Um = b1 * Um @ (Vm.T @ Vn) + (1 - b1) * g @ Vn; Vm = Vn
     if c.get("qdiag"): _qdiag(st, key, "m", Um, Vm, t)
     st[("m", key)] = (qm(Um), qVm(Vm))        # --ts_int8 / --ts_qfmt: the stored matrices on a coarser grid
@@ -260,12 +282,12 @@ def ts_layer(l, g, state, c):
     ra = min(r, l.N, l.K)
     if key not in state:
         gen = torch.Generator(device=g.device).manual_seed(4_000_001 + 2 * getattr(l, "_ts_idx", 0))
-        V = torch.linalg.qr(u.T @ torch.randn(l.N, ra, device=g.device, generator=gen))[0]
+        V = _orth(u.T @ torch.randn(l.N, ra, device=g.device, generator=gen))
         U = u @ V
     else:
         U, V = state[key]
         U = U * (1 - (lr_ratio if c["tau_anneal"] else 1.0) / tau)   # --ts_tau_anneal: memory in distance, not steps
-        Vn = torch.linalg.qr(V @ (U.T @ U) + u.T @ U)[0]
+        Vn = _orth(V @ (U.T @ U) + u.T @ U)
         U = U @ (V.T @ Vn) + u @ Vn; V = Vn
     del u
     A = U @ V.T
@@ -277,10 +299,9 @@ def ts_layer(l, g, state, c):
         fire &= (d == -g.sign())
     before = l.wpacked.clone() if l.track else None
     D = torch.where(fire, d, torch.zeros_like(d))
-    nf = int(fire.sum())
-    if nf:
-        l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
-        U = U - c["spend"] * theta * (D @ V)
+    nf = fire.sum()                           # a device tensor: no host sync per layer
+    l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
+    U = U - c["spend"] * theta * (D @ V)
     if c.get("qdiag"): _qdiag(st, key, "a", U, V, t)
     state[key] = (qa(U), qV(V))
     st["_nf"] = st.get("_nf", 0) + nf; st["_nt"] = st.get("_nt", 0) + fire.numel()
@@ -334,7 +355,7 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
             ts_layer(l, g, state, c)
             del g
     nf, nt = st.pop("_nf", 0), st.pop("_nt", 0)
-    info = {"ts_frac": nf / max(nt, 1)}
+    info = {"ts_frac": float(nf) / max(nt, 1)}
     for w, rec in st.pop("_qd", {}).items():
         n = max(rec["n"], 1)
         info.update({f"qd_{w}_{k}": rec[k] / n for k in ("crest", "sub", "rel", "range")})
@@ -1416,6 +1437,10 @@ def main():
     ap.add_argument("--ts_spend", type=float, default=1.0,
                     help="--ts: a move spends this x theta (1: to the new trit's centre, like master --m_snap; 2: stays at "
                          "the boundary it crossed, like master)")
+    ap.add_argument("--gemm", default="triton", choices=["triton", "cublas"],
+                    help="ternary GEMMs: our Triton kernels, or cuBLAS bf16 on trits unpacked per call (faster on A100)")
+    ap.add_argument("--ts_orth", default="qr", choices=["qr", "chol"],
+                    help="--ts: subspace orthonormalisation by Householder QR or two-pass Cholesky-QR (faster)")
     ap.add_argument("--ts_qfmt", default="", help="--ts: storage format of the low-rank matrices: int8 | int8det | "
                     "int8row | bf16 | fp16 | fp8 (simulated; --ts_int8 = int8)")
     ap.add_argument("--ts_qfmt_m", default="", help="--ts: storage format of the short momentum (direction) alone")
@@ -1639,6 +1664,10 @@ def main():
     args = ap.parse_args()
     if args.tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
+    if args.gemm == "cublas":
+        from . import kernel as _kmod
+        _kmod.GEMM_BACKEND[0] = "cublas"
+    ORTH_CHOL[0] = args.ts_orth == "chol"
     TIME = os.environ.get("TERN_TIME") == "1"   # time the forward/backward vs the momentum step (synchronizes)
 
     mc: ModelConfig = PRESETS[args.preset]

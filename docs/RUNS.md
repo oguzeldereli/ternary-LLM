@@ -2813,3 +2813,27 @@ size, far below an int8 step (column absmax / 127), so stochastic rounding adds 
 memory (an equilibrium of order sqrt(tau) int8 steps); nearest rounding would freeze it instead. bf16 (7 mantissa bits)
 may fail the same way, fp16 (10) may not; the short momentum (beta 0.9, ~10% change per step) should be fine in int8.
 Ablation: QUEUE.md "Now (2 Oct, 18:45)" (10 runs, flags `--ts_qfmt`, `--ts_qwhich`, `--ts_qnoV`, `--ts_qdiag`).
+
+### 2 Oct 21:10: 1.3B A100 profile; storage formats at 3000; fixes
+
+**Profile** (`profile_1b_one.sh`, one A100 40 GB, 25 steps; time step = forward+backward / update; GiB after update =
+persistent): master 4.31 / 0.10 s, peak 25.9, persistent 19.4; old rule 7.38 / 1.57 s, peak 22.9, persistent **3.5**;
+`--ts` 7.39 / 2.57 s, peak 24.7, persistent **5.3**. Per step, our Triton ternary GEMMs take ~3.7 s (forward
+`_tern_gemm_i8_kernel` 2.1 s incl. the recompute, input gradient `_dx_kernel` 1.6 s) where master's cuBLAS bf16 GEMMs
+take ~0.9 s for the same products (4x slower on the A100; on the 4090 at 340M they were close); Householder QR 0.8 s
+(old rule) / 1.6 s (`--ts`, two subspaces); GPU 69% busy (a host sync per layer in `ts_layer`). Peak memory beyond the
+persistent state is ~19 GiB vs master's 6.6: two layers kept whole by `--ckpt_skip 2` (~5 GiB) and the fp32 gradient
+copies (4.6 GiB, removed by `--ts_fused`).
+
+Fixes (local commit): `--gemm cublas` (trits unpacked per call to bf16, cuBLAS with fp32 accumulation: exact for int8
+codes x trits), `--ts_orth chol` (two-pass Cholesky-QR with an fp64 r x r factorisation, no host sync; same span as QR to
+1e-7 on ill-conditioned and rank-deficient inputs), no host sync per layer in `ts_layer`. Equivalence and speed test on
+plaice (110M, 200 steps x 4) running; then a 1.3B timing job.
+
+**Storage formats** (`--ts` ranks 512, steps x ratio^0.5, fused; vs master at 3000; fp32 reference -0.071): direction int8
+-0.070 / fp8 -0.076 (free); accumulator fp16 -0.073 / bf16 -0.067; direction int8 + accumulator fp16 -0.071, fp8 + fp16
+-0.081, int8 + bf16 -0.070 (free); accumulator int8 -0.044 to -0.054 in every variant (~0.02-0.03); all fp8 +0.132, per-row
+int8 +0.009 (broken). **The direction tolerates 8 bits; the accumulator needs ~10 bits (fp16 / bf16), not int8.** Full
+int8 finals: ranks 512 2.7631 (fp32 twin 2.7224), ranks 256 2.8170 (2.7827).
+
+**1.3B `--ts`**: 3.218 at 2000 (master 3.242), 3.092 at 2500 (master 3.138): -0.046 and growing.
