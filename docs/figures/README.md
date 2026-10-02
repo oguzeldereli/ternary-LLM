@@ -7,6 +7,10 @@ noted. Validation loss is in nats per token; perplexity = e^loss. Formulas behin
 
 | figure | shows | script |
 |---|---|---|
+| `night_oct2.png` | night 1-2 Oct: master from scratch with one ingredient removed; the two-timescale rule (`--ts`) and its rank sweep; 340M; all as validation loss minus master's | `python -m scripts.plots.plot_night_oct2 MYRIAD_DUMP` |
+| `selection_runs.png` | flip selection (flat / inv / cheap / cosine blend) at rank 512 and cheap at every rank, minus the rule | `python -m scripts.plots.plot_oct1` |
+| `memory_undo_runs.png` | memory warm-up and undo with the long-memory recipe | `python -m scripts.plots.plot_oct1` |
+| `runs_1b.png` | the 1.3B pair on Myriad next to 110M and 340M (the 1.5e-3 master in it diverged) | `python -m scripts.plots.plot_oct1` |
 | `best_runs.png` | the best run at each step of progress, with the fp32 and master-weights references; whole run (log tokens) and 100M-300M with final loss and perplexity | `python -m scripts.plots.plot_best` |
 | `scale.png` | the recipe at 110M and 340M: the 110M rank sweep (32-1024, int8, refresh), 340M runs against 110M with master at both sizes, final loss against rank | `python -m scripts.plots.plot_scale` |
 | `runs_340m.png` | the 340M model: master and our recipe at rank 64 / 128 / 512 / full, validation loss and gap to master over training | `python -m scripts.plots.plot_340m` |

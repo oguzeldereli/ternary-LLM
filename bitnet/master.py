@@ -42,8 +42,38 @@ class MasterTernaryLinear(nn.Module):
         self.weight = nn.Parameter(w)
         self.gamma_fixed = None        # --m_gfix: the absmean scale frozen at a step (a plain attribute, not saved)
         self.T = None                  # --m_lag: the trits the forward uses, changed toward round(W / gamma) stochastically
+        self.row_scale = self.col_scale = None   # --rc_scale in master mode (the float extras our runs carry)
+        self.mag_A = None                        # --lowrank_mag add:R in master mode
+
+    def enable_rc_scale(self):
+        dev = self.weight.device
+        self.row_scale = nn.Parameter(torch.ones(self.N, device=dev))
+        self.col_scale = nn.Parameter(torch.ones(self.K, device=dev))
+
+    def enable_lowrank_mag(self, kind, r):
+        """the same float adapter as the kernel layer's 'add' kind: W = ternary + A B^T (A starts at 0)"""
+        assert kind == "add", "master mode: only the additive adapter"
+        dev = self.weight.device
+        self.mag_A = nn.Parameter(torch.zeros(self.N, r, device=dev))
+        self.mag_B = nn.Parameter(torch.randn(self.K, r, device=dev) * (1.0 / self.K) ** 0.5)
+        return [self.mag_A, self.mag_B]
+
+    def _extras(self, x, y_fn):
+        if self.col_scale is not None:
+            x = x * self.col_scale.to(x.dtype)
+        y = y_fn(x)
+        if self.mag_A is not None:
+            y = y + (x @ self.mag_B.to(x.dtype)) @ self.mag_A.to(x.dtype).T
+        if self.row_scale is not None:
+            y = y * self.row_scale.to(y.dtype)
+        return y
 
     def forward(self, x):
+        if self.row_scale is not None or self.mag_A is not None:
+            return self._extras(x, self._forward)
+        return self._forward(x)
+
+    def _forward(self, x):
         # under autocast both operands go to bf16, matching the kernel path's math
         if self.T is not None:
             w = self.weight

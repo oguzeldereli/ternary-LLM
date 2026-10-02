@@ -137,8 +137,11 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
 <section>
   <span class="eyebrow">Validation loss at 300M tokens (lower is better; perplexity = e^loss)</span>
   <div class="score">
+    <div class="best"><span class="v">2.675</span><span class="l"><b>ours, two-timescale rule (--ts), full rank</b>: short momentum + 1000-step accumulator + fire at a threshold (ppl 14.5; 2 Oct, one seed)</span></div>
     <div class="ref"><span class="v">2.683</span><span class="l">full precision fp32 + AdamW (ppl 14.6)</span></div>
     <div class="ref"><span class="v">2.751</span><span class="l">master weights: ternary forward, fp32 latent copy + AdamW (ppl 15.7)</span></div>
+    <div class="best"><span class="v">2.707</span><span class="l"><b>ours, --ts, both ranks 512</b> (ppl 15.0; 2.7115 / 2.7191 for other settings and seeds)</span></div>
+    <div><span class="v">2.814</span><span class="l">ours, --ts, both ranks 256 (128: 2.909, 64: 3.018)</span></div>
     <div class="best"><span class="v">2.793</span><span class="l"><b>ours, full-rank momentum: dry friction + spend</b> (2 seeds 2.7998 / 2.7864; ppl 16.3, gap 0.042)</span></div>
     <div class="best"><span class="v">2.815</span><span class="l"><b>ours, rank 512: dry friction + spend</b> (2 seeds 2.8215 / 2.8093; ppl 16.7, gap 0.064)</span></div>
     <div><span class="v">2.867</span><span class="l">ours, rank 256 (clearly below a full momentum's size at 110M; 2 seeds 2.8699 / 2.8639)</span></div>
@@ -150,7 +153,7 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
     <div><span class="v">3.077</span><span class="l">gate + Adam step + row/column scales (2 seeds 3.0773 / 3.0699)</span></div>
     <div><span class="v">3.131</span><span class="l">rank-256 momentum + row/column scales</span></div>
   </div>
-  <p>340M: master 2.6626, ours at half rank 2.7246 (gap 0.062), full rank finishing. Master's weights continued with our rule lose master's lead within 250 steps and end where our own runs end: the rule and its schedule, not the starting point, set the level; a lower flip rate in the second half led by 0.05 mid-run but ended equal. All from scratch, no look-ahead, one seed unless noted. "Sharp" = additive rank-16 float term + its weight decay + per-head attention temperature. The lever of 29–30 Sep was the momentum's <b>memory length</b> (33 → ~200–400 steps): the gap to master fell from 0.33 to 0.07. Every formula: <code>docs/FORMULAS.md</code>.</p>
+  <p><b>2 Oct:</b> master trained with one ingredient removed showed what it needs: a short momentum (beta1 0.997 instead of 0.9: +0.49), an integrator with a ~1000-step memory (300 steps: +0.097; master without its leftover offset after a crossing lands exactly on our old rule, +0.071) and immediate firing (trits that follow the latent at a rate: +0.77); rank and factored normalization do not matter (+0.02 / 0.00). The rule rebuilt that way (<code>--ts</code>) beats plain master; master given the same float extras as our runs (scales, additive rank-16 adapter, head temperature) is the fair reference and is running. 340M --ts: -0.14 vs 340M master at 4500 (running). Before: 340M master 2.6626, ours at half rank 2.7246 (gap 0.062), full rank 2.6905. Master's weights continued with our rule lose master's lead within 250 steps and end where our own runs end: the rule and its schedule, not the starting point, set the level; a lower flip rate in the second half led by 0.05 mid-run but ended equal. All from scratch, no look-ahead, one seed unless noted. "Sharp" = additive rank-16 float term + its weight decay + per-head attention temperature. The lever of 29–30 Sep was the momentum's <b>memory length</b> (33 → ~200–400 steps): the gap to master fell from 0.33 to 0.07. Every formula: <code>docs/FORMULAS.md</code>.</p>
 </section>
 
 <section>
@@ -158,10 +161,10 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
   <h2>What is running where</h2>
   <div class="tbl"><table>
     <tr><th>machine</th><th>run</th><th>what</th><th>expected</th></tr>
-    <tr><td>4090</td><td class="mono">big_dryspend_r512_s0 → big_master</td><td>340M model (d1024_l24): the recipe at rank 512, then master weights, 300M tokens each</td><td class="num">~19:45, then ~12–15 h</td></tr>
-    <tr><td>shoveler / mandarin</td><td class="mono">big_rk64_dryspend_s0 / big_rk128_dryspend_s0</td><td>340M, dry friction + spend at rank 64 / 128: does the rank needed grow with width?</td><td class="num">~01:00</td></tr>
-    <tr><td>mallard / cackling / gadwall</td><td class="mono">rk32 / rk64 / rk128_dryspend_s0</td><td>110M rank sweep of dry friction + spend (rank 64 ≈ 27B on 12 GB, ~256 ≈ 16 GB)</td><td class="num">~16:00</td></tr>
-    <tr><td>bufflehead</td><td class="mono">gvsharp_b0995spend_r512_s0</td><td>decay 0.995 + spend + rank 512 (the decay form of the best combination)</td><td class="num">~14:05</td></tr>
+    <tr><td>tope / lamprey</td><td class="mono">mx_extras_s0 / _seed2</td><td>fair reference: master + the same float extras as our runs</td><td class="num">~16:30</td></tr>
+    <tr><td>dory / goldeye / flounder / barbel</td><td class="mono">ts16full*_seed2, ts16rs512*_seed2</td><td>seed 2 of the four headline --ts runs</td><td class="num">~16:00–17:00</td></tr>
+    <tr><td>4090</td><td class="mono">big_ts16rs512tau1000_s0</td><td>--ts at 340M, both ranks 512</td><td class="num">~18:00</td></tr>
+    <tr><td>Myriad</td><td class="mono">x1b_dryspend_r512_lr75</td><td>1.3B, old rule at lr 7.5e-4 (1.3B master 2.5868)</td><td class="num">Sat</td></tr>
   </table></div>
   <p class="meh" style="font-size:13px">Kept current in <code>docs/QUEUE.md</code>. No look-ahead in new runs unless there is a new reason.</p>
 </section>
@@ -231,6 +234,13 @@ ul.plain{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4
       <div class="node good">With a long memory rank matters: 256 → 512 −0.046, → 1024 −0.016. Spend adds −0.01</div><div class="down">↓</div>
       <div class="node good"><b>2.8198</b> (dry + rank 1024), <b>2.8215</b> (dry + spend + rank 512): ppl 16.8 vs master 15.7</div><div class="down">↓</div>
       <div class="node bad">No gain: dither, slow gate, dry friction per weight, undo</div>
+    </div></div>
+    <div class="thread"><h3>7 · What master needs (1–2 Oct)</h3><div class="chain">
+      <div class="node bad">Cheaper flip selection (flat / inv / cheap): worse at every rank; the momentum's size is our only record of evidence</div><div class="down">↓</div>
+      <div class="node lead"><b>Master with one ingredient removed</b>: rank 512 / factored v / frozen scale: no effect. Snap (no leftover offset) +0.071 = our rule; offset forgets in 300 steps +0.097 (1000: fine); long first moment +0.49; firing at a rate +0.77</div><div class="down">↓</div>
+      <div class="node">So master = a short momentum for the direction + a long per-weight integrator + a change the moment it crosses; our rule had one long momentum and fired at a rate</div><div class="down">↓</div>
+      <div class="node good"><b>--ts</b>: short low-rank momentum (beta 0.9) → Adam step → long low-rank accumulator (leak ~1000 steps, steps × lr ratio) → flip at |A| ≥ 16, spend 16. Full rank <b>2.6746</b>, ranks 512 <b>2.7067</b> (master 2.7513)</div><div class="down">↓</div>
+      <div class="node">Short momentum rank matters (128 → 512: 2.856 → 2.733); ranks 256: 2.814, 128: 2.909; the lead fades in the cosine tail unless the annealing is milder</div>
     </div></div>
   </div></div>
 </section>

@@ -2675,3 +2675,30 @@ or of the leak keeps more of it.
 4. Replace the old rule at 1.3B with `--ts` for the goldbug booking (Oct 8).
 5. Memory: `--ts` keeps two low-rank matrices per layer (rank r + r_s) plus factored v: at 512/512 the state is ~2x the
    old rule's. The rank sweep says the short momentum's rank matters as much as the accumulator's.
+
+### 2 Oct 12:20: finals, and the fairness check
+
+Finished since the morning summary (vs master 2.7513; figure `figures/night_oct2.png`):
+
+| run | final | vs master |
+|---|---|---|
+| `ts16fullla1000_s0` (full / full, tau 1000, leak scaled by the lr) | **2.6746** | **-0.077** (full precision 2.683) |
+| `ts16rs1024la1000_s0` (512 / full, annealed leak) | 2.6968 | -0.055 |
+| `ts16rs512la1000_s0` / `+ gate` (512 / 512, annealed leak) | 2.7115 / 2.7116 | -0.040 |
+| `ts16rs512tau1000_seed2` (512 / 512, tau 1000; seed 1 2.7328) | 2.7191 | -0.032 |
+| `ts16rs512tau3000_s0` | 2.7270 | -0.024 |
+| `ts8rs512la1000_s0` | 2.7354 | -0.016 |
+| `ts16rs512la300_s0` | 2.7495 | -0.002 |
+| `ts16r512rs256tau1000_s0` / `ts16r256rs512tau1000_s0` | 2.7815 / 2.7825 | +0.030 / +0.031 |
+| `ts24rs512tau1000_s0` | 2.8103 | +0.059 |
+| `ts16r256rs256tau1000_s0` | 2.8136 | +0.062 |
+| `ts16r128rs128tau1000_s0` / `ts16r64rs64tau1000_s0` | 2.9088 / 3.0183 | +0.158 / +0.267 |
+
+340M (`big_ts16rs512tau1000_s0`, 512 / 512): -0.138 vs 340M master and -0.220 vs our old 340M rule at 4500.
+
+**Fairness.** Every `--ts` run (and every run of the old rule) carries float extras master never had: learned row and
+column scales, a rank-16 **additive float adapter** (W = beta T + A B^T, 2.8M floats at 110M) and per-head attention
+temperature. Alone they reach only 3.1725 (no flips), so the gains are the flips, but master given the same extras is the
+fair reference: `mx_extras_s0` / `_seed2` (master mode now supports `--rc_scale`, `--lowrank_mag add:R`, `--qk_temp`;
+running on tope / lamprey, ~16:30). Until then "beats master" means "beats the plain master reference". Also running:
+seed 2 of the full-rank and rank-512 headline runs (four runs), and 340M (~18:00).

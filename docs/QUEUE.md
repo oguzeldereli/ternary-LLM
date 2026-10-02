@@ -6,14 +6,28 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 10:55
+Last updated: 2026-10-02 12:20
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (2 Oct, 10:55)
+## Now (2 Oct, 12:20)
+
+| machine | run | what | expected |
+|---|---|---|---|
+| tope / lamprey | `mx_extras_s0` / `mx_extras_seed2` | **fair reference**: master + the same float extras as our runs (row/col scales, additive rank-16 adapter, qk temperature) | ~16:30 |
+| dory / goldeye | `ts16full_tau1000_seed2` / `ts16fullla1000_seed2` | seed 2 of the full-rank `--ts` runs (2.6982 / 2.6746) | ~16:00-17:00 |
+| flounder / barbel | `ts16rs512tau1000an05_seed2` / `ts16rs512la1000_seed2` | seed 2 of the rank-512 `--ts` runs (2.7067 / 2.7115) | ~16:00-17:00 |
+| harlequin / pintail / uaru | `ts16fulltau1000an05_s0` / `ts16rs512tau1000an075_s0` / `ts16r256rs256tau1000an05_s0` | annealing variants | ~13:30 |
+| skate | `ts16r128rs512tau1000_s0` | accumulator 128 + short 512 | ~14:00 |
+| 4090 | `big_ts16rs512tau1000_s0` | `--ts` 512 / 512 at 340M: -0.138 vs 340M master at 4500 | ~18:00 |
+| Myriad 36472 | `x1b_dryspend_r512_lr75` | 1.3B old rule at lr 7.5e-4 (1.3B master 2.5868) | Sat |
+
+Free lab121: albacore, elver, hake, inanga, koi (another user's Ray worker), plaice, quillback, rudd.
+
+## Earlier (2 Oct, 10:55)
 
 | machine | run | what | expected |
 |---|---|---|---|

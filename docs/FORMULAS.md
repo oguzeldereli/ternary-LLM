@@ -33,7 +33,71 @@ $$\gamma=\operatorname{mean}|W|,\qquad W_q=\gamma\cdot\operatorname{clip}(\opera
 (`fp32_baseline`): 2.683. Master with its latent stored on a $(2^k-1)$-level grid (`--master_bits k`): 4 bits 2.923,
 3 bits 3.122, 2 bits 3.469 (branches at 131M).
 
-## 2. The current recipe
+## 2a. The two-timescale rule (`--ts`, 2 Oct): the new best
+
+Built on what master turned out to need (2b). Best: all full rank `ts16fullla1000_s0` **2.6746** (master 2.7513,
+full precision 2.683); both ranks 512 `ts16rs512tau1000an05_s0` **2.7067**. Flags (rank 512 version):
+`--ts --lowrank 512 --ts_rank_s 512 --ts_theta 16 --ts_tau 1000 --ts_anneal 0.5 --rc_scale --lowrank_mag add:16
+--mag_wd 0.1 --qk_temp` (`--ts_tau_anneal` instead of `--ts_anneal 0.5` for the annealed-leak version).
+
+Per layer and step ($\rho_t = \text{lr}_t/\text{lr}_\text{peak}$):
+
+**Second moment**, factored as in 2.2 but with Adam's decay and bias correction ($\beta_2=0.95$):
+$R_i\leftarrow\beta_2R_i+(1-\beta_2)\overline{g_{i\cdot}^2}$, $C_j$ likewise, $v_{ij}=R_iC_j/\overline R\,/(1-\beta_2^t)$.
+
+**Short momentum** (direction), rank $r_s$ (`--ts_rank_s`), $\beta_1=0.9$ (~10 steps), kept by subspace iteration:
+$m\leftarrow\beta_1m+(1-\beta_1)g$. Adam's normalized step: $u=-\dfrac{m/(1-\beta_1^t)}{\sqrt{v}+\epsilon}$.
+
+**Long accumulator** (the latent's sub-threshold position), rank $r$ (`--lowrank`), leak $\tau$ (`--ts_tau`):
+
+$$A\leftarrow\Big(1-\frac{\lambda_t}{\tau}\Big)A+\rho_t^{\,p}\,u,\qquad \lambda_t=\rho_t\ \text{(`--ts_tau_anneal`) or }1,\quad p=\text{`--ts\_anneal`}\ (1)$$
+
+(one subspace-iteration step with $\beta=1$ after the leak, as 2.1).
+
+**Fire at a threshold** (no flip rate): a trit moves by $d_{ij}=\operatorname{sign}(A_{ij})$ the step $|A_{ij}|\ge\theta$
+(`--ts_theta`, 16 ~ half a bin of master's latent over the peak lr), unless blocked at $\pm1$; optionally only where this
+batch's gradient agrees (`--lr_gate`: no effect here). **Spend**: $A\leftarrow A-c\,\theta D$, low-rank
+$U\leftarrow U-c\,\theta\,(DV)$, $D$ the trit changes, $c=$ `--ts_spend` (1 = to the new trit's centre; 2 = stay at the
+crossed boundary, worse).
+
+State per layer: $(r+r_s)(N+K)$ for the two low-rank matrices plus $N+K$ for $v$; at 512 / 512 about twice the old
+rule's. Results (110M, 300M tokens, vs master 2.7513):
+
+| setting | final |
+|---|---|
+| full / full, tau 1000, annealed leak | **2.6746** |
+| full / full, tau 1000 | 2.6982 |
+| 512 / full, annealed leak | 2.6968 |
+| 512 / 512, tau 1000, p 0.5 | **2.7067** |
+| 512 / 512, tau 1000, annealed leak (+ gate) | 2.7115 (2.7116) |
+| 512 / 512, tau 1000 (seeds 1 / 2) | 2.7328 / 2.7191 |
+| 512 / 512, tau 3000 | 2.7270 |
+| 512 / 512, tau 300 | 2.8054 |
+| 512 / 256, 256 / 512 | 2.7815, 2.7825 |
+| 256 / 256 | 2.8136 |
+| 128 / 128, 64 / 64 | 2.9088, 3.0183 |
+| 512 / 128 (default short rank), tau 300 / 1000 | 2.9415 / 2.8561 |
+| theta 8 / 24 (512 / 512, tau 1000) | 2.7354 (annealed leak) / 2.8103 |
+| no flips (theta $10^9$): float extras only | 3.1725 |
+
+The float extras (row/column scales, rank-16 additive adapter, qk temperature) are in every row; master with the same
+extras (`mx_extras_*`) is the fair reference (running).
+
+## 2b. What master cannot do without (master from scratch with one ingredient changed, `--m_*`, `bitnet/master_opt.py`)
+
+| flag | change | final (master 2.7513) |
+|---|---|---|
+| `--m_factv` | second moment factored (row x column) | 2.7513 |
+| `--m_rank 512` | first moment rank 512 (subspace iteration) | 2.7710 |
+| `--m_gate` | update only where the batch gradient agrees with m | 2.7325 |
+| `--m_leak 1000` | $W\leftarrow W-(W-t\gamma)/\tau$: the offset from the trit centre forgets, tau 1000 | 2.7298 |
+| `--m_snap` | a latent whose trit changes is set to $t\gamma$ | **2.8225** |
+| `--m_leak 300` | ... tau 300 | **2.8479** |
+| `--m_beta1 0.997 --m_beta2 0.999` | long first moment (`--m_beta2 0.999` alone: 2.7685) | **3.2446** |
+| `--m_lag 0.02` | the trits follow round(W / gamma) with prob. 0.02 per step | **3.5214** |
+| `--m_gfix S`, `--m_clamp C` | frozen gamma (no effect in a 500-step branch) / clamp (collapses: it lowers gamma) | - |
+
+## 2. The previous recipe (dry friction + spend)
 
 Best so far: `gvsharp_dryspend_r1024_s0` **2.7998** (dry friction + spend, rank 1024 = full rank at 110M, where every
 matrix has a smaller side of 768) and, with a compressed (sublinear) momentum, `gvsharp_dryspend_r512_s0` **2.8215**

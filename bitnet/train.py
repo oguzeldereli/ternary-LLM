@@ -1621,7 +1621,14 @@ def main():
         print("per-head attention temperature on (log-scale, init 0)", flush=True)
     if args.rc_scale:
         from .flip import enable_rc_scales
-        print(f"row/column scales: {enable_rc_scales(model) / 1e3:.1f}k floats", flush=True)
+        if args.mode == "master":
+            from .master import MasterTernaryLinear
+            nrc = 0
+            for m_ in model.modules():
+                if isinstance(m_, MasterTernaryLinear): m_.enable_rc_scale(); nrc += m_.N + m_.K
+            print(f"row/column scales (master): {nrc / 1e3:.1f}k floats", flush=True)
+        else:
+            print(f"row/column scales: {enable_rc_scales(model) / 1e3:.1f}k floats", flush=True)
     if args.compile:
         from .model import enable_compile
         enable_compile()
@@ -1630,6 +1637,9 @@ def main():
         # the baseline keeps everything in fp32 with a standard AdamW: no bf16
         # rounding anywhere, so the ceiling is not limited by storage precision.
         master, emb, norms = split_params(model)
+        # the float extras (--rc_scale, --qk_temp) without weight decay, as in the kernel path's tail groups
+        xid = {id(p) for n, p in model.named_parameters() if n.endswith(("row_scale", "col_scale", "qk_logscale"))}
+        norms = norms + [p for p in emb if id(p) in xid]; emb = [p for p in emb if id(p) not in xid]
         tail = master + emb + norms
         if args.m_factv or args.m_rank or args.m_beta1 or args.m_gate or args.m_beta2:
             from .master_opt import AdamX
@@ -1802,8 +1812,9 @@ def main():
         # loads unchanged), before it when the checkpoint already has them (so they and their AdamW state load)
         kind, r = args.lowrank_mag.split(":")
         newp = []
+        from .master import MasterTernaryLinear
         for m in model.modules():
-            if isinstance(m, KernelTernaryLinear):
+            if isinstance(m, (KernelTernaryLinear, MasterTernaryLinear)):
                 newp += m.enable_lowrank_mag(kind, int(r))
         tail.extend(newp)
         tail_opt.add_param_group({"params": newp, "weight_decay": args.mag_wd, "lr_mult": args.mag_lr_mult,

@@ -9,6 +9,12 @@ Running, queued, unfinished and never-run runs: [QUEUE.md](QUEUE.md) (kept curre
 |---|---|---|---|
 | `fp32_baseline` | full precision, fp32 + AdamW (reference) | 2.683 | 14.6 |
 | `master_tracked` | master weights: fp32 latent + STE + AdamW (reference) | 2.751 | 15.7 |
+| **`ts16fullla1000_s0`** | `--ts` (2 Oct): short momentum + accumulator (full rank), tau 1000 with the leak scaled by the lr, fire at theta 16 | **2.6746** | **14.5** |
+| `ts16rs1024la1000_s0` | `--ts`, accumulator rank 512 + full-rank short momentum, annealed leak | 2.6968 | 14.8 |
+| `ts16full_tau1000_s0` | `--ts`, full rank, tau 1000 | 2.6982 | 14.9 |
+| **`ts16rs512tau1000an05_s0`** | `--ts`, both ranks 512, tau 1000, steps x (lr ratio)^0.5 | **2.7067** | **15.0** |
+| `ts16rs512la1000_s0` / `_gate` | `--ts`, both ranks 512, tau 1000, annealed leak (/ + sign gate) | 2.7115 / 2.7116 | 15.1 |
+| `ts16rs512tau1000_s0` / `_seed2` | `--ts`, both ranks 512, tau 1000, seeds 1 / 2 | 2.7328 / 2.7191 | 15.4 / 15.2 |
 | **`gvsharp_dryspend_r1024_s0`** | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 1024 (= full rank: every 110M matrix has a smaller side of 768) | **2.7998** | **16.4** |
 | `gvsharp_dry_r1024_s0` / `_seed2` | sharp base + beta 1 + dry friction 1/33 + rank 1024, seeds 1 / 2 | 2.8198 / 2.8088 | 16.8 / 16.6 |
 | `gvsharp_dryspend_r512_s0` | sharp base + beta 1 + dry friction 1/33 + spend 3 + rank 512 | 2.8215 | 16.8 |
@@ -18,6 +24,10 @@ Running, queued, unfinished and never-run runs: [QUEUE.md](QUEUE.md) (kept curre
 | `gvsharp_rc_s0` | sharp base: gate + Adam step + row/col scales + additive r16 + adapter wd + head temperature | 2.9875 | 19.8 |
 
 The sections below keep each phase's own unit: the first phases report perplexity, from 27 Sep on validation loss.
+
+Caveat on `--ts` vs master: our runs carry float extras master does not (row / column scales, a rank-16 additive float
+adapter, per-head attention temperature). Alone (no flips) they reach only 3.1725, but master with the same extras
+(`mx_extras_s0` / `_seed2`, running) is the fair reference. The `--ts` rows are one seed each except where noted.
 
 Every directory under `checkpoints/` (gitignored). Unless noted: 110M (`small`), wiki32k,
 seq 2048, 16 x 2048 = 32,768 tokens/step, same seed and batch order, kernel mode with
@@ -201,16 +211,18 @@ ones: [QUEUE.md](QUEUE.md).
 | `ts16rs1024tau1000_s0` (harlequin) / **`ts16rs512tau1000an05_s0`** (pintail) | full-rank short momentum + tau 1000 / short rank 512 + tau 1000 + milder annealing (lr ratio^0.5) | 300M | 2.7203 (-0.031) / **2.7067 (-0.045 vs master)** |
 | **`ts16full_tau1000_s0`** (4090) | everything full rank, tau 1000 | 300M | **2.6982 (-0.053 vs master; -0.102 vs our full rank 2.7998)** |
 | `ts16rs512tau1000an0_s0` (hake) | short rank 512 + tau 1000, no annealing (steps not scaled by the lr) | stopped @3360 | +0.108 @3250 |
-| `ts16rs512la300_s0` / `ts16rs512la1000_s0` (albacore / dory) | short rank 512, leak annealed with the lr (`--ts_tau_anneal`), tau 300 / 1000 | running / 300M | -0.006 @9000 / **2.7115 (-0.040)** |
-| `ts16fullla1000_s0` / `ts16rs1024la1000_s0` (elver / quillback) | all full rank / full-rank short momentum, annealed leak tau 1000 | running | **-0.083 @8500** / -0.058 @8750 |
-| `ts8rs512la1000_s0` / `ts16rs512la1000gate_s0` (flounder / inanga) | theta 8 / + gate, short rank 512, annealed leak tau 1000 | 300M / running | 2.7354 (-0.016) / -0.043 @9000 |
-| `ts16r256rs256tau1000_s0` / `ts16r128rs128tau1000_s0` (lamprey / goldeye) | best setting with both ranks 256 / 128 | running | - |
-| `ts16r256rs512tau1000_s0` / `ts16r512rs256tau1000_s0` (tope / koi) | accumulator 256 + short 512 / accumulator 512 + short 256 | running | - |
-| `ts16rs512tau3000_s0` / `ts24rs512tau1000_s0` / `ts16rs512tau1000_seed2` (barbel / hake / plaice) | tau 3000 / theta 24 / seed 2 | running | - |
-| `big_ts16rs512tau1000_s0` (4090) | the best setting at 340M (master 2.6626, our rule r512 2.7246) | running | -0.162 vs 340M master, -0.216 vs our 340M rule @3000 |
-| `ts16r64rs64tau1000_s0` / `ts16r128rs512tau1000_s0` (rudd / skate) | both ranks 64 / accumulator 128 + short 512 | running | - |
-| `ts16fulltau1000an05_s0` / `ts16rs512tau1000an075_s0` / `ts16r256rs256tau1000an05_s0` (harlequin / pintail / uaru) | full rank + annealing ^0.5 / rank 512 + ^0.75 / ranks 256 + ^0.5 | running | - |
+| `ts16rs512la300_s0` / `ts16rs512la1000_s0` (albacore / dory) | short rank 512, leak annealed with the lr (`--ts_tau_anneal`), tau 300 / 1000 | 300M | 2.7495 (-0.002) / **2.7115 (-0.040)** |
+| `ts16fullla1000_s0` / `ts16rs1024la1000_s0` (elver / quillback) | all full rank / full-rank short momentum, annealed leak tau 1000 | 300M | **2.6746 (-0.077)** / 2.6968 (-0.055) |
+| `ts8rs512la1000_s0` / `ts16rs512la1000gate_s0` (flounder / inanga) | theta 8 / + gate, short rank 512, annealed leak tau 1000 | 300M | 2.7354 (-0.016) / 2.7116 (-0.040) |
+| `ts16r256rs256tau1000_s0` / `ts16r128rs128tau1000_s0` (lamprey / goldeye) | best setting with both ranks 256 / 128 | 300M | 2.8136 (+0.062) / 2.9088 (+0.158) |
+| `ts16r256rs512tau1000_s0` / `ts16r512rs256tau1000_s0` (tope / koi) | accumulator 256 + short 512 / accumulator 512 + short 256 | 300M | 2.7825 (+0.031) / 2.7815 (+0.030) |
+| `ts16rs512tau3000_s0` / `ts24rs512tau1000_s0` / `ts16rs512tau1000_seed2` (barbel / hake / plaice) | tau 3000 / theta 24 / seed 2 | 300M | 2.7270 (-0.024) / 2.8103 (+0.059) / 2.7191 (-0.032) |
+| `big_ts16rs512tau1000_s0` (4090) | the best setting at 340M (master 2.6626, our rule r512 2.7246) | running | -0.138 vs 340M master, -0.220 vs our 340M rule @4500 |
+| `ts16r64rs64tau1000_s0` / `ts16r128rs512tau1000_s0` (rudd / skate) | both ranks 64 / accumulator 128 + short 512 | 300M / running | 3.0183 (+0.267) / +0.026 @6000 |
+| `ts16fulltau1000an05_s0` / `ts16rs512tau1000an075_s0` / `ts16r256rs256tau1000an05_s0` (harlequin / pintail / uaru) | full rank + annealing ^0.5 / rank 512 + ^0.75 / ranks 256 + ^0.5 | running | @6500-7000 |
 | `ts16full_tau1000_seed2` / `ts16rs512tau1000an05_seed2` (dory / flounder) | seed 2 of the two headline runs | running | - |
+| `ts16fullla1000_seed2` / `ts16rs512la1000_seed2` (goldeye / barbel) | seed 2 of the annealed-leak runs | running | - |
+| `mx_extras_s0` / `mx_extras_seed2` (tope / lamprey) | **fair reference**: master + the same float extras (row/col scales, additive rank-16 adapter, qk temperature) | running | - |
 | `tsnoflip_s0` | control: theta 1e9 (no flips; float extras only) | 300M | 3.1725 (+0.421) |
 
 ## Recipe tweaks (1-2 Oct, finished; vs the rule r512 2.8215)
