@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 05:45
+Last updated: 2026-10-02 06:45
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
@@ -24,6 +24,10 @@ with the lr too (`--ts_tau_anneal`).
 | albacore / dory | `ts16rs512la300_s0` / `ts16rs512la1000_s0` | short rank 512, annealed leak tau 300 / 1000 | ~10:45 |
 | elver / quillback | `ts16fullla1000_s0` / `ts16rs1024la1000_s0` | all full rank / full-rank short momentum, annealed leak tau 1000 | ~10:45 |
 | flounder / inanga | `ts8rs512la1000_s0` / `ts16rs512la1000gate_s0` | theta 8 / + gate | ~10:45 |
+| lamprey / goldeye | `ts16r256rs256tau1000_s0` / `ts16r128rs128tau1000_s0` | best `--ts` setting with both ranks 256 / 128 | ~11:30 |
+| tope / koi | `ts16r256rs512tau1000_s0` / `ts16r512rs256tau1000_s0` | which rank matters: accumulator 256 / short momentum 256 | ~11:30 |
+| barbel / hake / plaice | `ts16rs512tau3000_s0` / `ts24rs512tau1000_s0` / `ts16rs512tau1000_seed2` | tau 3000 / theta 24 / seed 2 | ~11:30 |
+| 4090 | `big_ts16rs512tau1000_s0` | the best setting at 340M, after `ts16full_tau1000_s0` | ~16:00 |
 | rudd / skate | `ts16rs512tau1000_s0` / `ts16rs512sp2_s0` | (fixed leak) short rank 512 + tau 1000 / + spend 2 | ~07:30 |
 | harlequin / pintail / hake | `ts16rs1024tau1000_s0` / `ts16rs512tau1000an05_s0` / `ts16rs512tau1000an0_s0` | full-rank short; milder / no annealing | ~08:30-10:00 |
 | 4090 | `ts16full_tau1000_s0` | all full rank, tau 1000 | ~07:30 |

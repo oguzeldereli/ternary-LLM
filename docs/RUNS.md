@@ -2562,3 +2562,19 @@ through weight decay, lr * 0.1 per step, which shrinks with the lr); `mx_leak300
 Master, finished: beta1 0.997 (beta2 0.999) **3.2446 (+0.493)**; beta2 0.999 alone 2.7685 (+0.017): the long first moment
 is what breaks it. Ours with per-weight v at full rank (`ours_vfull_r1024`) 2.8019 vs 2.7998 factored: no gain.
 `fast512` 2.8201 (= the rule).
+
+### 2 Oct 06:35: `--ts` with a rank-512 short momentum and tau 1000 passes master
+
+`ts16rs512tau1000_s0` (short momentum rank 512, accumulator rank 512, tau 1000, theta 16): **2.7406 at 8250, -0.035 vs
+master** (-0.118 / -0.103 / -0.092 / -0.089 / -0.071 / -0.041 at 1000 / 3000 / 5000 / 6000 / 7000 / 8000; our rule r512
+is +0.155 at 8250). Its lead still shrinks late, but it should finish at or below master. `ts16rs512_s0` (tau 300)
+finished **2.8054**, ahead of our rule r512 (2.8215). Running, vs master: all full rank tau 1000 -0.109 @6750; full-rank
+short tau 1000 -0.099 @5500; annealed-leak runs -0.107 to -0.135 @1500 (theta 8: +0.038). Late-phase knobs: lr
+annealing of the steps must stay (milder ^0.5: -0.041 @5500; none: +0.108 @3250); spend 2 theta is worse than spend theta
+(+0.046 vs +0.031 @8000-8250). So in `--ts` the snap-like spend is fine; what mattered are the short momentum's rank
+(128 -> 512: 2.856 -> ~2.74 at tau 1000) and the memory (tau 300 -> 1000).
+
+Master, finished: leak tau 1000 **2.7298 (-0.021)**: a 1000-step memory is all master needs (tau 300 +0.097).
+
+Started: rank sweep of the best setting (both ranks 256 / 128; accumulator 256 + short 512; short 256 + accumulator
+512), tau 3000, theta 24, seed 2, and the setting at 340M (4090, after `ts16full_tau1000_s0`).

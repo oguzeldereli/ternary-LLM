@@ -180,7 +180,7 @@ ones: [QUEUE.md](QUEUE.md).
 | `mx_rank512` (Myriad) | first moment at rank 512 | 300M | 2.7710 (+0.020) |
 | `mx_snap` (Myriad) | a latent whose trit changes is set to the new trit's centre | 300M | **2.8225 (+0.071; = our rule r512)** |
 | `mx_leak300` (Myriad) | the latent's offset forgets with tau 300 | 300M | **2.8479 (+0.097)** |
-| `mx_leak1000` (lab121) | ... tau 1000 | running | -0.027 @8750 |
+| `mx_leak1000` (lab121) | ... tau 1000 | 300M | 2.7298 (-0.021) |
 | `mx_lag02` (4090) | trits follow the latent with prob. 0.02 / step (our rate-limited firing) | 300M | **3.5214 (+0.770)** |
 | `mx_b1997b2` (lab121) | beta1 0.997 (beta2 0.999) | 300M | **3.2446 (+0.493)** |
 | `mx_b2999` (lab121) | beta2 0.999 alone (control) | 300M | 2.7685 (+0.017) |
@@ -194,16 +194,20 @@ ones: [QUEUE.md](QUEUE.md).
 | `ts16_s0` / `ts8_s0` / `ts32_s0` | theta 16 / 8 / 32 (short momentum rank 128, accumulator rank 512, tau 300, spend theta) | 300M | 2.9415 / +0.107 @9000 / 3.1545 (vs master +0.190 / +0.107 / +0.403) |
 | `ts16gate_s0` | theta 16 + sign gate | 300M | 2.9455 (+0.194) |
 | `ts16tau1000_s0` | theta 16, tau 1000 | 300M | 2.8561 (+0.105) |
-| `ts16r1024_s0` | theta 16, full-rank accumulator | running | +0.047 @5000 |
-| `ts16rs512_s0` | theta 16, short momentum rank 512 | running | -0.10 early, +0.041 @8500 |
-| `ts16sp2_s0` / `ts16rs512sp2_s0` | spend 2 theta (stay at the crossed boundary) / + short rank 512 | running | +0.019 @3500 / -0.082 @3000 |
-| `ts16rs512tau1000_s0` | short rank 512 + tau 1000 | running | **-0.103 @3000** |
+| `ts16r1024_s0` | theta 16, full-rank accumulator | 300M | 2.9292 (+0.178) |
+| `ts16rs512_s0` | theta 16, short momentum rank 512 | 300M | **2.8054** (+0.054 vs master; -0.016 vs our rule r512) |
+| `ts16sp2_s0` / `ts16rs512sp2_s0` | spend 2 theta (stay at the crossed boundary) / + short rank 512 | 300M / running | 2.9472 (+0.196) / +0.046 @8250 |
+| `ts16rs512tau1000_s0` | short rank 512 + tau 1000 | running | **2.7406 @8250 (-0.035 vs master)** |
 | `ts16rs1024tau1000_s0` (harlequin) / `ts16rs512tau1000an05_s0` (pintail) | full-rank short momentum + tau 1000 / short rank 512 + tau 1000 + milder annealing (lr ratio^0.5) | running | - |
 | `ts16full_tau1000_s0` (4090) | everything full rank, tau 1000 | running | -0.129 @2250 |
 | `ts16rs512tau1000an0_s0` (hake) | short rank 512 + tau 1000, no annealing (steps not scaled by the lr) | running | - |
 | `ts16rs512la300_s0` / `ts16rs512la1000_s0` (albacore / dory) | short rank 512, leak annealed with the lr (`--ts_tau_anneal`), tau 300 / 1000 | running | - |
 | `ts16fullla1000_s0` / `ts16rs1024la1000_s0` (elver / quillback) | all full rank / full-rank short momentum, annealed leak tau 1000 | running | - |
 | `ts8rs512la1000_s0` / `ts16rs512la1000gate_s0` (flounder / inanga) | theta 8 / + gate, short rank 512, annealed leak tau 1000 | running | - |
+| `ts16r256rs256tau1000_s0` / `ts16r128rs128tau1000_s0` (lamprey / goldeye) | best setting with both ranks 256 / 128 | running | - |
+| `ts16r256rs512tau1000_s0` / `ts16r512rs256tau1000_s0` (tope / koi) | accumulator 256 + short 512 / accumulator 512 + short 256 | running | - |
+| `ts16rs512tau3000_s0` / `ts24rs512tau1000_s0` / `ts16rs512tau1000_seed2` (barbel / hake / plaice) | tau 3000 / theta 24 / seed 2 | running | - |
+| `big_ts16rs512tau1000_s0` (4090, queued) | the best setting at 340M (master 2.6626, our rule r512 2.7246) | queued | - |
 | `tsnoflip_s0` | control: theta 1e9 (no flips; float extras only) | running | +0.398 @1500 |
 
 ## Recipe tweaks (1-2 Oct, finished; vs the rule r512 2.8215)
