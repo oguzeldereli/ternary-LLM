@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 07:45
+Last updated: 2026-10-02 08:45
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
@@ -29,7 +29,7 @@ with the lr too (`--ts_tau_anneal`).
 | barbel / hake / plaice | `ts16rs512tau3000_s0` / `ts24rs512tau1000_s0` / `ts16rs512tau1000_seed2` | tau 3000 / theta 24 / seed 2 | ~11:30 |
 | 4090 | `big_ts16rs512tau1000_s0` | the best setting at 340M (4.1 s/step, 12.6 GiB). `ts16full_tau1000_s0` finished **2.6982** | ~18:00 |
 | rudd / skate | `ts16r64rs64tau1000_s0` / `ts16r128rs512tau1000_s0` | both ranks 64 / accumulator 128 + short 512. Finished: `ts16rs512tau1000_s0` **2.7328**, `ts16rs512sp2_s0` 2.8138 | ~12:30 |
-| harlequin / pintail / hake | `ts16rs1024tau1000_s0` / `ts16rs512tau1000an05_s0` / `ts16rs512tau1000an0_s0` | full-rank short; milder / no annealing | ~08:30-10:00 |
+| harlequin / pintail / uaru | `ts16fulltau1000an05_s0` / `ts16rs512tau1000an075_s0` / `ts16r256rs256tau1000an05_s0` | milder annealing on full rank / ^0.75 at rank 512 / ^0.5 at ranks 256. Finished: `ts16rs512tau1000an05_s0` **2.7067**, `ts16rs1024tau1000_s0` 2.7203, `tsnoflip_s0` 3.1725; `...an0` stopped (+0.108) | ~13:30 |
 | 4090 | `ts16full_tau1000_s0` | all full rank, tau 1000 | ~07:30 |
 | lamprey / goldeye / barbel / plaice | `ts16rs512_s0` / `ts16r1024_s0` / `ts8_s0` / `ts16sp2_s0` | first-wave `--ts` | ~06:00-08:00 |
 | tope / uaru | `mx_leak1000` / `tsnoflip_s0` | master leak 1000 / no-flip control | ~06:15 / ~08:00 |

@@ -2590,3 +2590,17 @@ Started: rank sweep of the best setting (both ranks 256 / 128; accumulator 256 +
   -0.088; accumulator 512 + short 256 -0.088 (both ranks matter about equally); tau 3000 -0.118; theta 24 -0.073; seed 2
   -0.123 (seed 1 -0.12 there). Annealed-leak variants at 3000-3250: -0.084 to -0.118 (their late phase decides).
 - Started: both ranks 64; accumulator 128 + short 512. 340M of the best setting running on the 4090 (~18:00).
+
+### 2 Oct 08:35
+
+- **`ts16rs512tau1000an05_s0` 2.7067 (-0.045 vs master)**: rank 512, tau 1000, steps scaled by (lr_t / lr_peak)^0.5. It
+  trailed the ^1 run early (-0.06 vs -0.12 at 1000) but is the only one that does not fade late (-0.039 / -0.039 / -0.046
+  / -0.045 at 7000 / 8000 / 9000 / 9155), ending 0.026 below the ^1 run (2.7328).
+- `ts16rs1024tau1000_s0` (full-rank short momentum, accumulator 512) 2.7203 (-0.031). `tsnoflip_s0` 3.1725.
+- Rank sweep vs master: both 256 -0.044 @3500, both 128 +0.035 @3750, both 64 +0.105 @1750, accumulator 128 + short 512
+  -0.033 @1750; seed 2 of the best -0.124 @3250 (seed 1 -0.10).
+- **340M** (`big_ts16rs512tau1000_s0`): vs 340M master -0.124 / -0.147 / -0.172 / -0.175 at 250 / 500 / 750 / 1000
+  (our 340M rule r512 is +0.6 behind it there).
+- 1.3B master at lr 7.5e-4 (`x1b_master_lr75`) finished 2.5868; our 1.3B rule (`x1b_dryspend_r512_lr75`) +0.154 vs 110M
+  master at 2500, still far behind the 1.3B master.
+- Started: annealing ^0.5 on all full rank, ^0.75 at rank 512, ^0.5 at ranks 256.

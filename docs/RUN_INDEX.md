@@ -198,7 +198,7 @@ ones: [QUEUE.md](QUEUE.md).
 | `ts16rs512_s0` | theta 16, short momentum rank 512 | 300M | **2.8054** (+0.054 vs master; -0.016 vs our rule r512) |
 | `ts16sp2_s0` / `ts16rs512sp2_s0` | spend 2 theta (stay at the crossed boundary) / + short rank 512 | 300M | 2.9472 (+0.196) / 2.8138 (+0.063) |
 | **`ts16rs512tau1000_s0`** | short rank 512 + tau 1000 | 300M | **2.7328 (-0.019 vs master; -0.089 vs our rule r512)** |
-| `ts16rs1024tau1000_s0` (harlequin) / `ts16rs512tau1000an05_s0` (pintail) | full-rank short momentum + tau 1000 / short rank 512 + tau 1000 + milder annealing (lr ratio^0.5) | running | - |
+| `ts16rs1024tau1000_s0` (harlequin) / **`ts16rs512tau1000an05_s0`** (pintail) | full-rank short momentum + tau 1000 / short rank 512 + tau 1000 + milder annealing (lr ratio^0.5) | 300M | 2.7203 (-0.031) / **2.7067 (-0.045 vs master)** |
 | **`ts16full_tau1000_s0`** (4090) | everything full rank, tau 1000 | 300M | **2.6982 (-0.053 vs master; -0.102 vs our full rank 2.7998)** |
 | `ts16rs512tau1000an0_s0` (hake) | short rank 512 + tau 1000, no annealing (steps not scaled by the lr) | stopped @3360 | +0.108 @3250 |
 | `ts16rs512la300_s0` / `ts16rs512la1000_s0` (albacore / dory) | short rank 512, leak annealed with the lr (`--ts_tau_anneal`), tau 300 / 1000 | running | - |
@@ -207,9 +207,10 @@ ones: [QUEUE.md](QUEUE.md).
 | `ts16r256rs256tau1000_s0` / `ts16r128rs128tau1000_s0` (lamprey / goldeye) | best setting with both ranks 256 / 128 | running | - |
 | `ts16r256rs512tau1000_s0` / `ts16r512rs256tau1000_s0` (tope / koi) | accumulator 256 + short 512 / accumulator 512 + short 256 | running | - |
 | `ts16rs512tau3000_s0` / `ts24rs512tau1000_s0` / `ts16rs512tau1000_seed2` (barbel / hake / plaice) | tau 3000 / theta 24 / seed 2 | running | - |
-| `big_ts16rs512tau1000_s0` (4090, queued) | the best setting at 340M (master 2.6626, our rule r512 2.7246) | queued | - |
+| `big_ts16rs512tau1000_s0` (4090) | the best setting at 340M (master 2.6626, our rule r512 2.7246) | running | -0.175 vs 340M master @1000 |
 | `ts16r64rs64tau1000_s0` / `ts16r128rs512tau1000_s0` (rudd / skate) | both ranks 64 / accumulator 128 + short 512 | running | - |
-| `tsnoflip_s0` | control: theta 1e9 (no flips; float extras only) | running | +0.398 @1500 |
+| `ts16fulltau1000an05_s0` / `ts16rs512tau1000an075_s0` / `ts16r256rs256tau1000an05_s0` (harlequin / pintail / uaru) | full rank + annealing ^0.5 / rank 512 + ^0.75 / ranks 256 + ^0.5 | running | - |
+| `tsnoflip_s0` | control: theta 1e9 (no flips; float extras only) | 300M | 3.1725 (+0.421) |
 
 ## Recipe tweaks (1-2 Oct, finished; vs the rule r512 2.8215)
 
