@@ -6,14 +6,20 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-03 00:10
+Last updated: 2026-10-03 00:30
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (3 Oct, 00:10): overnight
+## Now (3 Oct, 00:30): overnight
+
+Robustness runs from 00:27 (barbel, flounder, goldeye, lamprey, quillback, hake, koi, tope, rudd) are listed in
+[OVERNIGHT_PLAN.md](OVERNIGHT_PLAN.md) with the attack each one answers. The runs below started at 00:27, not
+00:05 (the waiting runners hung on a self-matching pattern).
+
+## Earlier (3 Oct, 00:10)
 
 | machine | run | what | compare with | expected |
 |---|---|---|---|---|
