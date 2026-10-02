@@ -2,7 +2,7 @@
 # Myriad, ~10 min: one configuration at 1.3B on one A100, 25 steps: the step timer (forward+backward vs update,
 # allocated / peak GiB) every step, a torch profile of steps 20-24 (top GPU kernels + chrome trace), and nvidia-smi
 # sampled every second (utilization, memory, power, SM clock). Output: logs/prof1b_<KIND>/.
-#   qsub -N prof_KIND scripts/myriad/profile_1b_one.sh KIND      KIND = master | old | ts
+#   qsub -N prof_KIND scripts/myriad/profile_1b_one.sh KIND [TAG extra-flags...]   KIND = master | old | ts
 #$ -l h_rt=0:15:00
 #$ -l mem=8G
 #$ -l gpu=1
@@ -13,7 +13,8 @@
 #$ -o /home/zcabogu/Scratch/ternary-LLM/logs/
 #$ -e /home/zcabogu/Scratch/ternary-LLM/logs/
 set -u
-S=$HOME/Scratch/tern; KIND=$1; O=logs/prof1b_$KIND; mkdir -p $O
+S=$HOME/Scratch/tern; KIND=$1; TAG=${2:-}; shift; [ $# -gt 0 ] && shift; EXTRA="$*"
+O=logs/prof1b_$KIND${TAG:+_$TAG}; mkdir -p $O
 RUN="apptainer exec --nv -B /myriadfs -B $HOME/Scratch -B $TMPDIR $S/ubuntu24.sif bash -c"
 C="--preset d2048_l24 --data data/wiki32k_train.bin --val data/wiki32k_val.bin --seq_len 2048 --batch_size 16 --grad_accum 1
    --steps 9155 --warmup 305 --lr 7.5e-4 --min_lr 7.5e-5 --eval_interval 100000 --eval_iters 2 --save_secs 1000000"
@@ -24,7 +25,7 @@ case $KIND in
   old) F="$C $K --lr_gate --lr_vnorm 0.99 --lr_beta 1 --dry_vec 0.0303 --spend 3" ;;
   ts) F="$C $K --ts --ts_rank_s 512 --ts_theta 16 --ts_tau 1000 --ts_tau_anneal --ts_anneal 0.5" ;;
 esac
-F=$(echo $F)
+F=$(echo $F $EXTRA)
 { hostname; nvidia-smi --query-gpu=name,memory.total,clocks.max.sm,power.limit --format=csv,noheader; nproc; } > $O/node.txt
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,power.draw,clocks.sm,temperature.gpu \
   --format=csv -l 1 > $O/nvsmi.csv &
