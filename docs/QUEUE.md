@@ -6,14 +6,36 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 19:05
+Last updated: 2026-10-02 23:25
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (2 Oct, 18:45): why int8 costs (storage-format ablation)
+## Now (2 Oct, 23:25)
+
+Storage-format runs (`--ts` ranks 512, fp32 twin 2.7067; the fp32 rerun with diagnostics is -0.001, so noise is about
++-0.005), gap to the fp32 twin at step 8000 (7750 where marked):
+
+| machine | run | storage | gap | status |
+|---|---|---|---|---|
+| 4090 | `qabf_s0` | accumulator bf16 | +0.004 | **done, 2.7105** |
+| harlequin / pintail | `q8a_s0` / `q8noV_s0` | accumulator int8 / int8 with V fp32 | +0.012 (9000) / +0.009 (8750) | ~23:35 |
+| flounder / barbel | `q8m_s0` / `qmf8_s0` | direction int8 / fp8 | +0.004 / -0.001 (7750) | ~00:00 |
+| koi / quillback | `qa16_s0` / `qbf16_s0` | accumulator fp16 (7750) / bf16 everywhere | +0.002 / +0.002 | ~00:00 |
+| albacore / elver / hake | `qm8a16_s0` / `qmf8a16_s0` / `qm8abf_s0` | direction int8 / fp8 / int8 + accumulator fp16 / fp16 / bf16 (7750) | +0.002 / -0.003 / +0.002 | ~00:00 |
+| rudd | `qfp16_s0` | fp16 everywhere | +0.012 | ~00:00 |
+| goldeye | `qm16a8_s0` | direction fp16 + accumulator int8 (7750) | +0.023 | ~00:00 |
+| dory / uaru / inanga | `q8all_s0` / `q8det_s0` / `q8row_s0` | int8 everywhere / nearest rounding / per row | +0.023 / +0.017 / +0.054 | ~00:00 |
+| tope | `qfp8_s0` | fp8 everywhere | +0.251 | ~00:00 |
+| lamprey | `qdiag_fp32_s0` | fp32 with diagnostics | -0.001 | ~00:00 |
+
+Myriad: 40267 `x1b_ts512_la1000an05` at 3460 (-0.058 vs 1.3B master at 3000; 9.7 s/step), Sat ~14:40;
+36472 `x1b_dryspend_r512_lr75` at 8380 (+0.138 at 8000), Sat ~01:15; 43340-43342 (`prof_tsfast`, `prof_tsfastf`,
+`prof_oldfast`) waiting in the queue since 21:18. The 4090 is idle.
+
+## Earlier (2 Oct, 18:45): why int8 costs (storage-format ablation)
 
 `--ts` ranks 512, steps x ratio^0.5, tau 1000, fused (fp32 reference 2.7067 / 2.6978), one storage change each:
 
