@@ -2023,7 +2023,9 @@ def main():
             last_loss = loss.item()
         if args.mode in ("kernel", "evidence") and tc.grad_accum > 1:
             flip_accumulated(model)
-        if TIME: torch.cuda.synchronize(); _t1 = time.time()
+        if TIME:
+            torch.cuda.synchronize(); _t1 = time.time()
+            _m1, _p1 = torch.cuda.memory_allocated() / 2**30, torch.cuda.max_memory_allocated() / 2**30
         if args.lowrank:
             if la_on(step):             # propose from M, keep by the look-ahead test
                 rs_info, Ms = lowrank_step(model, lr_state, args.lowrank, args.lr_beta, step,
@@ -2096,8 +2098,11 @@ def main():
         tail_opt.step()
         if TIME:
             torch.cuda.synchronize(); _t2 = time.time()
-            print(f"time step {step}: forward+backward {_t1 - _t0:.3f}s, update (momentum step / AdamW) {_t2 - _t1:.3f}s",
+            print(f"time step {step}: forward+backward {_t1 - _t0:.3f}s, update (momentum step / AdamW) {_t2 - _t1:.3f}s"
+                  f" | GiB allocated after backward {_m1:.2f} (peak in fwd+bwd {_p1:.2f}), after update "
+                  f"{torch.cuda.memory_allocated() / 2**30:.2f} (peak {torch.cuda.max_memory_allocated() / 2**30:.2f})",
                   flush=True)
+            torch.cuda.reset_peak_memory_stats()
         if args.mode == "master" and (args.m_clamp or args.m_leak or args.m_snap or args.m_gfix or args.m_lag):
             from .master import MasterTernaryLinear
             from .master_opt import latent_ops

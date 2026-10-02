@@ -2719,3 +2719,21 @@ master's. Combined (leak and steps both x ratio^0.5, so the accumulator's equili
 4000, worse than at 340M (+0.09 at the same point). Its training curve is the same at lr 1.5e-3 and 7.5e-4, so the
 early lag at 1.3B is the rule, not the tail lr (figure `runs_1b.png`). Kept running as the old-rule baseline;
 `x1b_ts512_la1000an05` (`--ts`, ranks 512, leak and steps x ratio^0.5, lr 7.5e-4) submitted (Myriad 40267).
+
+### 2 Oct 13:30: 1.3B old rule, extrapolated final; memory budget; profile queued
+
+**Extrapolation** of `x1b_dryspend_r512_lr75` (fit on val at steps 2000-4250, log loss vs log tokens). Checked on the
+finished 110M / 340M old-rule runs with the same window: the straight line overestimates their finals (2.8972 vs actual
+2.8215, 2.7772 vs 2.7246): the cosine tail adds a drop of 2-2.6% the line does not see. Calibrating with that factor
+(x0.974-0.981): **1.3B old rule ~2.62-2.64, i.e. +0.03 to +0.05 vs the 1.3B master's 2.5868** (110M gap +0.070, 340M
++0.062). With the later window (3000-4250) the line gives 2.732 -> ~2.68 (+0.09), so the range is 2.62-2.68; the early
+lag at 1.3B is large but closing fast (gap +0.93 / +0.36 / +0.24 / +0.21 at 1000 / 2000 / 3000 / 4000).
+
+**Memory at 1.3B (measured peak 22.9 GiB, old rule).** Persistent: packed trits 0.29 GiB, float tail + scales + rank-16
+adapter with AdamW states 1.23 GiB, rank-512 momentum 1.80 GiB (`--ts`: 3.61) -> **~3.3 GiB** (master: latents + grad +
+Adam 18.4 GiB). Transient: the fp32 copy of every layer's gradient, held until the momentum step (4.59 GiB, could be
+freed per layer if the momentum step ran inside the backward), activations of 32k tokens per step (layer inputs alone
+3.0 GiB; 2 layers kept whole by `--ckpt_skip 2`; recompute buffers). `scripts/myriad/profile_1b.sh` (Myriad 40269,
+queued) measures time and memory per phase (step timer now prints allocated / peak GiB) and the top GPU kernels for
+master, the old rule and `--ts` at 1.3B on one A100: why our step is 9.2 s vs master's 4.7 s (on the 4090 at 340M our
+forward+backward was only 10% slower than master's; the update 0.49 s).
