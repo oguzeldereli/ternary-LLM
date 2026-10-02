@@ -2545,3 +2545,20 @@ lead: full-rank short momentum + tau 1000 -0.122 @1750, all full rank -0.129 @22
 
 Finished: master + our sign gate `mx_gate` **2.7325 (-0.019 vs master)**: the gate also helps master; master with a
 rank-512 first moment `mx_rank512` 2.7710 (+0.020). `tsnoflip_s0` stays +0.35 behind master (flips are the gains).
+
+### 2 Oct 05:35: first `--ts` finals; why their leads fade
+
+Finals vs master 2.7513: `ts16` 2.9415 (+0.190), `ts16gate` 2.9455 (+0.194), `ts16tau1000` 2.8561 (+0.105), `ts32`
+3.1545 (+0.403); `ts8` +0.107 at 9000. All end behind our rule (2.8215) despite leading master for the first ~3000
+steps. `ts16rs512` went -0.10 (1000-4000) -> +0.041 (8500). No annealing at all (`...an0`) is bad early (+0.42 at 1500).
+
+Why: the accumulator leaks at a fixed (1 - 1/tau) per step while its inputs shrink with lr_t / lr_peak (to 0.1 at the end),
+so its level settles near tau * ratio * |u|: with tau 300 that sinks below theta in the second half and flips stop
+(theta 16: 0.005% / step at 3600). tau 1000 holds longer, as observed. Master has no such leak (its latent forgets only
+through weight decay, lr * 0.1 per step, which shrinks with the lr); `mx_leak300`'s constant leak cost it +0.097 and
+`mx_leak1000` is even with master (-0.027 at 8750). Fix under test: the leak shrinks with the steps
+(`--ts_tau_anneal`: decay 1 - ratio / tau), six runs on lab121.
+
+Master, finished: beta1 0.997 (beta2 0.999) **3.2446 (+0.493)**; beta2 0.999 alone 2.7685 (+0.017): the long first moment
+is what breaks it. Ours with per-weight v at full rank (`ours_vfull_r1024`) 2.8019 vs 2.7998 factored: no gain.
+`fast512` 2.8201 (= the rule).

@@ -6,14 +6,32 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 04:40
+Last updated: 2026-10-02 05:45
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (2 Oct, 00:50): night plan
+## Now (2 Oct, 05:45)
+
+The first `--ts` runs ended behind our rule: their leads fade late because the accumulator leaks at a fixed rate while its
+steps shrink with the lr, so late in the schedule it settles below theta and flips stop. Six new runs make the leak shrink
+with the lr too (`--ts_tau_anneal`).
+
+| machine | run | what | expected |
+|---|---|---|---|
+| albacore / dory | `ts16rs512la300_s0` / `ts16rs512la1000_s0` | short rank 512, annealed leak tau 300 / 1000 | ~10:45 |
+| elver / quillback | `ts16fullla1000_s0` / `ts16rs1024la1000_s0` | all full rank / full-rank short momentum, annealed leak tau 1000 | ~10:45 |
+| flounder / inanga | `ts8rs512la1000_s0` / `ts16rs512la1000gate_s0` | theta 8 / + gate | ~10:45 |
+| rudd / skate | `ts16rs512tau1000_s0` / `ts16rs512sp2_s0` | (fixed leak) short rank 512 + tau 1000 / + spend 2 | ~07:30 |
+| harlequin / pintail / hake | `ts16rs1024tau1000_s0` / `ts16rs512tau1000an05_s0` / `ts16rs512tau1000an0_s0` | full-rank short; milder / no annealing | ~08:30-10:00 |
+| 4090 | `ts16full_tau1000_s0` | all full rank, tau 1000 | ~07:30 |
+| lamprey / goldeye / barbel / plaice | `ts16rs512_s0` / `ts16r1024_s0` / `ts8_s0` / `ts16sp2_s0` | first-wave `--ts` | ~06:00-08:00 |
+| tope / uaru | `mx_leak1000` / `tsnoflip_s0` | master leak 1000 / no-flip control | ~06:15 / ~08:00 |
+| Myriad | `x1b_master_lr75` (step ~7000), `x1b_dryspend_r512_lr75` (step ~1450) | 1.3B pair at lr 7.5e-4 | ~09:00 / Sat |
+
+## Earlier (2 Oct, 00:50): night plan
 
 Master branch tests say master cannot do without (a) a short momentum and (b) immediate firing (RUNS.md 1 Oct 23:45).
 Tonight: confirm from scratch, and test our rule rebuilt the same way (`--ts`: short rank-128 momentum for the direction,

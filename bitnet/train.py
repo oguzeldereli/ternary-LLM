@@ -206,7 +206,7 @@ def _q8(X):
     return (X / s + torch.rand_like(X)).floor().clamp_(-127, 127) * s
 
 
-def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0):
+def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0, tau_anneal=False):
     """--ts: master's two timescales with sublinear state (the mechanism the 1 Oct master branches point to).
     Per layer:
       v      factored row x column EMA of g^2 (decay b2), v_ij ~ R_i C_j / mean(R)          (N + K floats)
@@ -249,7 +249,7 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
             U = u @ V
         else:
             U, V = state[key]
-            U = U * (1 - 1 / tau)
+            U = U * (1 - (lr_ratio if tau_anneal else 1.0) / tau)   # --ts_tau_anneal: memory in distance, not steps
             Vn = torch.linalg.qr(V @ (U.T @ U) + u.T @ U)[0]
             U = U @ (V.T @ Vn) + u @ Vn; V = Vn
         A = U @ V.T
@@ -1348,6 +1348,9 @@ def main():
                          "the boundary it crossed, like master)")
     ap.add_argument("--ts_anneal", type=float, default=1.0,
                     help="--ts: the accumulator's steps scale with (lr_t / lr_peak)^P (1: like master's latent; 0.5 milder)")
+    ap.add_argument("--ts_tau_anneal", action="store_true",
+                    help="--ts: the leak shrinks with the accumulator's steps (decay 1 - ratio / tau): memory counted in "
+                         "distance travelled, so the accumulator's level does not sink below theta as the lr decays")
     ap.add_argument("--ts_tau", type=float, default=300.0, help="--ts: the accumulator's leak time constant (steps)")
     ap.add_argument("--ts_rank_s", type=int, default=128, help="--ts: rank of the short momentum")
     ap.add_argument("--ts_b1", type=float, default=0.9, help="--ts: decay of the short momentum")
@@ -2042,7 +2045,8 @@ def main():
                 rs_info = multibeta_step(model, mb_states, mb_betas, mb_scores, args.lowrank, step, args.flip_seed)
             elif args.ts:
                 rs_info = ts_step(model, lr_state, args.lowrank, step, (lr / tc.lr) ** args.ts_anneal, args.ts_theta, args.ts_tau,
-                                  args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate, spend=args.ts_spend)
+                                  args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
+                                  tau_anneal=args.ts_tau_anneal)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
