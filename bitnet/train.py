@@ -229,7 +229,9 @@ def _orth(X):
     (A = U V^T does not depend on the basis chosen)."""
     if not ORTH_CHOL[0]:
         return torch.linalg.qr(X)[0]
-    Q = X
+    Q = X.double() if ORTH_CHOL[0] == "chol64" else X   # chol64: both passes in fp64 (the fp32 Gram fails at cond ~1e6)
+    if ORTH_CHOL[0] == "chol_cs":   # unit columns first: same span, without the column-scale part of the conditioning
+        Q = X / X.norm(dim=0, keepdim=True).clamp_min(1e-30)
     eye = None
     for _ in range(2):
         G = (Q.T @ Q).double()
@@ -239,10 +241,20 @@ def _orth(X):
             eye = torch.eye(G.shape[0], dtype=torch.float64, device=G.device)
         Linv = torch.linalg.solve_triangular(L, eye, upper=False)
         Q = Q @ Linv.T.to(Q.dtype)
-    return torch.nan_to_num(Q)
+    Q = torch.nan_to_num(Q).to(X.dtype)
+    if ORTH_DBG[0]:                 # TERN_ORTHDBG=1: compare with Householder on the same input (one step in 10)
+        Qh = torch.linalg.qr(X)[0]
+        Qo = torch.linalg.qr(Q)[0]  # Q's own span, orthonormal, so the span error does not mix in the orthogonality error
+        sv = torch.linalg.svdvals(X.double())
+        ORTH_STATS.append(((Q.T @ Q - torch.eye(Q.shape[1], device=Q.device)).abs().max().item(),
+                           ((Qh - Qo @ (Qo.T @ Qh)).norm() / Qh.norm()).item(),
+                           (sv[0] / sv[-1].clamp_min(1e-300)).item()))
+    return Q
 
 
-ORTH_CHOL = [False]
+ORTH_CHOL = [False]               # False (Householder) | "chol" | "chol_cs" | "chol64" (--ts_orth)
+ORTH_DBG = [False]                # on for one step in 10 when TERN_ORTHDBG=1
+ORTH_STATS = []                   # (max |Q^T Q - I|, span error vs Householder, condition number of the input) per call
 
 
 def ts_layer(l, g, state, c):
@@ -1442,7 +1454,7 @@ def main():
                          "the boundary it crossed, like master)")
     ap.add_argument("--gemm", default="triton", choices=["triton", "cublas"],
                     help="ternary GEMMs: our Triton kernels, or cuBLAS bf16 on trits unpacked per call (faster on A100)")
-    ap.add_argument("--ts_orth", default="qr", choices=["qr", "chol"],
+    ap.add_argument("--ts_orth", default="qr", choices=["qr", "chol", "chol_cs", "chol64"],
                     help="--ts: subspace orthonormalisation by Householder QR or two-pass Cholesky-QR (faster)")
     ap.add_argument("--ts_qfmt", default="", help="--ts: storage format of the low-rank matrices: int8 | int8det | "
                     "int8row | bf16 | fp16 | fp16s (per-column scale) | fp8 (simulated; --ts_int8 = int8)")
@@ -1671,7 +1683,8 @@ def main():
     if args.gemm == "cublas":
         from . import kernel as _kmod
         _kmod.GEMM_BACKEND[0] = "cublas"
-    ORTH_CHOL[0] = args.ts_orth == "chol"
+    ORTH_CHOL[0] = args.ts_orth if args.ts_orth != "qr" else False
+    ORTH_DEBUG = os.environ.get("TERN_ORTHDBG") == "1"
     TIME = os.environ.get("TERN_TIME") == "1"   # time the forward/backward vs the momentum step (synchronizes)
 
     mc: ModelConfig = PRESETS[args.preset]
@@ -2076,6 +2089,7 @@ def main():
             m_.on_grad = lambda layer, g, _c=ts_cfg: ts_layer(layer, g, lr_state, _c)
         print("--ts_fused: the update runs inside each layer's backward", flush=True)
     for step in range(start_step, end_step):
+        ORTH_DBG[0] = ORTH_DEBUG and step % 10 == 0
         if args.profile and step == start_step + 20:         # after autotune / warm-up
             from torch.profiler import profile, ProfilerActivity
             prof = profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA])
@@ -2330,6 +2344,11 @@ def main():
                           f"| never {fs['never_frac_total']*100:.1f}% ")
             print(f"step {step:6d} | loss {last_loss:6.3f} | lr {lr:.2e} {extra}"
                   f"| {dt:6.1f}s | peakVRAM {mem:.2f}GiB", flush=True)
+            if ORTH_STATS:
+                e = torch.tensor(ORTH_STATS); ORTH_STATS.clear()
+                print(f"  orthdbg ({len(e)} calls): |Q^T Q - I| max {e[:, 0].max():.1e} | span error vs Householder max "
+                      f"{e[:, 1].max():.1e} median {e[:, 1].median():.1e} | input condition max {e[:, 2].max():.1e} "
+                      f"median {e[:, 2].median():.1e}", flush=True)
         if step > 0 and step % tc.eval_interval == 0:
             vl = evaluate(model, val_data, tc, device)
             log_metrics({"step": step, "val_loss": vl, "val_ppl": math.exp(vl)})

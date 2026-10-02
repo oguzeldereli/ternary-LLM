@@ -6,14 +6,29 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-02 23:50
+Last updated: 2026-10-03 00:10
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (2 Oct, 23:50): three more storage runs
+## Now (3 Oct, 00:10): overnight
+
+| machine | run | what | compare with | expected |
+|---|---|---|---|---|
+| 4090 / harlequin / pintail | `qfp16s_s0` / `qm8a16v8_s0` / `qm8a8det_s0` | storage runs from 23:40 (section below) | | ~04:30 |
+| dory / uaru | `big_ts16r256rs256tau1000_s0` / `big_ts16r128rs128tau1000_s0` | 340M `--ts` at ranks 256 / 256 and 128 / 128, otherwise as `big_ts16rs512tau1000_s0`: does the rank penalty shrink with width (27B rank)? | 340M ranks 512 2.6268, 340M master 2.6626; at 110M ranks 256 is +0.076 behind 512 | Sat evening |
+| albacore / elver | `qm8a16_seed2` / `qmf8a16_seed2` | seed 2 of direction int8 / fp8 + accumulator fp16 (`--seed 2`) | fp32 seed 2 `ts16rs512tau1000an05_seed2` 2.6978 | ~04:50 |
+| inanga | `orthdbg/{qr,chol,chol_cs,chol64}` | `scripts/lab/orth_debug.sh`: 300 steps each, TERN_ORTHDBG=1 logs orthogonality error, span error vs Householder and input condition | `chol` was 5.52 vs 5.65 (QR) at step 200 | ~01:00 |
+
+Cholesky-QR on CPU (K 2048, r 512, mixed conditioning): fp32 Gram fine at condition 1e4, loses orthogonality at 1e6
+(max |Q^T Q - I| 5.5e-2) and fails at 1e8 (1.0); `chol64` (both passes in fp64) stays at 2.4e-7. Pure column scaling
+is harmless (`chol_cs` does not help the mixed case).
+
+Myriad: 36472 old rule 1.3B final ~01:15; 40267 TTF 1.3B Sat ~14:40; speed jobs 43340-43342 queued.
+
+## Earlier (2 Oct, 23:50): three more storage runs
 
 Same `--ts` ranks 512 recipe (fp32 twin 2.7067), started 23:40, ETA ~04:30:
 
