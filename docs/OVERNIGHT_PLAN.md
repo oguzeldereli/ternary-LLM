@@ -126,8 +126,9 @@ Status: todo / in progress / done (with a short result).
    theta on every move, Bop does not). Sweep at 110M with the same float extras as TTF (compare TTF 2.7067, master +
    extras 2.730): tau 0.02 / 0.05 / 0.15 (~1 / 2 / 7 sigma of the noise) on goldeye / inanga / 4090, started 04:20, ETA
    ~09:00. Finding for the write-up: TTF = this normalised one-timescale rule + short momentum + spend on firing +
-   low rank + schedule scaling; the ablations of TTF (no spend is not testable, but tau 300, beta1 long, spend 2) and
-   this sweep show which part carries the gain.
+   low rank + schedule scaling. Existing TTF ablations cover part of the difference (tau 300, spend 2, short-momentum
+   rank); the one that isolates Bop's missing piece is TTF with `--ts_spend 0` (no reset after a move): proposed for
+   the morning, not launched.
 9. **M1 Real compressed storage** (todo). Store the TTF state as int8 + per-column fp32 scales and fp16 (instead of
    rounding fp32 copies): `--ts_store`. Same results as the simulated formats (same RNG for stochastic rounding);
    measure the memory saved at 110M / 340M.
