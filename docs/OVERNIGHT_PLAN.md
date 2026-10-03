@@ -32,10 +32,16 @@ runs are scored on different val windows from seed-0 runs. Paper numbers must co
 
 Status: todo / in progress / done (with a short result).
 
-1. **C1 Checkpoint inventory and rescue** (todo). Lab /tmp is wiped at the Monday reboot. List final checkpoints of every
-   headline run (110M master, master + extras x2, TTF r512 x2-3, full rank, r256, int8, storage finals, 340M TTF and
-   master, 1.3B runs on Myriad, the old rule) with host and path; copy the headline ones to the laptop
-   (`checkpoints/final/<run>/`), directly machine-to-laptop (never through the UCL home).
+1. **C1 Checkpoint inventory and rescue** (in progress, 01:10). Inventory of all lab PCs in
+   `scripts/eval/inventory_lab_2026-10-03.txt` (172 run dirs; ~95 finished). The final checkpoint is `ckpt.pt`
+   (`save_ckpt(end_step - 1)`, step 9154). `scripts/eval/rescue.sh LIST` writes `eval.pt` on the remote machine (ckpt
+   without optimizer, TTF state and flip masks: 164 MB per 110M TTF run) and copies it with train.log and metrics.jsonl
+   to `checkpoints/final/RUN/` (full `ckpt.pt` too for the headline runs). Lists: `scripts/eval/rescue_lab.list` (55
+   headline lab runs: TTF, master references, old rule, rank sweep, storage formats, design ablations) and
+   `rescue_4090.list` (340M master / TTF / old rule, `ts16full_tau1000_s0`, `qabf_s0`, `mx_lag02`). Myriad finals
+   (`mx_factv`, `mx_leak300`, `mx_rank512`, `mx_snap`, `ours_vfull_r1024`, `x1b_master_lr75`; Scratch persists) stay
+   there and are evaluated there. Already local: `master_tracked` (ckpt_9154.pt). Not found anywhere: none of the
+   headline runs is missing.
 2. **E1 Final evaluation script** (todo). `scripts/eval/final_eval.py`: rebuild the model from a checkpoint (kernel or
    master mode), score every non-overlapping 2048-token window of `wiki32k_val.bin` (~975 windows, 2.0M tokens) and the
    first 2000 windows of `fwedu32k_val.bin`, save per-window losses (`.npy`) + mean, bits per byte. Same windows for
