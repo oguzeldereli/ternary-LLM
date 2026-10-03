@@ -32,7 +32,7 @@ runs are scored on different val windows from seed-0 runs. Paper numbers must co
 
 Status: todo / in progress / done (with a short result).
 
-1. **C1 Checkpoint inventory and rescue** (in progress, 01:10). Inventory of all lab PCs in
+1. **C1 Checkpoint inventory and rescue** (done, 01:30: 55 lab + 8 4090 runs, 25 GB in `checkpoints/final/`). Inventory of all lab PCs in
    `scripts/eval/inventory_lab_2026-10-03.txt` (172 run dirs; ~95 finished). The final checkpoint is `ckpt.pt`
    (`save_ckpt(end_step - 1)`, step 9154). `scripts/eval/rescue.sh LIST` writes `eval.pt` on the remote machine (ckpt
    without optimizer, TTF state and flip masks: 164 MB per 110M TTF run) and copies it with train.log and metrics.jsonl
@@ -42,10 +42,15 @@ Status: todo / in progress / done (with a short result).
    (`mx_factv`, `mx_leak300`, `mx_rank512`, `mx_snap`, `ours_vfull_r1024`, `x1b_master_lr75`; Scratch persists) stay
    there and are evaluated there. Already local: `master_tracked` (ckpt_9154.pt). Not found anywhere: none of the
    headline runs is missing.
-2. **E1 Final evaluation script** (todo). `scripts/eval/final_eval.py`: rebuild the model from a checkpoint (kernel or
-   master mode), score every non-overlapping 2048-token window of `wiki32k_val.bin` (~975 windows, 2.0M tokens) and the
-   first 2000 windows of `fwedu32k_val.bin`, save per-window losses (`.npy`) + mean, bits per byte. Same windows for
-   every model, independent of the training seed. Test on one checkpoint on a lab GPU (a 110M eval fits beside a run).
+2. **E1 Final evaluation script** (done, 02:00). `scripts/eval/final_eval.py RUN_DIR...` rebuilds the model from the
+   checkpoint alone (mode, config, layer options saved in it; extras switched on when their parameters are in the state
+   dict; strict load), scores all 974 non-overlapping 2048-token windows of `wiki32k_val.bin` and the first 2000 of
+   `fwedu32k_val.bin`, and writes per-window and per-position losses (`final_eval.npz`) + `final_eval.json`. Self-check:
+   it recomputes the training-time eval with the run's seed and compares with the logged FINAL: TTF r512 2.70673 vs
+   2.7067 (+3e-5), old rule seed 2 (-2e-5), master + extras (+5e-5), so the rebuilt models are the trained ones. First
+   full-val numbers (wiki, 974 windows): TTF r512 **2.6903** (bpb 1.084), master + extras **2.7151** (1.094), old rule
+   seed 2 2.7973; FineWeb-Edu (2000 windows) master + extras 3.6837. 75-210 s per model on a lab GPU beside a running
+   training. FineWeb val is only on tope / rudd / zander (copy `fwedu32k_val.bin`, 20 MB, before E4).
 3. **E2 Paired comparison** (todo). `scripts/eval/compare.py`: paired bootstrap (10k resamples over windows) of the
    loss difference between two runs, 95% CI; seed-level mean and spread; table of the headline comparisons.
 4. **R1 Review: data and evaluation** (todo). `scripts/data/prep_wiki.py` (train/val split by article? any overlap?
