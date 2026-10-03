@@ -103,10 +103,18 @@ Status: todo / in progress / done (with a short result).
    Cholesky bug touches only speed measurements; (c) for T1: master clips the global gradient norm (latents + float
    tail) at 1.0, TTF clips only the float tail and feeds the raw ternary gradients into m / sqrt(v) (scale-free, so
    clipping would only change spikes); (d) bare TTF has no learnable output scale (R2).
-7. **R4 Review: the master baseline** (todo). `bitnet/master.py`, `master_opt.py`, master path in `train.py`: absmean
-   weight scale, per-token 8-bit activations, STE, AdamW (betas, eps, weight decay and what it applies to), schedule,
-   float tail treated the same as ours. Is anything handicapping master? List the differences from the BitNet b1.58
-   recipe (as a threat to note, not to copy into our method).
+7. **R4 Review: the master baseline** (done, 03:35). Master is the BitNet b1.58 straight-through recipe: fp32 latent
+   (bf16 would round AdamW steps away), absmean gamma per tensor, round-and-clamp to {-1, 0, 1} * gamma, per-token 8-bit
+   absmax activations with a straight-through estimator, bf16 autocast GEMMs like ours, AdamW (0.9, 0.95), weight decay
+   0.1 on latents and embeddings and 0 on norm gains, cosine schedule with 305 warmup steps, global clip 1.0; the
+   evaluated network is exactly ternary. The float tail is treated identically in both modes (fp32 AdamW, same groups,
+   weight decay and learning rates; row / column scales and attention temperature at weight decay 0, adapter at
+   `--mag_wd`), so "master + extras" carries exactly our extras. Learning rate: of 7.5e-4 / 1.5e-3 / 3e-3 / 6e-3, 1.5e-3 is
+   best so far (+0.015 / 0 / +0.080 / diverged at ~7000), so the reference was not under-tuned in lr (finals ~05:00).
+   Differences from the published BitNet b1.58 training recipe, for T1 (not to be copied into TTF): their two-stage
+   learning rate (a drop half-way) and weight-decay schedule (off in the second stage) versus our plain cosine and
+   constant decay; their squared-ReLU / SubLN blocks versus our Llama-style SwiGLU with pre-RMSNorm (the same for both
+   methods here). A master run with the two-stage schedule would answer "a stronger master recipe exists".
 8. **P1 Predecessor baseline: Bop-style flips** (todo; the user confirmed 3 Oct 00:25: "prior work baselines", as comparisons only). The closest prior work to TTF is a latent-free flip optimizer
    with one timescale (Bop: EMA of the gradient, flip when it exceeds a threshold). Implement `--bop` for ternary
    (per-weight fp32 EMA m with rate gamma; optional normalisation by the factored second moment; move one level against
