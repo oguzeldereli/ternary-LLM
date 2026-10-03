@@ -146,7 +146,10 @@ Status: todo / in progress / done (with a short result).
 14. **T1 THREATS.md** (todo). Every attack we can think of (tuning fairness, seeds / CIs, tokens, float extras, eval
     windows, dataset, scale, wall-clock, memory measured vs estimated, code bugs, the extras in the fair reference), the
     evidence for each, and what is still open.
-15. **E4 Run the final evaluation** on every rescued checkpoint (E1 + E2), table into RUNS.md / RUN_INDEX.md.
+15. **E4 Run the final evaluation** on every rescued checkpoint (E1 + E2), table into RUNS.md / RUN_INDEX.md. (Started
+    04:30 for the headline groups, moved up because the seed runs finished: TTF -0.028 [-0.029, -0.027] vs master +
+    extras on Wikipedia, -0.039 on FineWeb; master seeds 2.7342 / 2.7352 / 2.7383, so the training-time "seed 3 -0.065"
+    was the eval windows. To do: TTF seed 3, bare TTF, storage formats, rank sweep, ablations, 340M, 1.3B on Myriad.)
 
 Monitoring (every :17 slot first): `bash $CLAUDE_JOB_DIR/tmp/status_oct3.sh`; finals into RUNS.md / RUN_INDEX.md /
 QUEUE.md; crashed runs resumed, nothing new launched beyond these items.

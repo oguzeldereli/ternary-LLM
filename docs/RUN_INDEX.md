@@ -3,6 +3,14 @@
 Running, queued, unfinished and never-run runs: [QUEUE.md](QUEUE.md) (kept current). Formulas of every flag:
 [FORMULAS.md](FORMULAS.md). Figure of the best runs: [figures/best_runs.png](figures/best_runs.png).
 
+
+**Final evaluation (3 Oct, fixed windows for every model; quote these):** Wikipedia val (974 windows) / FineWeb-Edu val
+(2000 windows, never used for tuning): TTF ranks 512 (2 seeds) **2.6885 / 3.6437**; master + the same float extras
+(2 seeds) 2.7166 / 3.6830; master (3 seeds) 2.7359 / 3.7071; old rule 2.7973 / 3.7545. TTF - master + extras
+-0.028 [-0.029, -0.027] / -0.039 [-0.040, -0.038]; TTF - master -0.047 / -0.063; seed spread 0.002-0.003. Training-time
+val numbers of different seeds use different windows and differ by up to 0.06 for that reason alone (RUNS.md
+"3 Oct 04:45").
+
 ## Best so far (110M, 300M tokens, from scratch, final validation loss / perplexity)
 
 | run | what | val loss | ppl |

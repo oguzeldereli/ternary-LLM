@@ -2910,3 +2910,31 @@ Storage: fp16 with a per-column scale everywhere (`qfp16s_s0`) final **2.7076 (+
 the fp16 cost was underflow. Seed 2 of int8 / fp16 and fp8 / fp16: -0.000 / -0.002 at 5250 vs fp32 seed 2.
 1.3B TTF at 5000: 2.802 (-0.032 vs master; -0.058 at 3000, -0.042 at 4000). FineWeb 600M: TTF -0.058 at 5000
 (-0.095 at 2000). Master lr 7.5e-4: +0.015 at 7000 (lr 1.5e-3 is the better of the two so far); lr 3e-3 +0.080.
+
+### 3 Oct 04:45: final evaluation on fixed windows (the numbers to quote)
+
+`scripts/eval/final_eval.py` (every non-overlapping 2048-token window: Wikipedia val 974 windows, 2.0M tokens;
+FineWeb-Edu val 2000 windows, 4.1M tokens, never used for any choice) and `scripts/eval/compare.py` (paired block
+bootstrap over windows, 95% intervals). Every rebuilt model reproduces its logged training-time FINAL to < 6e-5.
+
+| group (seeds) | Wikipedia | FineWeb-Edu |
+|---|---|---|
+| TTF ranks 512, steps x ratio^0.5 (seed 1337, 2) | **2.6885** (2.6903 / 2.6868) | **3.6437** (3.6458 / 3.6416) |
+| master + the same float extras (1337, 2) | 2.7166 (2.7151 / 2.7181) | 3.6830 (3.6837 / 3.6823) |
+| master (1337, 2, 3) | 2.7359 (2.7342 / 2.7352 / 2.7383) | 3.7071 (3.7072 / 3.7039 / 3.7102) |
+| master lr 7.5e-4 / 3e-3 (1337) | 2.7608 / 2.7967 | 3.7338 / 3.7772 |
+| old rule, ranks 512 (2) | 2.7973 | 3.7545 |
+
+Paired differences (95% interval over windows; seed spread is 0.002-0.003 in every group):
+TTF - master **-0.047 [-0.049, -0.046]** (Wikipedia), **-0.063 [-0.064, -0.062]** (FineWeb), 100% of windows favour
+TTF; TTF - master + extras **-0.028 [-0.029, -0.027]** / **-0.039 [-0.040, -0.038]**, 97% / 98% of windows. The gap
+is 10x the seed spread and larger on the held-out domain.
+
+**The training-time eval windows depend on the seed** (`evaluate` seeds them with seed + 12345): on their own windows
+master seed 3 read 2.6864 (-0.065 vs seed 1337) and TTF seed 2 2.6978; on the common windows they are 2.7383 and
+2.6868. Training-time numbers of different seeds (e.g. the "seed 2" columns in RUN_INDEX.md) are therefore not
+comparable to each other to better than ~0.06; use these.
+
+Also finished: master lr 7.5e-4 2.7785 / 3e-3 2.8136 (training-time, seed 1337 windows), so lr 1.5e-3 was the best
+master learning rate of 7.5e-4 / 1.5e-3 / 3e-3 / 6e-3 (6e-3 diverged); `qm8a16v8_s0` (accumulator V in int8) 2.7175
+(+0.011). Bop baseline early: tau 0.15 4.464 at 1000 (TTF 3.652), tau 0.02 / 0.05 5.87 / 6.30 at 500.
