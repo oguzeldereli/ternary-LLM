@@ -7,7 +7,8 @@ RUN_DIR/final_eval.npz:
   - wiki: every non-overlapping 2048-token window of data/wiki32k_val.bin (976 windows, 2.0M tokens);
   - fw:   the first --fw non-overlapping windows of data/fwedu32k_val.bin (FineWeb-Edu, another domain);
   per-window mean loss (for paired comparisons, scripts/eval/compare.py), per-position mean loss, overall mean and
-  bits per byte (Wikipedia: 3.58 bytes per token, measured with the same tokenizer).
+  bits per byte (bytes per token measured on the val sets with the same tokenizer, EOT counted as a token:
+  Wikipedia 3.569, FineWeb-Edu 4.003; the earlier docs used 3.58 for Wikipedia).
 Check: the training-time evaluation (30 random batches of 16 seeded with the run's seed + 12345, see train.py
 evaluate) is recomputed and compared with the FINAL val loss in train.log, so a wrongly rebuilt model shows up.
 
@@ -28,7 +29,8 @@ from bitnet.flip import build_kernel_transformer, enable_rc_scales, KernelTernar
 from bitnet.master import build_master_transformer, MasterTernaryLinear  # noqa: E402
 from bitnet.model import Attention                                   # noqa: E402
 
-BYTES_PER_TOKEN_WIKI = 3.58
+BYTES_PER_TOKEN_WIKI = 3.569
+BYTES_PER_TOKEN_FW = 4.003
 
 
 def load_model(path, device, mag_kind="add"):
@@ -125,7 +127,7 @@ def main():
         arrays = {"wiki": w, "wiki_pos": wp}
         if fw is not None:
             f, fp = window_losses(model, fw, L, a.fw, device)
-            res.update(fw_loss=float(f.mean()), fw_windows=len(f))
+            res.update(fw_loss=float(f.mean()), fw_windows=len(f), fw_bpb=float(f.mean() / math.log(2) / BYTES_PER_TOKEN_FW))
             arrays.update(fw=f, fw_pos=fp)
         if not a.no_check:
             m = re.search(r"seed(\d+)", res["run"])

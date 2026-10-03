@@ -56,8 +56,24 @@ Status: todo / in progress / done (with a short result).
    result (wiki, 974 windows): TTF ranks 512 seed 0 vs master + extras seed 0 **-0.0249, 95% [-0.0265, -0.0232]**, 86%
    of windows favour TTF; TTF vs old rule seed 2 -0.107. The window interval covers evaluation noise only; seed spread
    comes from the seed runs (E4).
-4. **R1 Review: data and evaluation** (todo). `scripts/data/prep_wiki.py` (train/val split by article? any overlap?
-   dedup?), `get_batch`, `evaluate`, tokenizer, bits-per-byte constant. Look for leakage and seed effects.
+4. **R1 Review: data and evaluation** (done, 02:25).
+   - Wikipedia (`scripts/data/prep_wiki.py`): 20231101.en streamed in dataset order, Llama-2 32k tokenizer
+     (`hf-internal-testing/llama-tokenizer`), EOT `</s>` between articles; val = the last ~2M tokens, cut at an article
+     boundary (1,749 articles, 1,995,459 tokens; train 398.5M). Leakage check (`scripts/analysis/val_overlap.py`): **no
+     val article occurs exactly in train**; at most **1.58%** of val 32-token sequences occur anywhere in train (rolling
+     hash, upper bound; boilerplate), the same for every model, so no bias between methods.
+   - FineWeb-Edu (`prep_fineweb.py`, sample-10BT, same tokenizer): val = the first 10M tokens' documents, written before
+     train, disjoint by document.
+   - Bytes per token re-measured (decode of the val sets, EOT counted as a token): Wikipedia **3.569** (docs used 3.58:
+     bits per byte were 0.3% low, e.g. TTF 1.084 -> 1.087), FineWeb-Edu **4.003**; `final_eval.py` updated, now also
+     reports FineWeb bits per byte.
+   - Sampling: `get_batch` draws uniform random windows (with replacement) from train with a generator seeded by the
+     run's seed, so runs with the same seed see the same batches (TTF and master included); 300M samples from 398.5M
+     tokens. `evaluate` uses 30 fixed batches seeded by seed + 12345: same windows for all seed-1337 runs, different
+     windows for seed 2 / 3 runs (training-time numbers of different seeds are not comparable; use `final_eval.py`).
+   - Threat for T1: hyperparameters of TTF (theta, tau, ranks, annealing) were chosen on this Wikipedia val set (the
+     training-time windows are about half of it), while master's lr was never tuned. Answers: the master lr sweep
+     running now; report FineWeb-Edu val (never used for any choice) as the untouched test set next to Wikipedia.
 5. **R2 Review: kernels** (todo). `bitnet/kernel.py`: pack/unpack round trip, ternary GEMMs vs a dense reference
    (forward, dx, dw; triton and cublas), activation quantisation, edge shapes. Write `tests/test_kernel.py` and run it
    on a lab GPU.
