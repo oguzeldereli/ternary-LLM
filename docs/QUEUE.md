@@ -6,7 +6,7 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-03 09:50
+Last updated: 2026-10-03 12:00
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
@@ -17,9 +17,9 @@ Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131
 
 | machine | run | status |
 |---|---|---|
-| Myriad 40267 | `x1b_ts512_la1000an05` (1.3B TTF) | step 7380; -0.008 vs 1.3B master at 7250 (lead shrinking from -0.058 at 3000); ETA ~14:40 |
-| tope | `fw_ts512an05_600M` (FineWeb-Edu 600M, TTF) | step 16310; -0.054 vs master at 16250 (master finished 3.1508); ETA ~10:30 |
-| dory / uaru | `big_ts16r256rs256tau1000_s0` / `big_ts16r128rs128tau1000_s0` (340M ranks 256 / 128) | 6500 / 6750: -0.045 / +0.052 vs 340M master; ETA ~16:00 |
+| Myriad 40267 | `x1b_ts512_la1000an05` (1.3B TTF) | step 8190; -0.011 vs 1.3B master at 8000 (-0.058 at 3000, -0.008 at 7250); ETA ~14:35 |
+| tope | `fw_ts512an05_600M` (FineWeb-Edu 600M, TTF) | **finished 3.0861 vs master 3.1508 (-0.065)** |
+| dory / uaru | `big_ts16r256rs256tau1000_s0` / `big_ts16r128rs128tau1000_s0` (340M ranks 256 / 128) | 8000 / 8250: +0.005 / +0.100 vs 340M master (ranks 512 ended -0.036); ETA ~13:30 |
 | barbel | (hung) | stopped responding at ~07:25 after the 27B ranks-1024 test exhausted its 30 GB RAM (pinned state); unreachable since |
 
 Finished overnight (details: RUNS.md "3 Oct night", OVERNIGHT_PLAN.md): storage formats (16 + 3 + 2 seed-2 runs), master

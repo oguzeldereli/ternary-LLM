@@ -2980,3 +2980,8 @@ and show no reliable difference. Progress: 1.3B TTF -0.011 at 6750; 340M ranks 1
 3.1508; TTF -0.054 at 16250 (the gap narrowed to -0.029 at 10000 and widened again during the decay). 1.3B TTF -0.008 at
 7000 and 7250 (the shrinking has slowed: -0.019 / -0.011 / -0.008 at 6000 / 6750 / 7250). 340M ranks 256 / 128 vs 340M
 master -0.045 / +0.052 at 6500 / 6750.
+
+**12:00.** FineWeb-Edu 600M (110M, 18310 steps) finished: **TTF 3.0861 vs master 3.1508 (-0.065)**, training-time eval
+on the same FineWeb val windows (the gap narrowed to -0.029 at 10000 and widened again during the decay). 1.3B TTF at
+8000: 2.6093, -0.011 vs master (-0.008 to -0.011 since 7000; ETA ~14:35). 340M ranks 256 at 8000: 2.7052, +0.005 vs 340M
+master; ranks 128 at 8250: +0.100 (ranks 512 finished -0.036). Barbel still unreachable.
