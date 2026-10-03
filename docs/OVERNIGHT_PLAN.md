@@ -74,10 +74,12 @@ Status: todo / in progress / done (with a short result).
    - Threat for T1: hyperparameters of TTF (theta, tau, ranks, annealing) were chosen on this Wikipedia val set (the
      training-time windows are about half of it), while master's lr was never tuned. Answers: the master lr sweep
      running now; report FineWeb-Edu val (never used for any choice) as the untouched test set next to Wikipedia.
-5. **R2 Review: kernels** (in progress, 02:45). `tests/test_kernel_ref.py` (pack/unpack incl. K not a multiple of 5,
+5. **R2 Review: kernels** (done, 02:55: **all 69 checks pass** on goldeye, log `tests/test_kernel_ref_goldeye_2026-10-03.txt`;
+   max relative errors: int8 forward 3.1e-3, bf16 forward 3.4e-3, input gradient bf16 ~3e-3, int8 paths 0.8-1.6e-2 (the
+   int8 rounding of the gradient, unused by the runs), layer forward / straight-through input gradient 3.5e-3, captured
+   weight gradient exact; K = 1000 / 2049 (padding) correct). `tests/test_kernel_ref.py` (pack/unpack incl. K not a multiple of 5,
    trit_beta, int8 / bf16 forward GEMMs, input gradient bf16 / int8, weight gradient int8 / cuBLAS, both backends; the
-   layer's forward, straight-through input gradient and the captured weight gradient against beta * Q8(x) @ W^T) running
-   on goldeye (Triton autotune compiles first). Read so far:
+   layer's forward, straight-through input gradient and the captured weight gradient against beta * Q8(x) @ W^T). Notes:
    - Configuration of all runs: `--int8 --dw_mode dense`, `int8_dx` off: forward int8 x trits exact in int32 (per-token
      absmax 8-bit activations), input gradient bf16 (`tern_gemm_dx`), weight gradient dense `gy^T @ (xq * xs)` in the
      autocast dtype; the 8-bit gradient kernels (`dw_int8`, `dw_cublas`, `tern_gemm_dx_i8`) are not used by any
