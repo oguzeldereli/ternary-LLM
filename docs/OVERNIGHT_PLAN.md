@@ -146,10 +146,14 @@ Status: todo / in progress / done (with a short result).
     offloaded 5.6574, peak 7.01 GiB, 456.2 s. The copies do not overlap compute yet (side stream + prefetch of the next
     layer in backward order would hide them); at 110M PCIe time is small, at 27B it is ~43 GiB per step read + write
     (~1.7 s at 25 GB/s). Lab PCs have 30 GB RAM (28 available): a 27B int8 / fp16 state (~21 GiB) fits pinned.
-11. **M3 27B on one GPU** (todo). A ~23B preset (width 5120, 83 layers, 8 KV heads of 128, MLP 13824; check GQA support),
-    initialised directly as packed trits (no fp32 copy), full activation checkpointing, fused update, M1 + M2. Run a few
-    steps at micro-batch 1 x 2048 on a 16 GB 4070 Ti Super (and a 24 GB card): measured peak memory and s/step. This is
-    the headline ("27B trains on one 16 GB GPU") - only claim what is measured.
+11. **M3 27B on one GPU** (in progress, 07:15). Preset `b27` (width 5120, 83 layers, 40 heads / 8 KV heads of 128, MLP
+    13824, 32k vocab: 22.85B ternary + ~0.29B float). Ternary layers are initialised one at a time on the CPU (a 283 MB
+    fp32 temporary per layer, packed at once), so no full-precision copy exists. `scripts/lab/b27_smoke.sh` on barbel
+    (4070 Ti Super 16 GB, 30 GB RAM): TTF with `--ts_fused --ts_store_m int8 --ts_store_a fp16 --ts_offload`,
+    `--ckpt_skip 0` (every layer checkpointed), fp32 float tail with AdamW, micro-batch 1 x 2048, 5 steps at ranks 256
+    and then 1024; TERN_TIME step times and GPU memory, nvidia-smi peak, host max RSS. Estimate for the GPU: packed trits
+    4.3 GiB + fp32 tail with AdamW ~4.3 GiB + checkpoints ~1.7 GiB + one block's recompute ~1 GiB + the largest layer's
+    update temporaries ~2.3 GiB: ~14 GiB, tight on 16 GB (fallback: bf16 tail + 8-bit Adam, -2.7 GiB).
 12. **E3 Zero-shot tasks** (todo). Download on the laptop CPU (HF datasets): LAMBADA, HellaSwag, PIQA, ARC-e/ARC-c,
     WinoGrande; `scripts/eval/zeroshot.py` (log-likelihood multiple choice, accuracy and length-normalised accuracy, with
     standard errors); run on the headline checkpoints. Expect near-chance at 110M; report with error bars.
