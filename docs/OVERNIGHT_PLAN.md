@@ -138,13 +138,14 @@ Status: todo / in progress / done (with a short result).
    5.6598 / real 5.6576 (identical runs differ by ~0.002 on the GPU, e.g. Householder 5.1622 vs 5.1601, so equality is
    checked on the CPU). At 110M a rank of 512 is close to the layer width, so the low-rank state is not small here
    (8 bytes per ternary weight in fp32, 3 with int8 / fp16); it is sublinear only when width >> rank (27B: M3).
-10. **M2 State in host memory** (in progress, 06:15). `--ts_offload`: every state tuple of `ts_layer` (accumulator,
-    short momentum, factored v; encoded when `--ts_store_*` is on) lives in pinned host buffers (allocated once, reused);
-    the layer's update copies it to the GPU (`non_blocking`, current stream) and back after the update. All copies are
-    on the compute stream, so ordering is guaranteed without events or host syncs; the copies do not overlap compute yet
-    (a side stream with prefetch of the next layer in backward order is the speed step). Test running on quillback
-    (`scripts/lab/offload_test.sh`: real int8 / fp16 on the GPU vs the same offloaded vs fp32 offloaded, 200 steps). Lab
-    PCs have 30 GB RAM (28 available): the ~21 GiB of a 27B int8 / fp16 state would fit pinned.
+10. **M2 State in host memory** (done, 06:40). `--ts_offload`: every state tuple of `ts_layer` (accumulator, short
+    momentum, factored v; encoded when `--ts_store_*` is on) lives in pinned host buffers (allocated once, reused); the
+    layer's update copies it to the GPU (`non_blocking`, current stream) and back after the update, so ordering holds
+    without events or host syncs. Test (quillback, 110M ranks 512, 200 steps; `scripts/lab/offload_test.sh`): int8 / fp16
+    on the GPU 5.6587, peak 7.26 GiB, 433.9 s; **the same offloaded 5.6593, peak 7.01 GiB, 443.8 s (+2%)**; fp32
+    offloaded 5.6574, peak 7.01 GiB, 456.2 s. The copies do not overlap compute yet (side stream + prefetch of the next
+    layer in backward order would hide them); at 110M PCIe time is small, at 27B it is ~43 GiB per step read + write
+    (~1.7 s at 25 GB/s). Lab PCs have 30 GB RAM (28 available): a 27B int8 / fp16 state (~21 GiB) fits pinned.
 11. **M3 27B on one GPU** (todo). A ~23B preset (width 5120, 83 layers, 8 KV heads of 128, MLP 13824; check GQA support),
     initialised directly as packed trits (no fp32 copy), full activation checkpointing, fused update, M1 + M2. Run a few
     steps at micro-batch 1 x 2048 on a 16 GB 4070 Ti Super (and a 24 GB card): measured peak memory and s/step. This is
@@ -160,7 +161,8 @@ Status: todo / in progress / done (with a short result).
 15. **E4 Run the final evaluation** on every rescued checkpoint (E1 + E2), table into RUNS.md / RUN_INDEX.md. (Started
     04:30 for the headline groups, moved up because the seed runs finished: TTF -0.028 [-0.029, -0.027] vs master +
     extras on Wikipedia, -0.039 on FineWeb; master seeds 2.7342 / 2.7352 / 2.7383, so the training-time "seed 3 -0.065"
-    was the eval windows. To do: TTF seed 3, bare TTF, storage formats, rank sweep, ablations, 340M, 1.3B on Myriad.)
+    was the eval windows. 06:40: TTF seed 3 2.6893 (3 seeds: 2.6888, spread 0.0018), storage seed 2 int8 / fp16 2.6877, fp8 /
+    fp16 2.6874 (fp32 2.6868), bare TTF 2.8070. To do: storage seed 1337, rank sweep, ablations, 340M, 1.3B on Myriad.)
 
 Monitoring (every :17 slot first): `bash $CLAUDE_JOB_DIR/tmp/status_oct3.sh`; finals into RUNS.md / RUN_INDEX.md /
 QUEUE.md; crashed runs resumed, nothing new launched beyond these items.

@@ -2947,3 +2947,15 @@ output scale, see OVERNIGHT_PLAN R2). Bop baseline (110M, same extras): tau 0.15
 0.02 4.1385 / tau 0.05 5.2095 at 2500 (+0.96 / +2.03). 1.3B TTF -0.023 at 5750 (lead shrinking: -0.058 / -0.042 / -0.032
 / -0.026 at 3000 / 4000 / 5000 / 5250). FineWeb 600M TTF -0.040 at 8500 (-0.095 at 2000). 340M ranks 256 / 128: +0.049 /
 +0.114 vs ranks 512 at 3500 (constant gap so far).
+
+**06:40.** Final evaluation, three TTF seeds: 2.6903 / 2.6868 / 2.6893 (Wikipedia, mean 2.6888, spread 0.0018) and
+3.6458 / 3.6416 / 3.6484 (FineWeb, 3.6453): TTF - master (3 seeds) -0.047 [-0.048, -0.046] / -0.062 [-0.063, -0.061];
+TTF - master + extras (2 seeds) -0.028 [-0.029, -0.027] / -0.038 [-0.039, -0.037]. Seed 2 storage finals on the common
+windows: int8 / fp16 2.6877, fp8 / fp16 2.6874 vs fp32 seed 2 2.6868 (int8 - fp8 +0.0003 [-0.0008, +0.0016]): free.
+Bare TTF (no extras) 2.8070 / 3.7823, +0.071 / +0.075 vs bare master.
+Host offload (`--ts_offload`, 110M, 200 steps): loss unchanged (5.6593 vs 5.6587), peak 7.26 -> 7.01 GiB, +2% time.
+**Late-training trend to watch:** the TTF lead shrinks with training at every scale run tonight: 1.3B -0.058 / -0.042 /
+-0.032 / -0.019 at 3000 / 4000 / 5000 / 6000 (on this trend it ends near +0.02, i.e. behind master); FineWeb 600M -0.095 /
+-0.068 / -0.052 / -0.042 / -0.031 at 2000 / 4000 / 6000 / 8000 / 10250; 340M ranks 256 / 128 vs 340M master -0.123 / -0.056
+at 2000 -> -0.090 / -0.022 at 4250 (340M ranks 512 ended -0.036). At 110M (300M tokens) the lead holds to the end
+(-0.028 vs master + extras). Annealing p (steps x ratio^p) and the leak were the levers for the late slope at 110M.
