@@ -2959,3 +2959,12 @@ Host offload (`--ts_offload`, 110M, 200 steps): loss unchanged (5.6593 vs 5.6587
 -0.068 / -0.052 / -0.042 / -0.031 at 2000 / 4000 / 6000 / 8000 / 10250; 340M ranks 256 / 128 vs 340M master -0.123 / -0.056
 at 2000 -> -0.090 / -0.022 at 4250 (340M ranks 512 ended -0.036). At 110M (300M tokens) the lead holds to the end
 (-0.028 vs master + extras). Annealing p (steps x ratio^p) and the leak were the levers for the late slope at 110M.
+
+### 3 Oct 07:20: 27B-class model trained on one 16 GB GPU (measured)
+
+`scripts/lab/b27_smoke.sh` on barbel (RTX 4070 Ti Super 16 GB, 30 GB RAM): preset `b27` (26.5B parameters: 22.85B
+ternary, width 5120, 83 layers, GQA 40 / 8 heads, MLP 13824), TTF ranks 256 with the update inside the backward
+(`--ts_fused`), real int8 direction / fp16 accumulator (`--ts_store_*`), state in pinned host memory (`--ts_offload`),
+every layer checkpointed, fp32 float tail with AdamW, micro-batch 1 x 2048: **24.6 s per step, torch peak 14.10 GiB
+(persistent 8.61 GiB), nvidia-smi peak 15.95 GiB, host RSS 13.7 GiB**; 5 steps completed (allocator mapping retries
+logged at the edge). Ranks 1024 next.

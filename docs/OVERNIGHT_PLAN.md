@@ -154,6 +154,11 @@ Status: todo / in progress / done (with a short result).
     and then 1024; TERN_TIME step times and GPU memory, nvidia-smi peak, host max RSS. Estimate for the GPU: packed trits
     4.3 GiB + fp32 tail with AdamW ~4.3 GiB + checkpoints ~1.7 GiB + one block's recompute ~1 GiB + the largest layer's
     update temporaries ~2.3 GiB: ~14 GiB, tight on 16 GB (fallback: bf16 tail + 8-bit Adam, -2.7 GiB).
+    **Result, ranks 256 (07:19): the 26.5B-parameter preset (22.85B ternary) trains on ONE 16 GB 4070 Ti Super:** 5 TTF
+    steps, 24.6 s per step of 1 x 2048 tokens (forward + backward with the fused update inside; first step 309 s with
+    Triton autotuning), torch peak 14.10 GiB allocated (8.61 GiB persistent), nvidia-smi peak 15.95 of 16 GiB (the
+    allocator logged mapping retries at the edge; every step completed), host max RSS 13.7 GiB. Ranks 1024 running
+    (host state ~21 GiB pinned on a 30 GB machine).
 12. **E3 Zero-shot tasks** (todo). Download on the laptop CPU (HF datasets): LAMBADA, HellaSwag, PIQA, ARC-e/ARC-c,
     WinoGrande; `scripts/eval/zeroshot.py` (log-likelihood multiple choice, accuracy and length-normalised accuracy, with
     standard errors); run on the headline checkpoints. Expect near-chance at 110M; report with error bars.
