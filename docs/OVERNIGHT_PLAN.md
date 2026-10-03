@@ -42,7 +42,7 @@ Status: todo / in progress / done (with a short result).
    (`mx_factv`, `mx_leak300`, `mx_rank512`, `mx_snap`, `ours_vfull_r1024`, `x1b_master_lr75`; Scratch persists) stay
    there and are evaluated there. Already local: `master_tracked` (ckpt_9154.pt). Not found anywhere: none of the
    headline runs is missing.
-2. **E1 Final evaluation script** (done, 02:00). `scripts/eval/final_eval.py RUN_DIR...` rebuilds the model from the
+2. **E1 Final evaluation script** (done, 01:40). `scripts/eval/final_eval.py RUN_DIR...` rebuilds the model from the
    checkpoint alone (mode, config, layer options saved in it; extras switched on when their parameters are in the state
    dict; strict load), scores all 974 non-overlapping 2048-token windows of `wiki32k_val.bin` and the first 2000 of
    `fwedu32k_val.bin`, and writes per-window and per-position losses (`final_eval.npz`) + `final_eval.json`. Self-check:
@@ -51,8 +51,11 @@ Status: todo / in progress / done (with a short result).
    full-val numbers (wiki, 974 windows): TTF r512 **2.6903** (bpb 1.084), master + extras **2.7151** (1.094), old rule
    seed 2 2.7973; FineWeb-Edu (2000 windows) master + extras 3.6837. 75-210 s per model on a lab GPU beside a running
    training. FineWeb val is only on tope / rudd / zander (copy `fwedu32k_val.bin`, 20 MB, before E4).
-3. **E2 Paired comparison** (todo). `scripts/eval/compare.py`: paired bootstrap (10k resamples over windows) of the
-   loss difference between two runs, 95% CI; seed-level mean and spread; table of the headline comparisons.
+3. **E2 Paired comparison** (done, 01:50). `scripts/eval/compare.py A B` (or `--groups "NAME=d1,d2" ...` for seed
+   means and spread): paired block bootstrap over windows (blocks of 4 consecutive windows, 10k resamples). First real
+   result (wiki, 974 windows): TTF ranks 512 seed 0 vs master + extras seed 0 **-0.0249, 95% [-0.0265, -0.0232]**, 86%
+   of windows favour TTF; TTF vs old rule seed 2 -0.107. The window interval covers evaluation noise only; seed spread
+   comes from the seed runs (E4).
 4. **R1 Review: data and evaluation** (todo). `scripts/data/prep_wiki.py` (train/val split by article? any overlap?
    dedup?), `get_batch`, `evaluate`, tokenizer, bits-per-byte constant. Look for leakage and seed effects.
 5. **R2 Review: kernels** (todo). `bitnet/kernel.py`: pack/unpack round trip, ternary GEMMs vs a dense reference
