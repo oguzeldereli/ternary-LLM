@@ -90,7 +90,7 @@ Status: todo / in progress / done (with a short result).
      version would give each layer one learnable scalar (for T1; not launched).
    - Padding trits past K are packed as -1 and excluded from beta; whether the GEMMs mask them is what the K=1000 /
      2049 cases test.
-6. **R3 Review: TTF and hooks** (done, 03:20). `ts_layer` matches FORMULAS 2a: factored v with one bias correction
+6. **R3 Review: TTF and hooks** (done, 03:10). `ts_layer` matches FORMULAS 2a: factored v with one bias correction
    (R_i C_j / mean R carries the factor once), the short momentum and the accumulator are one subspace-iteration step of
    b1 M + (1 - b1) g and (1 - lambda / tau) A + u (V_new = orth(M^T U), U_new = M V_new, the stored matrix is M projected
    on span V_new), m bias-corrected, firing at |A| >= theta within [-1, 1], spend projected (U -= c theta D V). Hooks:
