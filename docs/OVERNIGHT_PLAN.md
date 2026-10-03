@@ -74,9 +74,20 @@ Status: todo / in progress / done (with a short result).
    - Threat for T1: hyperparameters of TTF (theta, tau, ranks, annealing) were chosen on this Wikipedia val set (the
      training-time windows are about half of it), while master's lr was never tuned. Answers: the master lr sweep
      running now; report FineWeb-Edu val (never used for any choice) as the untouched test set next to Wikipedia.
-5. **R2 Review: kernels** (todo). `bitnet/kernel.py`: pack/unpack round trip, ternary GEMMs vs a dense reference
-   (forward, dx, dw; triton and cublas), activation quantisation, edge shapes. Write `tests/test_kernel.py` and run it
-   on a lab GPU.
+5. **R2 Review: kernels** (in progress, 02:45). `tests/test_kernel_ref.py` (pack/unpack incl. K not a multiple of 5,
+   trit_beta, int8 / bf16 forward GEMMs, input gradient bf16 / int8, weight gradient int8 / cuBLAS, both backends; the
+   layer's forward, straight-through input gradient and the captured weight gradient against beta * Q8(x) @ W^T) running
+   on goldeye (Triton autotune compiles first). Read so far:
+   - Configuration of all runs: `--int8 --dw_mode dense`, `int8_dx` off: forward int8 x trits exact in int32 (per-token
+     absmax 8-bit activations), input gradient bf16 (`tern_gemm_dx`), weight gradient dense `gy^T @ (xq * xs)` in the
+     autocast dtype; the 8-bit gradient kernels (`dw_int8`, `dw_cublas`, `tern_gemm_dx_i8`) are not used by any
+     reported run.
+   - Output scale: `beta = 1 / sqrt(K rho)` from the trit density (no learnable scale). Master's absmean gamma follows
+     its latent weights, which AdamW can grow or shrink, so bare master has a learnable per-tensor scale that bare TTF
+     does not. The bare-TTF run (+0.119 at 4000) therefore also tests "no scale freedom at all"; a fair minimal
+     version would give each layer one learnable scalar (for T1; not launched).
+   - Padding trits past K are packed as -1 and excluded from beta; whether the GEMMs mask them is what the K=1000 /
+     2049 cases test.
 6. **R3 Review: TTF and hooks** (todo). `ts_layer` / `ts_step` vs FORMULAS.md 2a (bias corrections, leak, lr ratio,
    firing bounds, spend, factored v), `bitnet/flip.py` hooks (fused, gradient accumulation), checkpoint/resume of
    `ts_state`. Any place where the method sees information master does not (or vice versa)?
