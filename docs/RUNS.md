@@ -2968,3 +2968,10 @@ ternary, width 5120, 83 layers, GQA 40 / 8 heads, MLP 13824), TTF ranks 256 with
 every layer checkpointed, fp32 float tail with AdamW, micro-batch 1 x 2048: **24.6 s per step, torch peak 14.10 GiB
 (persistent 8.61 GiB), nvidia-smi peak 15.95 GiB, host RSS 13.7 GiB**; 5 steps completed (allocator mapping retries
 logged at the edge). Ranks 1024 next.
+
+**08:30. Zero-shot** (`scripts/eval/zeroshot.py`, seed 1337 of each; acc, TTF / master + extras / master): LAMBADA
+0.135 / 0.123 / 0.126 (target ppl 51.8 / 59.0 / 57.2), HellaSwag 0.265 / 0.262 / 0.264, PIQA 0.539 / 0.526 / 0.526,
+ARC-e 0.327 / 0.318 / 0.328, ARC-c 0.189 / 0.177 / 0.195, WinoGrande 0.500 / 0.493 / 0.490. Paired over examples:
+LAMBADA TTF - master + extras +0.012 [+0.005, +0.019]; the multiple-choice tasks are near chance at 110M / 300M tokens
+and show no reliable difference. Progress: 1.3B TTF -0.011 at 6750; 340M ranks 128 now +0.015 behind 340M master at
+5750 (ranks 256 -0.071); FineWeb 600M -0.040 at 13750; Bop tau 0.02 / 0.05 3.102 / 4.035 at 8750.

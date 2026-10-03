@@ -162,13 +162,18 @@ Status: todo / in progress / done (with a short result).
     **Ranks 1024 (07:25): barbel stopped responding** (ssh times out; quillback fine): the ~21 GiB pinned state plus the
     process's own ~13.7 GiB exceeds 30 GB, and pinned pages cannot swap. My estimate missed the process RSS. Needs a
     host with >= 48 GB RAM, or ranks <= 512 (~10.7 GiB host state). Barbel is polled for recovery.
-12. **E3 Zero-shot tasks** (in progress, 08:20). Datasets (HF, laptop CPU) in `data/zeroshot/*.jsonl`: LAMBADA OpenAI
+12. **E3 Zero-shot tasks** (done for seed 1337 of three models, 08:30). Datasets (HF, laptop CPU) in `data/zeroshot/*.jsonl`: LAMBADA OpenAI
     5153, HellaSwag val 10042, PIQA val 1838 (`baber/piqa`, the original needs a loading script), ARC-Easy test 2376,
     ARC-Challenge test 1172, WinoGrande-xl val 1267; tokenised with the training tokenizer by
     `scripts/eval/zeroshot_tok.py` (continuation = enc(ctx + cont) minus enc(ctx), EOT first, byte lengths kept).
     `scripts/eval/zeroshot.py`: summed log-probabilities, acc and byte-normalised acc_norm, LAMBADA greedy accuracy and
     target perplexity, WinoGrande partial scoring, standard errors, per-example correctness saved for paired tests.
-    Running on quillback (TTF seed 1337, master + extras seed 1337) and harlequin (master seed 1337).
+    Results (110M, 300M tokens; acc / acc_norm; TTF, master + extras, master): LAMBADA 0.135 / 0.123 / 0.126 (target ppl
+    51.8 / 59.0 / 57.2); HellaSwag 0.265 / 0.262 / 0.264; PIQA 0.539 / 0.526 / 0.526; ARC-e 0.327 / 0.318 / 0.328; ARC-c
+    0.189 / 0.177 / 0.195; WinoGrande 0.500 / 0.493 / 0.490 (chance 0.25 / 0.5 / 0.25 / 0.25 / 0.5). Paired bootstrap over
+    examples: LAMBADA TTF - master + extras **+0.012 [+0.005, +0.019]**, TTF - master +0.009 [+0.002, +0.016]; the
+    multiple-choice tasks are near chance at this scale and every other difference's interval contains 0 except PIQA
+    acc_norm vs master (+0.026 [+0.009, +0.043], one of 20 comparisons). To do: the other seeds, 340M and 1.3B.
 13. **R5 Numbers audit** (todo). Script that recomputes every number in RUN_INDEX.md's headline tables from the
     metrics files and flags mismatches.
 14. **T1 THREATS.md** (done, 07:45, moved ahead of E3 / R5): `docs/THREATS.md`, 13 attacks answered with evidence
