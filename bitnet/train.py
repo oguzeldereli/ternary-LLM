@@ -217,6 +217,61 @@ def _qfmt(name):
     raise ValueError(name)
 
 
+def _store_codec(name):
+    """--ts_store_m / --ts_store_a: real compressed storage of a low-rank pair, as opposed to --ts_qfmt*, which rounds fp32
+    copies. Returns enc(X) -> tuple of stored tensors: int8 / int8det / fp8 / fp16s keep codes + a per-column fp32 scale
+    (1 x r), fp16 / bf16 keep the tensor in that dtype. Decoded values equal the simulated --ts_qfmt formats exactly
+    (same rounding, same random numbers)."""
+    if name in ("", "none", "fp32"):
+        return None
+    cs = lambda X, qmax: X.abs().amax(0, keepdim=True).clamp_min(1e-30) / qmax
+    if name == "int8":
+        def enc(X):
+            sc = cs(X, 127); return ((X / sc + torch.rand_like(X)).floor().clamp_(-127, 127).to(torch.int8), sc)
+    elif name == "int8det":
+        def enc(X):
+            sc = cs(X, 127); return ((X / sc).round().clamp_(-127, 127).to(torch.int8), sc)
+    elif name == "fp8":
+        def enc(X):
+            sc = cs(X, 448); return ((X / sc).to(torch.float8_e4m3fn), sc)
+    elif name == "fp16s":
+        def enc(X):
+            sc = cs(X, 32768); return ((X / sc).to(torch.float16), sc)
+    elif name in ("fp16", "bf16"):
+        dt = torch.float16 if name == "fp16" else torch.bfloat16
+        def enc(X):
+            return (X.to(dt),)
+    else:
+        raise ValueError(name)
+    return enc
+
+
+def _store_pair(enc, U, V):
+    """(U, V) -> flat tuple of stored tensors (U codes[, U scale], V codes[, V scale]), so checkpoint / resume code that
+    moves tuples of tensors works unchanged"""
+    return enc(U) + enc(V)
+
+
+def _load_pair(t):
+    """inverse of _store_pair (and a no-op on a plain fp32 (U, V))"""
+    if len(t) == 4:
+        return t[0].float() * t[1], t[2].float() * t[3]
+    return t[0].float(), t[1].float()
+
+
+def _ts_state_bytes(lr_state):
+    """bytes held by the --ts state (accumulator pairs, short momentum, factored v), counted per stored tensor"""
+    n = 0
+    for k, v in lr_state.items():
+        if k == "_ts":
+            for kk, vv in v.items():
+                if isinstance(vv, tuple):
+                    n += sum(x.numel() * x.element_size() for x in vv if torch.is_tensor(x))
+        elif isinstance(v, tuple):
+            n += sum(x.numel() * x.element_size() for x in v if torch.is_tensor(x))
+    return n
+
+
 def _q8(X):
     """Stochastic rounding of each column to 255 levels of its absmax (what an int8 store + fp32 column scale holds)."""
     s = X.abs().amax(0, keepdim=True).clamp_min(1e-30) / 127
@@ -280,6 +335,7 @@ def ts_layer(l, g, state, c):
     if c.get("qfmt_a"): qa = _qfmt(c["qfmt_a"]) or ident                               # --ts_qfmt_a: own format
     qVm, qV = (ident, ident) if c.get("qnoV") else (qm, qa)                             # --ts_qnoV: bases kept fp32
     if c.get("qfmt_aV"): qV = _qfmt(c["qfmt_aV"]) or ident                             # --ts_qfmt_aV: accumulator's V
+    sm, sa = _store_codec(c.get("store_m", "")), _store_codec(c.get("store_a", ""))    # --ts_store_*: real storage
     st = state.setdefault("_ts", {})
     key = id(l); t = st.get(("t", key), 0) + 1; st[("t", key)] = t
     g2 = g * g
@@ -296,11 +352,11 @@ def ts_layer(l, g, state, c):
         Vm = _orth(g.T @ torch.randn(l.N, rs, device=g.device, generator=gen))
         Um = (1 - b1) * g @ Vm
     else:
-        Um, Vm = st[("m", key)]
+        Um, Vm = _load_pair(st[("m", key)])
         Vn = _orth(b1 * Vm @ (Um.T @ Um) + (1 - b1) * g.T @ Um)
         Um = b1 * Um @ (Vm.T @ Vn) + (1 - b1) * g @ Vn; Vm = Vn
     if c.get("qdiag"): _qdiag(st, key, "m", Um, Vm, t)
-    st[("m", key)] = (qm(Um), qVm(Vm))        # --ts_int8 / --ts_qfmt: the stored matrices on a coarser grid
+    st[("m", key)] = _store_pair(sm, Um, Vm) if sm else (qm(Um), qVm(Vm))   # --ts_qfmt: simulated, --ts_store_m: real
     u = -(Um @ Vm.T) / (1 - b1 ** t) / (v.sqrt() + 1e-8) * lr_ratio
     del v
     ra = min(r, l.N, l.K)
@@ -309,7 +365,7 @@ def ts_layer(l, g, state, c):
         V = _orth(u.T @ torch.randn(l.N, ra, device=g.device, generator=gen))
         U = u @ V
     else:
-        U, V = state[key]
+        U, V = _load_pair(state[key])
         U = U * (1 - (lr_ratio if c["tau_anneal"] else 1.0) / tau)   # --ts_tau_anneal: memory in distance, not steps
         Vn = _orth(V @ (U.T @ U) + u.T @ U)
         U = U @ (V.T @ Vn) + u @ Vn; V = Vn
@@ -327,7 +383,7 @@ def ts_layer(l, g, state, c):
     l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
     U = U - c["spend"] * theta * (D @ V)
     if c.get("qdiag"): _qdiag(st, key, "a", U, V, t)
-    state[key] = (qa(U), qV(V))
+    state[key] = _store_pair(sa, U, V) if sa else (qa(U), qV(V))
     st["_nf"] = st.get("_nf", 0) + nf; st["_nt"] = st.get("_nt", 0) + fire.numel()
     if before is not None:
         l._record_flips(before, l.wpacked)
@@ -355,7 +411,7 @@ def _qdiag(st, key, which, U, V, t):
 
 def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0,
             tau_anneal=False, int8=False, fused=False, qfmt="", qwhich="all", qnoV=False, qdiag=False,
-            qfmt_m="", qfmt_a="", qfmt_aV=""):
+            qfmt_m="", qfmt_a="", qfmt_aV="", store_m="", store_a=""):
     """--ts: master's two timescales with sublinear state (the mechanism the 1 Oct master branches point to).
     Per layer:
       v      factored row x column EMA of g^2 (decay b2), v_ij ~ R_i C_j / mean(R)          (N + K floats)
@@ -370,7 +426,7 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
              theta ~ half a bin in latent units over the peak lr (~16)."""
     c = dict(r=r, lr_ratio=lr_ratio, theta=theta, tau=tau, rank_s=rank_s, b1=b1, b2=b2, gate=gate, spend=spend,
              tau_anneal=tau_anneal, int8=int8, qfmt=qfmt, qwhich=qwhich, qnoV=qnoV, qdiag=qdiag,
-             qfmt_m=qfmt_m, qfmt_a=qfmt_a, qfmt_aV=qfmt_aV)
+             qfmt_m=qfmt_m, qfmt_a=qfmt_a, qfmt_aV=qfmt_aV, store_m=store_m, store_a=store_a)
     st = state.setdefault("_ts", {})
     if not fused:
         for i, l in enumerate([l for l in model.modules() if isinstance(l, KernelTernaryLinear)]):
@@ -1510,6 +1566,9 @@ def main():
     ap.add_argument("--ts_qfmt_m", default="", help="--ts: storage format of the short momentum (direction) alone")
     ap.add_argument("--ts_qfmt_a", default="", help="--ts: storage format of the accumulator alone")
     ap.add_argument("--ts_qfmt_aV", default="", help="--ts: storage format of the accumulator's basis V alone")
+    ap.add_argument("--ts_store_m", default="", help="--ts: REAL storage of the short momentum (int8 | int8det | fp8 | "
+                    "fp16 | fp16s | bf16), as opposed to the simulated --ts_qfmt_m")
+    ap.add_argument("--ts_store_a", default="", help="--ts: REAL storage of the accumulator (same formats)")
     ap.add_argument("--ts_qwhich", default="all", choices=["all", "m", "a"],
                     help="--ts_qfmt applies to both matrices / the short momentum only / the accumulator only")
     ap.add_argument("--ts_qnoV", action="store_true", help="--ts_qfmt: keep the orthonormal bases V in fp32")
@@ -2139,7 +2198,8 @@ def main():
         ts_cfg = dict(r=args.lowrank, lr_ratio=1.0, theta=args.ts_theta, tau=args.ts_tau, rank_s=args.ts_rank_s,
                       b1=args.ts_b1, b2=args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
                       tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, qfmt=args.ts_qfmt, qwhich=args.ts_qwhich,
-                      qnoV=args.ts_qnoV, qdiag=False, qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a, qfmt_aV=args.ts_qfmt_aV)
+                      qnoV=args.ts_qnoV, qdiag=False, qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a, qfmt_aV=args.ts_qfmt_aV,
+                      store_m=args.ts_store_m, store_a=args.ts_store_a)
         for i_, m_ in enumerate([m_ for m_ in model.modules() if isinstance(m_, KernelTernaryLinear)]):
             m_._ts_idx = i_
             m_.on_grad = lambda layer, g, _c=ts_cfg: ts_layer(layer, g, lr_state, _c)
@@ -2283,7 +2343,8 @@ def main():
                                   tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, fused=args.ts_fused,
                                   qfmt=args.ts_qfmt, qwhich=args.ts_qwhich, qnoV=args.ts_qnoV,
                                   qdiag=bool(args.ts_qdiag) and step % args.ts_qdiag in (0, 1),
-                                  qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a, qfmt_aV=args.ts_qfmt_aV)
+                                  qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a, qfmt_aV=args.ts_qfmt_aV,
+                      store_m=args.ts_store_m, store_a=args.ts_store_a)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
@@ -2403,6 +2464,8 @@ def main():
                           f"| never {fs['never_frac_total']*100:.1f}% ")
             print(f"step {step:6d} | loss {last_loss:6.3f} | lr {lr:.2e} {extra}"
                   f"| {dt:6.1f}s | peakVRAM {mem:.2f}GiB", flush=True)
+            if args.ts and step in (10, 1000):
+                print(f"  --ts state: {_ts_state_bytes(lr_state) / 2**20:.1f} MiB stored", flush=True)
             if ORTH_STATS:
                 e = torch.tensor(ORTH_STATS); ORTH_STATS.clear()
                 print(f"  orthdbg ({len(e)} calls): |Q^T Q - I| max {e[:, 0].max():.1e} | span error vs Householder max "

@@ -129,9 +129,13 @@ Status: todo / in progress / done (with a short result).
    low rank + schedule scaling. Existing TTF ablations cover part of the difference (tau 300, spend 2, short-momentum
    rank); the one that isolates Bop's missing piece is TTF with `--ts_spend 0` (no reset after a move): proposed for
    the morning, not launched.
-9. **M1 Real compressed storage** (todo). Store the TTF state as int8 + per-column fp32 scales and fp16 (instead of
-   rounding fp32 copies): `--ts_store`. Same results as the simulated formats (same RNG for stochastic rounding);
-   measure the memory saved at 110M / 340M.
+9. **M1 Real compressed storage** (in progress, 05:15). `--ts_store_m FMT --ts_store_a FMT` (int8 / int8det / fp8 /
+   fp16 / fp16s / bf16): `ts_layer` keeps the state as codes + per-column fp32 scales (int8, fp8, fp16s) or 16-bit
+   tensors (flat tuples, so checkpoint and resume code is unchanged) and decodes on read; `--ts` logs the stored bytes
+   at steps 10 and 1000. CPU: decoded values are bitwise identical to the simulated `--ts_qfmt*` formats for every format
+   (same rounding, same random numbers); bytes 1/4 (8-bit) and 1/2 (16-bit) of fp32. GPU check running on quillback
+   (`scripts/lab/store_test.sh`: fp32 / simulated int8+fp16 / real int8+fp16, 200 steps each; sim and real must give
+   identical losses).
 10. **M2 State in host memory** (todo). `--ts_offload`: pinned host copy of each layer's state, async copy-in before the
     layer's backward update and copy-out after (side stream, prefetch the next layer). Equivalence test + time per step.
 11. **M3 27B on one GPU** (todo). A ~23B preset (width 5120, 83 layers, 8 KV heads of 128, MLP 13824; check GQA support),
