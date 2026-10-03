@@ -2891,3 +2891,11 @@ master seeds 2 / 3 -0.023 / -0.091 and TTF seed 3 -0.057 vs their seed-0 runs, b
 depend on the seed, so seed comparisons wait for the final evaluation; TTF without float extras +0.318 at 2000 vs bare
 master (shrinking from +0.900 at 1000; without `--rc_scale` a kernel layer may have no adaptive output scale at all,
 unlike master's absmean: checked in review R3/R4); FineWeb-Edu 600M: TTF -0.098 vs master at 1750.
+
+**02:30.** fp64 Cholesky-QR (`--ts_orth chol64`, both passes in fp64) matches Householder: loss 5.157 vs 5.162 at
+step 300, max |Q^T Q - I| 7e-7, span error <= 5e-6, no zero inputs (median input condition 3e4, max 5e6), so the
+zero-state lock comes from the fp32 Gram matrix. On the 4070 Ti Super it is slow (fp64 at 1/64 rate: 5.7 s/step at 110M),
+on the A100 fp64 is fast. Master lr 6e-3 diverged (val 5.23 at 500, ~5.9 from 1000, 6.1 at 4500) and was stopped;
+lr 3e-3 +0.106 and lr 7.5e-4 -0.000 vs lr 1.5e-3 at 4500-4750. At 1.3B the TTF lead is shrinking: -0.058 at 3000,
+-0.042 at 4000, -0.035 at 4500. FineWeb 600M: TTF -0.095 at 2000, -0.075 at 3250. 340M ranks 256 / 128: +0.051 /
++0.113 vs ranks 512 at 1250. Bare TTF: +0.900 / +0.318 / +0.119 at 1000 / 2000 / 4000.

@@ -15,7 +15,7 @@ below are from 00:30.
 
 | machine | run | why (attack it answers) | compare with | ETA |
 |---|---|---|---|---|
-| barbel / flounder / goldeye | `mx_lr075_s0` / `mx_lr3e3_s0` / `mx_lr6e3_s0` | "master baseline under-tuned": master lr 7.5e-4 / 3e-3 / 6e-3 (only 1.5e-3 so far) | master 2.7513 | ~05:00 |
+| barbel / flounder / goldeye | `mx_lr075_s0` / `mx_lr3e3_s0` / `mx_lr6e3_s0` (lr 6e-3 diverged: val 5.23 at 500, 5.9 from 1000, 6.1 at 4500; stopped 02:30, goldeye free) | "master baseline under-tuned": master lr 7.5e-4 / 3e-3 / 6e-3 (only 1.5e-3 so far) | master 2.7513 | ~05:00 |
 | lamprey / quillback | `mx_seed2` / `mx_seed3` | "one master seed": error bars for the reference | master 2.7513 | ~05:00 |
 | hake | `ts16rs512tau1000an05_seed3` | third seed of the headline TTF run | 2.7067 / 2.6978 | ~05:00 |
 | koi | `tsbare_rs512an05_s0` | "the float extras do the work": TTF without row/col scales, adapter, qk temperature | master (bare) 2.7513 | ~05:00 |
@@ -23,7 +23,7 @@ below are from 00:30.
 | dory / uaru | `big_ts16r256rs256tau1000_s0` / `big_ts16r128rs128tau1000_s0` | rank at width (27B) | 340M r512 2.6268, master 2.6626 | Sat evening |
 | albacore / elver | `qm8a16_seed2` / `qmf8a16_seed2` | storage "free" beyond noise | fp32 seed 2 2.6978 | ~04:50 |
 | 4090 / harlequin / pintail | `qfp16s_s0` / `qm8a16v8_s0` / `qm8a8det_s0` | storage formats | see QUEUE.md | ~04:30 |
-| inanga | `orth_debug.sh` | Cholesky-QR | Householder | ~01:00 |
+| inanga | `orth_debug.sh` | Cholesky-QR | Householder | done: `chol` / `chol_cs` broken (zero-state lock), **`chol64` = Householder** (5.157 vs 5.162 at 300, orthogonality 7e-7, no zero inputs, input condition up to 5e6); second pass with zero counters running |
 
 Note: the training-time eval windows are seeded by the run's seed (`tc.seed + 12345` in `evaluate`), so seed-2/3
 runs are scored on different val windows from seed-0 runs. Paper numbers must come from the final evaluation (E1).
