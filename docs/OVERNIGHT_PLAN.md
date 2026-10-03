@@ -90,9 +90,19 @@ Status: todo / in progress / done (with a short result).
      version would give each layer one learnable scalar (for T1; not launched).
    - Padding trits past K are packed as -1 and excluded from beta; whether the GEMMs mask them is what the K=1000 /
      2049 cases test.
-6. **R3 Review: TTF and hooks** (todo). `ts_layer` / `ts_step` vs FORMULAS.md 2a (bias corrections, leak, lr ratio,
-   firing bounds, spend, factored v), `bitnet/flip.py` hooks (fused, gradient accumulation), checkpoint/resume of
-   `ts_state`. Any place where the method sees information master does not (or vice versa)?
+6. **R3 Review: TTF and hooks** (done, 03:20). `ts_layer` matches FORMULAS 2a: factored v with one bias correction
+   (R_i C_j / mean R carries the factor once), the short momentum and the accumulator are one subspace-iteration step of
+   b1 M + (1 - b1) g and (1 - lambda / tau) A + u (V_new = orth(M^T U), U_new = M V_new, the stored matrix is M projected
+   on span V_new), m bias-corrected, firing at |A| >= theta within [-1, 1], spend projected (U -= c theta D V). Hooks:
+   with `--ts_fused` each layer updates after its input gradient is computed, and checkpointed blocks recompute before
+   their own update; gradient accumulation sums micro-batches (u = m / sqrt(v) is scale-free, so sum or mean does not
+   matter). The full TTF state (t, v, m, U, V) is checkpointed; resume was tested. TTF sees nothing master does not
+   (same batches, no validation data, no look-ahead).
+   Findings: (a) doc fix: with `--ts_tau_anneal` the leak scales by rho^p, not rho (FORMULAS corrected; the 1.3B run uses
+   rho^0.5 for both); (b) no reported run used `--ts_orth chol` (lab queue log, Myriad and 4090 scripts), so the
+   Cholesky bug touches only speed measurements; (c) for T1: master clips the global gradient norm (latents + float
+   tail) at 1.0, TTF clips only the float tail and feeds the raw ternary gradients into m / sqrt(v) (scale-free, so
+   clipping would only change spikes); (d) bare TTF has no learnable output scale (R2).
 7. **R4 Review: the master baseline** (todo). `bitnet/master.py`, `master_opt.py`, master path in `train.py`: absmean
    weight scale, per-token 8-bit activations, STE, AdamW (betas, eps, weight decay and what it applies to), schedule,
    float tail treated the same as ours. Is anything handicapping master? List the differences from the BitNet b1.58

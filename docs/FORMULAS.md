@@ -50,7 +50,10 @@ $m\leftarrow\beta_1m+(1-\beta_1)g$. Adam's normalized step: $u=-\dfrac{m/(1-\bet
 
 **Long accumulator** (the latent's sub-threshold position), rank $r$ (`--lowrank`), leak $\tau$ (`--ts_tau`):
 
-$$A\leftarrow\Big(1-\frac{\lambda_t}{\tau}\Big)A+\rho_t^{\,p}\,u,\qquad \lambda_t=\rho_t\ \text{(`--ts_tau_anneal`) or }1,\quad p=\text{`--ts\_anneal`}\ (1)$$
+$$A\leftarrow\Big(1-\frac{\lambda_t}{\tau}\Big)A+\rho_t^{\,p}\,u,\qquad \lambda_t=\rho_t^{\,p}\ \text{(`--ts_tau_anneal`) or }1,\quad p=\text{`--ts\_anneal`}\ (1)$$
+
+(the code scales the leak by the same factor as the steps, $\rho_t^p$: $\rho_t$ for the annealed-leak runs with the
+default $p=1$, $\rho_t^{0.5}$ for `--ts_tau_anneal --ts_anneal 0.5`, e.g. the 1.3B run)
 
 (one subspace-iteration step with $\beta=1$ after the leak, as 2.1).
 
