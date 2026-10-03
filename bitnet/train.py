@@ -386,6 +386,46 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
     return info
 
 
+@torch.no_grad()
+def bop_step(model, state, gamma, tau, b2=0.95, norm=True, bias_correct=False):
+    """--bop: the closest prior method, as a baseline (not part of --ts). Latent-free flips with ONE timescale:
+    Bop (Helwegen et al. 2019) keeps per weight m <- (1 - gamma) m + gamma g and flips a binary weight when |m| > tau and
+    sign(m) = sign(w); Bop2ndOrder normalises m by the second moment. Ternary version: a trit moves one level against
+    sign(m) when |m_hat / sqrt(v)| > tau (--bop_norm, v the factored second moment used by --ts) or |m| > tau, and the
+    move stays in [-1, 1]. m is per weight in fp32 (Bop's own state, not sublinear); no accumulator, no reset after a
+    move, no short momentum, no rank limit, no schedule. As in Bop, m starts at 0 without bias correction (with
+    --bop_bc, m_hat = m / (1 - (1 - gamma)^t), whose noise ~ 1 / sqrt(t) would cross any small tau for ~1 / tau^2 steps).
+    At equilibrium the noise of m / sqrt(v) is ~ sqrt(gamma / 2) (0.022 at gamma 1e-3), which sets the useful tau."""
+    from .kernel import unpack_rows, pack_rows
+    nf, nt = 0, 0
+    for l in [l for l in model.modules() if isinstance(l, KernelTernaryLinear)]:
+        g = l.gw.float(); l.gw = None; l.capture = False
+        k = id(l); t = state.get(("bop_t", k), 0) + 1; state[("bop_t", k)] = t
+        m = state.get(("bop_m", k))
+        m = gamma * g if m is None else m.mul_(1 - gamma).add_(g, alpha=gamma)
+        state[("bop_m", k)] = m
+        sig = m / (1 - (1 - gamma) ** t) if bias_correct else m
+        if norm:
+            g2 = g * g
+            if ("bop_v", k) in state:
+                R, C = state[("bop_v", k)]; R = b2 * R + (1 - b2) * g2.mean(1); C = b2 * C + (1 - b2) * g2.mean(0)
+            else:
+                R, C = (1 - b2) * g2.mean(1), (1 - b2) * g2.mean(0)
+            state[("bop_v", k)] = (R, C); del g2
+            v = R[:, None] * C[None, :] / R.mean().clamp_min(1e-30) / (1 - b2 ** t)
+            sig = sig / (v.sqrt() + 1e-8); del v
+        w0 = unpack_rows(l.wpacked, l.K).to(torch.int8)
+        d = -sig.sign()
+        fire = (sig.abs() > tau) & ((w0.float() + d).abs() <= 1)
+        before = l.wpacked.clone() if l.track else None
+        l.wpacked.copy_(pack_rows((w0.float() + torch.where(fire, d, torch.zeros_like(d))).to(torch.int8)))
+        nf += fire.sum(); nt += fire.numel()
+        if before is not None:
+            l._record_flips(before, l.wpacked)
+        del g, sig, d, fire, w0
+    return {"ts_frac": float(nf) / max(nt, 1)}
+
+
 def lowrank_step(model, state, r, beta, step, flip_seed=0, adapt=False, propose_only=False,
                  diag=False, gate=False, refresh=0, refresh_every=10, vnorm=0.0, mask_stuck=False,
                  qk_protect=0.0, qk_map=None, speed_ref=0.0, speed_row=0.0, ncap=0.0, pfun_tanh=0.0, grav_up=0.0,
@@ -1483,6 +1523,13 @@ def main():
                          "the fp32 gradient of only one layer exists at a time (saves N*K*4 bytes over all layers)")
     ap.add_argument("--ts_anneal", type=float, default=1.0,
                     help="--ts: the accumulator's steps scale with (lr_t / lr_peak)^P (1: like master's latent; 0.5 milder)")
+    ap.add_argument("--bop", action="store_true",
+                    help="baseline: ternary Bop (one-timescale latent-free flips, per-weight EMA; needs --lowrank 1 for the "
+                         "gradient capture, the rank is unused)")
+    ap.add_argument("--bop_gamma", type=float, default=1e-3, help="--bop: EMA rate of m (memory 1 / gamma steps)")
+    ap.add_argument("--bop_tau", type=float, default=0.016, help="--bop: threshold on |m_hat / sqrt(v)| (or |m| with --bop_raw)")
+    ap.add_argument("--bop_raw", action="store_true", help="--bop: threshold the raw m (original Bop), no normalisation")
+    ap.add_argument("--bop_bc", action="store_true", help="--bop: bias-correct m (off in Bop)")
     ap.add_argument("--ts_tau_anneal", action="store_true",
                     help="--ts: the leak shrinks with the accumulator's steps (decay 1 - ratio / tau): memory counted in "
                          "distance travelled, so the accumulator's level does not sink below theta as the lr decays")
@@ -2227,6 +2274,9 @@ def main():
                 rs_info = select_step(model, lr_state, sel_state, args.lowrank, args.lr_beta, step, args, args.flip_seed)
             elif args.multibeta:
                 rs_info = multibeta_step(model, mb_states, mb_betas, mb_scores, args.lowrank, step, args.flip_seed)
+            elif args.bop:
+                rs_info = bop_step(model, lr_state, args.bop_gamma, args.bop_tau, args.ts_b2, norm=not args.bop_raw,
+                                   bias_correct=args.bop_bc)
             elif args.ts:
                 rs_info = ts_step(model, lr_state, args.lowrank, step, (lr / tc.lr) ** args.ts_anneal, args.ts_theta, args.ts_tau,
                                   args.ts_rank_s, args.ts_b1, args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,

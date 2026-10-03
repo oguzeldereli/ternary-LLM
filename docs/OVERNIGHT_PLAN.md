@@ -115,12 +115,19 @@ Status: todo / in progress / done (with a short result).
    learning rate (a drop half-way) and weight-decay schedule (off in the second stage) versus our plain cosine and
    constant decay; their squared-ReLU / SubLN blocks versus our Llama-style SwiGLU with pre-RMSNorm (the same for both
    methods here). A master run with the two-stage schedule would answer "a stronger master recipe exists".
-8. **P1 Predecessor baseline: Bop-style flips** (todo; the user confirmed 3 Oct 00:25: "prior work baselines", as comparisons only). The closest prior work to TTF is a latent-free flip optimizer
-   with one timescale (Bop: EMA of the gradient, flip when it exceeds a threshold). Implement `--bop` for ternary
-   (per-weight fp32 EMA m with rate gamma; optional normalisation by the factored second moment; move one level against
-   sign(m) when |m| > tau and within bounds; no accumulator, no short momentum). CPU unit test, then a 3-setting sweep at
-   110M on machines freed at ~04:30-05:00 (4090 / harlequin / pintail / albacore / elver). Our own predecessors (old rule,
-   2.815 / 340M 2.7246 / 1.3B tonight) already have numbers.
+8. **P1 Predecessor baseline: Bop-style flips** (in progress, 04:20; the user confirmed 3 Oct 00:25: "prior work
+   baselines", as comparisons only). `--bop` in `train.py` (`bop_step`, separate from `--ts`; needs `--lowrank 1` only for
+   the gradient capture): per-weight fp32 EMA m <- (1 - gamma) m + gamma g, test |m / sqrt(v)| > tau with the factored
+   second moment (Bop2ndOrder-style normalisation; `--bop_raw` for the original raw-m test), move one level against
+   sign(m) within [-1, 1]; as in Bop no bias correction (`--bop_bc` to add it), no reset after a move, no short momentum,
+   no rank limit, no schedule. CPU test: consistent gradients drive rows one level per step to the bound, noise rows
+   mostly stay. Calibration: at equilibrium the noise of m / sqrt(v) is ~ sqrt(gamma / 2) = 0.022 at gamma 1e-3 (TTF's
+   theta 16 over a 1000-step memory would correspond to 0.016, inside the noise; TTF survives this because it spends
+   theta on every move, Bop does not). Sweep at 110M with the same float extras as TTF (compare TTF 2.7067, master +
+   extras 2.730): tau 0.02 / 0.05 / 0.15 (~1 / 2 / 7 sigma of the noise) on goldeye / inanga / 4090, started 04:20, ETA
+   ~09:00. Finding for the write-up: TTF = this normalised one-timescale rule + short momentum + spend on firing +
+   low rank + schedule scaling; the ablations of TTF (no spend is not testable, but tau 300, beta1 long, spend 2) and
+   this sweep show which part carries the gain.
 9. **M1 Real compressed storage** (todo). Store the TTF state as int8 + per-column fp32 scales and fp16 (instead of
    rounding fp32 copies): `--ts_store`. Same results as the simulated formats (same RNG for stochastic rounding);
    measure the memory saved at 110M / 340M.
