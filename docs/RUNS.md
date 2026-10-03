@@ -2837,3 +2837,57 @@ int8 +0.009 (broken). **The direction tolerates 8 bits; the accumulator needs ~1
 int8 finals: ranks 512 2.7631 (fp32 twin 2.7224), ranks 256 2.8170 (2.7827).
 
 **1.3B `--ts`**: 3.218 at 2000 (master 3.242), 3.092 at 2500 (master 3.138): -0.046 and growing.
+
+### 3 Oct night (01:30): storage finals, Cholesky-QR bug, 1.3B old-rule final, speed jobs
+
+**Storage formats, finals** (`--ts` ranks 512, steps x ratio^0.5, fused; gap of the final val loss to the fp32 twin
+2.7067; an fp32 rerun `qdiag_fp32_s0` lands -0.001, so noise is ~+-0.005):
+
+| direction (short momentum) | accumulator | final | gap |
+|---|---|---|---|
+| fp8 e4m3, per-column scale | fp32 | 2.7059 | -0.001 |
+| fp8 | fp16 | 2.7052 | -0.002 |
+| fp32 | fp16 | 2.7087 | +0.002 |
+| int8 | fp16 | 2.7087 | +0.002 |
+| int8 | bf16 | 2.7092 | +0.002 |
+| bf16 | bf16 | 2.7091 | +0.002 |
+| fp32 | bf16 (4090) | 2.7105 | +0.004 |
+| int8 | fp32 | 2.7103 | +0.004 |
+| int8 (V fp32) | int8 (V fp32) | 2.7157 | +0.009 |
+| fp16 (no scale) | fp16 (no scale) | 2.7174 | +0.011 |
+| fp32 | int8 | 2.7184 | +0.012 |
+| int8 nearest | int8 nearest | 2.7229 | +0.016 |
+| fp16 (no scale) | int8 | 2.7261 | +0.019 |
+| int8 | int8 | 2.7275 | +0.021 |
+| int8 per row | int8 per row | 2.7564 | +0.050 |
+| fp8 | fp8 | 2.9620 | +0.255 |
+
+Running (ETA ~04:30): fp16 with a per-column scale everywhere +0.005 at 4500 (no-scale fp16 was +0.016 at 5000: the
+fp16 cost looks like underflow); direction int8 + accumulator U fp16 / V int8 +0.017 at 3250 (V in int8 is not free);
+direction int8 + accumulator int8 nearest +0.016 at 3250. Seed 2 of int8 + fp16 / fp8 + fp16: -0.005 / -0.002 at 1750
+against fp32 seed 2 (same seed, same eval windows).
+
+**Cholesky-QR is broken; Householder is the method** (`scripts/lab/orth_debug.sh` on inanga, 300 steps at 110M,
+`TERN_ORTHDBG=1`). Losses at 100 / 200 / 300: Householder 6.772 / 5.654 / **5.162**; Cholesky-QR (fp32 Gram) 6.793 /
+5.552 / **5.049**; on unit columns 6.795 / 5.549 / 5.032. The Cholesky runs lose orthogonality (max |Q^T Q - I| = 1.0 at
+every logged step), see input condition numbers up to 1e8, and from step ~50 on more than half of the 168 calls per
+step get an all-zero input. Mechanism (CPU-confirmed): when the fp32 Gram matrix is not positive definite, the Cholesky
+fails, `nan_to_num` turns the basis into zeros, U = U (V^T Vn) + u Vn becomes zero, and the next input V (U^T U) + u^T U
+is zero again, so the layer's state stays at zero for the rest of training (that layer stops flipping or stops
+receiving a direction). For a zero input Householder returns an orthonormal basis, so it cannot get stuck this way.
+The lower loss at 300 steps is not a sign of correctness. A second pass counting zero inputs and outputs for
+Householder, Cholesky and fp64 Cholesky follows on inanga. Speed numbers that used `--ts_orth chol` measure time only.
+
+**1.3B**: old rule `x1b_dryspend_r512_lr75` final **2.7089** (+0.122 vs 1.3B master 2.5868; +0.207 at 4000);
+`--ts` at 4250: 2.869 (-0.041 vs master).
+
+**1.3B speed (A100, 25 steps)**: `--ts` with `--gemm cublas --ts_orth chol --ts_fused`: forward+backward 5.09 s,
+update 0.02 s (inside the backward), peak **17.1 GiB**, persistent 6.3 GiB (was 7.44 + 2.65 s, peak 24.7); master 4.37 +
+0.10 s, peak 25.9. Old rule with cuBLAS: 4.94 + 1.57 s. (The `chol` part is invalid for training, see above; the
+Householder QR cost has to be re-measured.)
+
+**Robustness runs at ~2250 (training-time eval)**: master lr 7.5e-4 -0.003, lr 3e-3 +0.147, lr 6e-3 diverging (6.13);
+master seeds 2 / 3 -0.023 / -0.091 and TTF seed 3 -0.057 vs their seed-0 runs, but the training-time eval windows
+depend on the seed, so seed comparisons wait for the final evaluation; TTF without float extras +0.318 at 2000 vs bare
+master (shrinking from +0.900 at 1000; without `--rc_scale` a kernel layer may have no adaptive output scale at all,
+unlike master's absmean: checked in review R3/R4); FineWeb-Edu 600M: TTF -0.098 vs master at 1750.

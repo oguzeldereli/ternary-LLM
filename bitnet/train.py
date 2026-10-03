@@ -228,7 +228,10 @@ def _orth(X):
     fp64, no host sync) instead of a Householder QR, which was 1.6 s per 1.3B step. Only the span matters to --ts
     (A = U V^T does not depend on the basis chosen)."""
     if not ORTH_CHOL[0]:
-        return torch.linalg.qr(X)[0]
+        Q = torch.linalg.qr(X)[0]
+        if ORTH_DBG[0]:
+            _orth_stats(X, Q)
+        return Q
     Q = X.double() if ORTH_CHOL[0] == "chol64" else X   # chol64: both passes in fp64 (the fp32 Gram fails at cond ~1e6)
     if ORTH_CHOL[0] == "chol_cs":   # unit columns first: same span, without the column-scale part of the conditioning
         Q = X / X.norm(dim=0, keepdim=True).clamp_min(1e-30)
@@ -242,14 +245,20 @@ def _orth(X):
         Linv = torch.linalg.solve_triangular(L, eye, upper=False)
         Q = Q @ Linv.T.to(Q.dtype)
     Q = torch.nan_to_num(Q).to(X.dtype)
-    if ORTH_DBG[0]:                 # TERN_ORTHDBG=1: compare with Householder on the same input (one step in 10)
-        Qh = torch.linalg.qr(X)[0]
-        Qo = torch.linalg.qr(Q)[0]  # Q's own span, orthonormal, so the span error does not mix in the orthogonality error
-        sv = torch.linalg.svdvals(X.double())
-        ORTH_STATS.append(((Q.T @ Q - torch.eye(Q.shape[1], device=Q.device)).abs().max().item(),
-                           ((Qh - Qo @ (Qo.T @ Qh)).norm() / Qh.norm()).item(),
-                           (sv[0] / sv[-1].clamp_min(1e-300)).item()))
+    if ORTH_DBG[0]:
+        _orth_stats(X, Q)
     return Q
+
+
+def _orth_stats(X, Q):
+    """TERN_ORTHDBG=1 (one step in 10): compare Q with Householder on the same input; count all-zero inputs / outputs"""
+    Qh = torch.linalg.qr(X)[0]
+    Qo = torch.linalg.qr(Q)[0]      # Q's own span, orthonormal, so the span error does not mix in the orthogonality error
+    sv = torch.linalg.svdvals(X.double())
+    ORTH_STATS.append(((Q.T @ Q - torch.eye(Q.shape[1], device=Q.device)).abs().max().item(),
+                       ((Qh - Qo @ (Qo.T @ Qh)).norm() / Qh.norm()).item(),
+                       (sv[0] / sv[-1].clamp_min(1e-300)).item(),
+                       float(X.abs().max().item() == 0), float(Q.abs().max().item() == 0)))
 
 
 ORTH_CHOL = [False]               # False (Householder) | "chol" | "chol_cs" | "chol64" (--ts_orth)
@@ -2348,7 +2357,8 @@ def main():
                 e = torch.tensor(ORTH_STATS); ORTH_STATS.clear()
                 print(f"  orthdbg ({len(e)} calls): |Q^T Q - I| max {e[:, 0].max():.1e} | span error vs Householder max "
                       f"{e[:, 1].max():.1e} median {e[:, 1].median():.1e} | input condition max {e[:, 2].max():.1e} "
-                      f"median {e[:, 2].median():.1e}", flush=True)
+                      f"median {e[:, 2].median():.1e} | zero inputs {int(e[:, 3].sum())} zero outputs "
+                      f"{int(e[:, 4].sum())}", flush=True)
         if step > 0 and step % tc.eval_interval == 0:
             vl = evaluate(model, val_data, tc, device)
             log_metrics({"step": step, "val_loss": vl, "val_ppl": math.exp(vl)})
