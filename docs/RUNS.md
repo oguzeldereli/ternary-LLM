@@ -2899,3 +2899,14 @@ on the A100 fp64 is fast. Master lr 6e-3 diverged (val 5.23 at 500, ~5.9 from 10
 lr 3e-3 +0.106 and lr 7.5e-4 -0.000 vs lr 1.5e-3 at 4500-4750. At 1.3B the TTF lead is shrinking: -0.058 at 3000,
 -0.042 at 4000, -0.035 at 4500. FineWeb 600M: TTF -0.095 at 2000, -0.075 at 3250. 340M ranks 256 / 128: +0.051 /
 +0.113 vs ranks 512 at 1250. Bare TTF: +0.900 / +0.318 / +0.119 at 1000 / 2000 / 4000.
+
+**03:30.** Zero-count pass (`orth_debug.sh zero`, 300 steps, counts every logged step): Householder QR **0 zero inputs /
+0 zero outputs** at every step (input condition up to 5.6e8; loss 5.160, rerun of 5.162); fp32 Cholesky-QR 46 zero
+outputs from 17 zero inputs at the first logged step, then **88 of 168 subspaces locked at zero** for the rest of the run
+(loss 5.011: the early loss is lower with half the subspaces frozen, which says nothing for correctness, but is a hint
+that early flips cost something); fp64 Cholesky-QR 0 / 0, loss 5.142, orthogonality <= 7.7e-7. Verdict: Householder is
+safe; `chol64` is an equivalent fast path (for the A100); `chol` / `chol_cs` must not be used.
+Storage: fp16 with a per-column scale everywhere (`qfp16s_s0`) final **2.7076 (+0.001)** vs plain fp16 2.7174 (+0.011):
+the fp16 cost was underflow. Seed 2 of int8 / fp16 and fp8 / fp16: -0.000 / -0.002 at 5250 vs fp32 seed 2.
+1.3B TTF at 5000: 2.802 (-0.032 vs master; -0.058 at 3000, -0.042 at 4000). FineWeb 600M: TTF -0.058 at 5000
+(-0.095 at 2000). Master lr 7.5e-4: +0.015 at 7000 (lr 1.5e-3 is the better of the two so far); lr 3e-3 +0.080.

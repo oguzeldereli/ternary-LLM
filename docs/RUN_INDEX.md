@@ -225,11 +225,11 @@ ones: [QUEUE.md](QUEUE.md).
 | `ts16fulltau1000an05_s0` / `ts16rs512tau1000an075_s0` / `ts16r256rs256tau1000an05_s0` (harlequin / pintail / uaru) | full rank + annealing ^0.5 / rank 512 + ^0.75 / ranks 256 + ^0.5 | 300M | 2.6804 / 2.7138 / 2.7824 |
 | `ts16full_tau1000_seed2` / `ts16rs512tau1000an05_seed2` (dory / flounder) | seed 2 of the two headline runs | 300M | 2.6865 / **2.6978** |
 | `ts16fullla1000_seed2` / `ts16rs512la1000_seed2` (goldeye / barbel) | seed 2 of the annealed-leak runs | 300M | **2.6645** / 2.7002 |
-| `ts16rs512la1000an05int8_s0` / `ts16r256rs256la1000an05int8_s0` (plaice / hake) | the same in int8 (`--ts_int8`) with the fused update (`--ts_fused`) | running | - |
+| `ts16rs512la1000an05int8_s0` / `ts16r256rs256la1000an05int8_s0` (plaice / hake) | the same in int8 (`--ts_int8`) with the fused update (`--ts_fused`) | 300M | 2.7631 / 2.8170 |
 | `ts16rs512la1000an05_s0` / `ts16r256rs256la1000an05_s0` (albacore / elver) | ranks 512 / 256, leak and steps scaled by (lr ratio)^0.5 | 300M | 2.7224 / 2.7827 |
-| `x1b_ts512_la1000an05` (Myriad, running) | `--ts` at 1.3B, ranks 512, leak and steps x ratio^0.5, lr 7.5e-4 (1.3B master 2.5868; old rule +0.208 at 4000) | queued | - |
+| `x1b_ts512_la1000an05` (Myriad, running) | `--ts` at 1.3B, ranks 512, leak and steps x ratio^0.5, lr 7.5e-4 (1.3B master 2.5868; old rule final 2.7089, +0.122) | 164M (5000) | 2.802 (-0.032 vs master at 5000) |
 | `mx_extras_s0` / `mx_extras_seed2` (tope / lamprey) | **fair reference**: master + the same float extras (row/col scales, additive rank-16 adapter, qk temperature) | 300M | **2.7321 / 2.7279 (mean 2.730)** |
-| `q8all_s0` ... `qfp8_s0`, `qdiag_fp32_s0` (10 lab121 PCs) | why int8 costs: int8 everywhere / short momentum only / accumulator only / bases V fp32 / nearest rounding / per-row scale; bf16, fp16, fp8 (e4m3, per-column scale); fp32 with storage diagnostics (ranks 512, steps x ratio^0.5, fused) | running | - |
+| storage formats (`q*_s0`, 19 runs, fused, vs fp32 twin 2.7067; noise ~+-0.005) | free: direction int8 / fp8 with a per-column scale, accumulator fp16 / bf16 / fp16 with a per-column scale, bf16 everywhere; costs: accumulator int8 (+0.012 to +0.021), plain fp16 on the direction (+0.011, underflow: scaled fp16 +0.001), accumulator V in int8 with U fp16 (+0.014 at 7250); broken: per-row int8 +0.050, fp8 everywhere +0.255 (RUNS.md "3 Oct night") | 300M | int8 / fp16 **2.7087**, fp8 / fp16 **2.7052**, scaled fp16 2.7076 |
 | `tsnoflip_s0` | control: theta 1e9 (no flips; float extras only) | 300M | 3.1725 (+0.421) |
 
 ## Recipe tweaks (1-2 Oct, finished; vs the rule r512 2.8215)
