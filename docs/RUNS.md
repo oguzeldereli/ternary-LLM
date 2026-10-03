@@ -2975,3 +2975,8 @@ ARC-e 0.327 / 0.318 / 0.328, ARC-c 0.189 / 0.177 / 0.195, WinoGrande 0.500 / 0.4
 LAMBADA TTF - master + extras +0.012 [+0.005, +0.019]; the multiple-choice tasks are near chance at 110M / 300M tokens
 and show no reliable difference. Progress: 1.3B TTF -0.011 at 6750; 340M ranks 128 now +0.015 behind 340M master at
 5750 (ranks 256 -0.071); FineWeb 600M -0.040 at 13750; Bop tau 0.02 / 0.05 3.102 / 4.035 at 8750.
+
+**09:50.** Bop finals: tau 0.02 3.0885 (+0.382 vs TTF 2.7067), 0.05 3.9898, 0.15 3.2451. FineWeb-Edu 600M: master final
+3.1508; TTF -0.054 at 16250 (the gap narrowed to -0.029 at 10000 and widened again during the decay). 1.3B TTF -0.008 at
+7000 and 7250 (the shrinking has slowed: -0.019 / -0.011 / -0.008 at 6000 / 6750 / 7250). 340M ranks 256 / 128 vs 340M
+master -0.045 / +0.052 at 6500 / 6750.

@@ -6,14 +6,28 @@ by the user with `bash ~/ternary-LLM/scripts/remote/start.sh SCRIPT`), **shovele
 PCs, at most two in use), **laptop**. Token counts are training tokens (32,768 per step at batch 16). From
 2026-09-27 on, new runs are without look-ahead.
 
-Last updated: 2026-10-03 00:30
+Last updated: 2026-10-03 09:50
 
 Run names: `rc` = learned row/column scales, `s0` = from scratch (step 0), `b131` = branch from `nola_lab` at 131M,
 `gate` = sign gate (flip only where this batch's gradient agrees with the momentum), `vnorm` = factored Adam step
 (momentum divided by a row x column gradient size), `rateNNN` = plain momentum at 0.NNx peak flip rate,
 `speedref` = per-layer slow speed reference, `seed2` = same run with seed 2.
 
-## Now (3 Oct, 00:30): overnight
+## Now (3 Oct, 09:50): morning
+
+| machine | run | status |
+|---|---|---|
+| Myriad 40267 | `x1b_ts512_la1000an05` (1.3B TTF) | step 7380; -0.008 vs 1.3B master at 7250 (lead shrinking from -0.058 at 3000); ETA ~14:40 |
+| tope | `fw_ts512an05_600M` (FineWeb-Edu 600M, TTF) | step 16310; -0.054 vs master at 16250 (master finished 3.1508); ETA ~10:30 |
+| dory / uaru | `big_ts16r256rs256tau1000_s0` / `big_ts16r128rs128tau1000_s0` (340M ranks 256 / 128) | 6500 / 6750: -0.045 / +0.052 vs 340M master; ETA ~16:00 |
+| barbel | (hung) | stopped responding at ~07:25 after the 27B ranks-1024 test exhausted its 30 GB RAM (pinned state); unreachable since |
+
+Finished overnight (details: RUNS.md "3 Oct night", OVERNIGHT_PLAN.md): storage formats (16 + 3 + 2 seed-2 runs), master
+lr sweep (7.5e-4 / 3e-3 / 6e-3 diverged), master seeds 2 / 3, TTF seed 3, bare TTF, Bop baseline (tau 0.02 / 0.05 / 0.15:
+3.0885 / 3.9898 / 3.2451), Cholesky debug, store / offload tests, 27B smoke (ranks 256), master FineWeb 600M (3.1508).
+Idle: albacore, elver, flounder, goldeye, hake, inanga, koi, lamprey, quillback, harlequin, pintail, the 4090.
+
+## Earlier (3 Oct, 00:30): overnight
 
 Robustness runs from 00:27 (barbel, flounder, goldeye, lamprey, quillback, hake, koi, tope, rudd) are listed in
 [OVERNIGHT_PLAN.md](OVERNIGHT_PLAN.md) with the attack each one answers. The runs below started at 00:27, not
