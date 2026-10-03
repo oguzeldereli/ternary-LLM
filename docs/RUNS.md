@@ -2938,3 +2938,12 @@ comparable to each other to better than ~0.06; use these.
 Also finished: master lr 7.5e-4 2.7785 / 3e-3 2.8136 (training-time, seed 1337 windows), so lr 1.5e-3 was the best
 master learning rate of 7.5e-4 / 1.5e-3 / 3e-3 / 6e-3 (6e-3 diverged); `qm8a16v8_s0` (accumulator V in int8) 2.7175
 (+0.011). Bop baseline early: tau 0.15 4.464 at 1000 (TTF 3.652), tau 0.02 / 0.05 5.87 / 6.30 at 500.
+
+**05:45.** Real compressed state (`--ts_store_m int8 --ts_store_a fp16`): 684.7 -> 257.5 MiB stored at 110M ranks 512,
+peak 7.68 -> 7.26 GiB, loss equal within GPU run-to-run noise (5.6576 / 5.6598 simulated / 5.6584 fp32 at 200).
+Finals: `qm8a8det_s0` (direction int8, accumulator int8 nearest) 2.7162 (+0.009); bare TTF `tsbare_rs512an05_s0`
+2.8266 (+0.075 vs bare master 2.7513, same seed and windows; +0.900 at 1000, +0.318 at 2000: bare TTF has no learnable
+output scale, see OVERNIGHT_PLAN R2). Bop baseline (110M, same extras): tau 0.15 3.4716 at 4500 (+0.499 vs TTF), tau
+0.02 4.1385 / tau 0.05 5.2095 at 2500 (+0.96 / +2.03). 1.3B TTF -0.023 at 5750 (lead shrinking: -0.058 / -0.042 / -0.032
+/ -0.026 at 3000 / 4000 / 5000 / 5250). FineWeb 600M TTF -0.040 at 8500 (-0.095 at 2000). 340M ranks 256 / 128: +0.049 /
++0.114 vs ranks 512 at 3500 (constant gap so far).
