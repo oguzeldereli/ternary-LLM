@@ -159,14 +159,18 @@ Status: todo / in progress / done (with a short result).
     Triton autotuning), torch peak 14.10 GiB allocated (8.61 GiB persistent), nvidia-smi peak 15.95 of 16 GiB (the
     allocator logged mapping retries at the edge; every step completed), host max RSS 13.7 GiB. Ranks 1024 running
     (host state ~21 GiB pinned on a 30 GB machine).
+    **Ranks 1024 (07:25): barbel stopped responding** (ssh times out; quillback fine): the ~21 GiB pinned state plus the
+    process's own ~13.7 GiB exceeds 30 GB, and pinned pages cannot swap. My estimate missed the process RSS. Needs a
+    host with >= 48 GB RAM, or ranks <= 512 (~10.7 GiB host state). Barbel is polled for recovery.
 12. **E3 Zero-shot tasks** (todo). Download on the laptop CPU (HF datasets): LAMBADA, HellaSwag, PIQA, ARC-e/ARC-c,
     WinoGrande; `scripts/eval/zeroshot.py` (log-likelihood multiple choice, accuracy and length-normalised accuracy, with
     standard errors); run on the headline checkpoints. Expect near-chance at 110M; report with error bars.
 13. **R5 Numbers audit** (todo). Script that recomputes every number in RUN_INDEX.md's headline tables from the
     metrics files and flags mismatches.
-14. **T1 THREATS.md** (todo). Every attack we can think of (tuning fairness, seeds / CIs, tokens, float extras, eval
-    windows, dataset, scale, wall-clock, memory measured vs estimated, code bugs, the extras in the fair reference), the
-    evidence for each, and what is still open.
+14. **T1 THREATS.md** (done, 07:45, moved ahead of E3 / R5): `docs/THREATS.md`, 13 attacks answered with evidence
+    (seeds, windows, test-set tuning, leakage, master lr, master implementation, extras, kernels, information, bugs,
+    storage, memory, Bop, old rule) and 9 open (late-training shrink at scale, bare comparison, BitNet's two-stage
+    schedule, clipping, scale / tokens, wall-clock, rank at width, ranks 1024 host RAM, zero-shot).
 15. **E4 Run the final evaluation** on every rescued checkpoint (E1 + E2), table into RUNS.md / RUN_INDEX.md. (Started
     04:30 for the headline groups, moved up because the seed runs finished: TTF -0.028 [-0.029, -0.027] vs master +
     extras on Wikipedia, -0.039 on FineWeb; master seeds 2.7342 / 2.7352 / 2.7383, so the training-time "seed 3 -0.065"
