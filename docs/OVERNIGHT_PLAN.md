@@ -174,8 +174,12 @@ Status: todo / in progress / done (with a short result).
     examples: LAMBADA TTF - master + extras **+0.012 [+0.005, +0.019]**, TTF - master +0.009 [+0.002, +0.016]; the
     multiple-choice tasks are near chance at this scale and every other difference's interval contains 0 except PIQA
     acc_norm vs master (+0.026 [+0.009, +0.043], one of 20 comparisons). To do: the other seeds, 340M and 1.3B.
-13. **R5 Numbers audit** (todo). Script that recomputes every number in RUN_INDEX.md's headline tables from the
-    metrics files and flags mismatches.
+13. **R5 Numbers audit** (done, 09:20). `scripts/analysis/audit_numbers.py` checks every RUN_INDEX.md row that names runs
+    and gives 4-decimal values against the logged final: 130 match; 5 flagged: three stale "running" rows that still
+    showed an intermediate value (cheapcos512 2.8884 at 8250 -> final 2.8634, drywarm512 3.2321 at 3000 -> 2.8199, undo512
+    3.3736 at 2250 -> 2.8360; fixed) and two 1e-4 rounding differences (grav05 rows; fixed); 5 runs have no local log
+    (the Myriad master ablations mx_factv / mx_rank512 / mx_snap / mx_leak300 and gvsharp_slowgate_s0). No headline number
+    was wrong.
 14. **T1 THREATS.md** (done, 07:45, moved ahead of E3 / R5): `docs/THREATS.md`, 13 attacks answered with evidence
     (seeds, windows, test-set tuning, leakage, master lr, master implementation, extras, kernels, information, bugs,
     storage, memory, Bop, old rule) and 9 open (late-training shrink at scale, bare comparison, BitNet's two-stage

@@ -165,8 +165,8 @@ ones: [QUEUE.md](QUEUE.md).
 | `user_cap1_s0` | user's rule, cap 1 (stopped: too few flips, loses no-context statistics) | ~115M | ~3.83 |
 | `user_cap1_flip15_s0` | user's rule, cap 1, flip scale 1.5 (stopped) | 197M | 3.635 |
 | `usersweep_cap{1,2,3,10,30}` | user's rule, cap sweep, stop at step 1500 | 49M | 4.132 / - / 3.991 / 4.946 / 5.305 |
-| `grav05_rc_s0` | asymmetric gravity 0.5 (`--grav_up 0.5`) | 300M | 3.5014 |
-| `grav05_gatevnorm_rc_s0` | asymmetric gravity 0.5 + gate + Adam step | 300M | 3.4972 |
+| `grav05_rc_s0` | asymmetric gravity 0.5 (`--grav_up 0.5`) | 300M | 3.5013 |
+| `grav05_gatevnorm_rc_s0` | asymmetric gravity 0.5 + gate + Adam step | 300M | 3.4973 |
 | `gvundo_rc_s0` | gate + Adam step + undo (`--undo`); stopped (undo reverses 2% of flips: inert) | 66M | 3.585 |
 | **`gvsharp_rc_s0`** | gate + Adam step + sharp (`--lowrank_mag add:16 --mag_wd 0.1 --qk_temp`): best without look-ahead, beats look-ahead + sharp (2.992) | 300M | **2.9875** |
 | `gvsharp_b099_s0` | sharp base + `--lr_beta 0.99` | 300M | 2.9108 |
@@ -260,9 +260,9 @@ ones: [QUEUE.md](QUEUE.md).
 | `cheap512_dryspend_s0` | the same, `--pshape cheap` (prefer small gradient second moment) | 300M | 2.9186 (+0.097) |
 | `cheap256_dryspend_s0` | rank 256, `--pshape cheap` | 300M | 2.9469 (+0.077 vs 2.8699) |
 | `cheap128_dryspend_s0` / `cheap64_dryspend_s0` | rank 128 / 64, `--pshape cheap` | 300M | 3.0045 / 3.0800 (+0.054 vs 2.9501 / +0.040 vs 3.0401) |
-| `cheapcos512_dryspend_s0` | rank 512, flip selection blended from the rule to cheap on a cosine (`--pshape cheap --pshape_sched cos`, 4090) | running | step 8250: 2.8884 (+0.037 vs the rule) |
-| `drywarm512_dryspend_s0` | dry + spend, rank 512, memory that starts short and lengthens (`--dry_start 0.12 --dry_warm 1500`: friction 0.12 easing to 1/33 over 49M tokens) | running (pintail) | step 3000: 3.2321 (-0.028 vs the rule) |
-| `undo512_dryspend_s0` | dry + spend, rank 512 + undo (`--undo`): undo with the long-memory recipe | running (harlequin) | step 2250: 3.3736 (+0.017 vs the rule) |
+| `cheapcos512_dryspend_s0` | rank 512, flip selection blended from the rule to cheap on a cosine (`--pshape cheap --pshape_sched cos`, 4090) | 300M | 2.8634 |
+| `drywarm512_dryspend_s0` | dry + spend, rank 512, memory that starts short and lengthens (`--dry_start 0.12 --dry_warm 1500`: friction 0.12 easing to 1/33 over 49M tokens) | 300M | 2.8199 |
+| `undo512_dryspend_s0` | dry + spend, rank 512 + undo (`--undo`): undo with the long-memory recipe | 300M | 2.8360 |
 
 Every selection that moves flips off the largest momentum loses in training, at every rank; see RUNS.md "1 Oct 19:40".
 
