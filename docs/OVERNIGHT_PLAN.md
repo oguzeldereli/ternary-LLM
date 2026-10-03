@@ -138,8 +138,13 @@ Status: todo / in progress / done (with a short result).
    5.6598 / real 5.6576 (identical runs differ by ~0.002 on the GPU, e.g. Householder 5.1622 vs 5.1601, so equality is
    checked on the CPU). At 110M a rank of 512 is close to the layer width, so the low-rank state is not small here
    (8 bytes per ternary weight in fp32, 3 with int8 / fp16); it is sublinear only when width >> rank (27B: M3).
-10. **M2 State in host memory** (todo). `--ts_offload`: pinned host copy of each layer's state, async copy-in before the
-    layer's backward update and copy-out after (side stream, prefetch the next layer). Equivalence test + time per step.
+10. **M2 State in host memory** (in progress, 06:15). `--ts_offload`: every state tuple of `ts_layer` (accumulator,
+    short momentum, factored v; encoded when `--ts_store_*` is on) lives in pinned host buffers (allocated once, reused);
+    the layer's update copies it to the GPU (`non_blocking`, current stream) and back after the update. All copies are
+    on the compute stream, so ordering is guaranteed without events or host syncs; the copies do not overlap compute yet
+    (a side stream with prefetch of the next layer in backward order is the speed step). Test running on quillback
+    (`scripts/lab/offload_test.sh`: real int8 / fp16 on the GPU vs the same offloaded vs fp32 offloaded, 200 steps). Lab
+    PCs have 30 GB RAM (28 available): the ~21 GiB of a 27B int8 / fp16 state would fit pinned.
 11. **M3 27B on one GPU** (todo). A ~23B preset (width 5120, 83 layers, 8 KV heads of 128, MLP 13824; check GQA support),
     initialised directly as packed trits (no fp32 copy), full activation checkpointing, fused update, M1 + M2. Run a few
     steps at micro-batch 1 x 2048 on a 16 GB 4070 Ti Super (and a 24 GB card): measured peak memory and s/step. This is

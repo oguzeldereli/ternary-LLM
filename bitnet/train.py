@@ -259,6 +259,28 @@ def _load_pair(t):
     return t[0].float(), t[1].float()
 
 
+def _host_get(d, k, dev, off):
+    """--ts_offload: a state tuple kept in pinned host memory, copied to the GPU for this layer's update (the copy is
+    queued on the current stream, so it is ordered before the kernels that read it; no host sync)"""
+    v = d[k]
+    return tuple(x.to(dev, non_blocking=True) for x in v) if off else v
+
+
+def _host_put(d, k, v, off):
+    """--ts_offload: write a state tuple back to its pinned host buffers (reused across steps; the device-to-host copy
+    is queued on the same stream after this step's kernels and before next step's host-to-device copy)"""
+    if not off:
+        d[k] = v
+        return
+    old = d.get(k)
+    if (old is not None and len(old) == len(v) and all(o.device.type == "cpu" and o.shape == x.shape and o.dtype == x.dtype
+                                                       for o, x in zip(old, v))):
+        for o, x in zip(old, v):
+            o.copy_(x, non_blocking=True)
+    else:
+        d[k] = tuple(torch.empty(x.shape, dtype=x.dtype, pin_memory=True).copy_(x, non_blocking=True) for x in v)
+
+
 def _ts_state_bytes(lr_state):
     """bytes held by the --ts state (accumulator pairs, short momentum, factored v), counted per stored tensor"""
     n = 0
@@ -337,13 +359,14 @@ def ts_layer(l, g, state, c):
     if c.get("qfmt_aV"): qV = _qfmt(c["qfmt_aV"]) or ident                             # --ts_qfmt_aV: accumulator's V
     sm, sa = _store_codec(c.get("store_m", "")), _store_codec(c.get("store_a", ""))    # --ts_store_*: real storage
     st = state.setdefault("_ts", {})
+    off, dev = c.get("offload", False), g.device                                       # --ts_offload: state on the host
     key = id(l); t = st.get(("t", key), 0) + 1; st[("t", key)] = t
     g2 = g * g
     if ("v", key) in st:
-        R, C = st[("v", key)]; R = b2 * R + (1 - b2) * g2.mean(1); C = b2 * C + (1 - b2) * g2.mean(0)
+        R, C = _host_get(st, ("v", key), dev, off); R = b2 * R + (1 - b2) * g2.mean(1); C = b2 * C + (1 - b2) * g2.mean(0)
     else:
         R, C = (1 - b2) * g2.mean(1), (1 - b2) * g2.mean(0)
-    st[("v", key)] = (R, C)
+    _host_put(st, ("v", key), (R, C), off)
     v = R[:, None] * C[None, :] / R.mean().clamp_min(1e-30) / (1 - b2 ** t)
     del g2
     rs = min(c["rank_s"], l.N, l.K)
@@ -352,11 +375,11 @@ def ts_layer(l, g, state, c):
         Vm = _orth(g.T @ torch.randn(l.N, rs, device=g.device, generator=gen))
         Um = (1 - b1) * g @ Vm
     else:
-        Um, Vm = _load_pair(st[("m", key)])
+        Um, Vm = _load_pair(_host_get(st, ("m", key), dev, off))
         Vn = _orth(b1 * Vm @ (Um.T @ Um) + (1 - b1) * g.T @ Um)
         Um = b1 * Um @ (Vm.T @ Vn) + (1 - b1) * g @ Vn; Vm = Vn
     if c.get("qdiag"): _qdiag(st, key, "m", Um, Vm, t)
-    st[("m", key)] = _store_pair(sm, Um, Vm) if sm else (qm(Um), qVm(Vm))   # --ts_qfmt: simulated, --ts_store_m: real
+    _host_put(st, ("m", key), _store_pair(sm, Um, Vm) if sm else (qm(Um), qVm(Vm)), off)  # --ts_qfmt sim., --ts_store_m real
     u = -(Um @ Vm.T) / (1 - b1 ** t) / (v.sqrt() + 1e-8) * lr_ratio
     del v
     ra = min(r, l.N, l.K)
@@ -365,7 +388,7 @@ def ts_layer(l, g, state, c):
         V = _orth(u.T @ torch.randn(l.N, ra, device=g.device, generator=gen))
         U = u @ V
     else:
-        U, V = _load_pair(state[key])
+        U, V = _load_pair(_host_get(state, key, dev, off))
         U = U * (1 - (lr_ratio if c["tau_anneal"] else 1.0) / tau)   # --ts_tau_anneal: memory in distance, not steps
         Vn = _orth(V @ (U.T @ U) + u.T @ U)
         U = U @ (V.T @ Vn) + u @ Vn; V = Vn
@@ -383,7 +406,7 @@ def ts_layer(l, g, state, c):
     l.wpacked.copy_(pack_rows((w0.float() + D).to(torch.int8)))
     U = U - c["spend"] * theta * (D @ V)
     if c.get("qdiag"): _qdiag(st, key, "a", U, V, t)
-    state[key] = _store_pair(sa, U, V) if sa else (qa(U), qV(V))
+    _host_put(state, key, _store_pair(sa, U, V) if sa else (qa(U), qV(V)), off)
     st["_nf"] = st.get("_nf", 0) + nf; st["_nt"] = st.get("_nt", 0) + fire.numel()
     if before is not None:
         l._record_flips(before, l.wpacked)
@@ -411,7 +434,7 @@ def _qdiag(st, key, which, U, V, t):
 
 def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, b1=0.9, b2=0.95, gate=False, spend=1.0,
             tau_anneal=False, int8=False, fused=False, qfmt="", qwhich="all", qnoV=False, qdiag=False,
-            qfmt_m="", qfmt_a="", qfmt_aV="", store_m="", store_a=""):
+            qfmt_m="", qfmt_a="", qfmt_aV="", store_m="", store_a="", offload=False):
     """--ts: master's two timescales with sublinear state (the mechanism the 1 Oct master branches point to).
     Per layer:
       v      factored row x column EMA of g^2 (decay b2), v_ij ~ R_i C_j / mean(R)          (N + K floats)
@@ -426,7 +449,7 @@ def ts_step(model, state, r, step, lr_ratio, theta=16.0, tau=300.0, rank_s=128, 
              theta ~ half a bin in latent units over the peak lr (~16)."""
     c = dict(r=r, lr_ratio=lr_ratio, theta=theta, tau=tau, rank_s=rank_s, b1=b1, b2=b2, gate=gate, spend=spend,
              tau_anneal=tau_anneal, int8=int8, qfmt=qfmt, qwhich=qwhich, qnoV=qnoV, qdiag=qdiag,
-             qfmt_m=qfmt_m, qfmt_a=qfmt_a, qfmt_aV=qfmt_aV, store_m=store_m, store_a=store_a)
+             qfmt_m=qfmt_m, qfmt_a=qfmt_a, qfmt_aV=qfmt_aV, store_m=store_m, store_a=store_a, offload=offload)
     st = state.setdefault("_ts", {})
     if not fused:
         for i, l in enumerate([l for l in model.modules() if isinstance(l, KernelTernaryLinear)]):
@@ -1569,6 +1592,8 @@ def main():
     ap.add_argument("--ts_store_m", default="", help="--ts: REAL storage of the short momentum (int8 | int8det | fp8 | "
                     "fp16 | fp16s | bf16), as opposed to the simulated --ts_qfmt_m")
     ap.add_argument("--ts_store_a", default="", help="--ts: REAL storage of the accumulator (same formats)")
+    ap.add_argument("--ts_offload", action="store_true", help="--ts: keep the state in pinned host memory; each layer's "
+                    "state is copied to the GPU for its update and back (same stream: ordered, no host sync)")
     ap.add_argument("--ts_qwhich", default="all", choices=["all", "m", "a"],
                     help="--ts_qfmt applies to both matrices / the short momentum only / the accumulator only")
     ap.add_argument("--ts_qnoV", action="store_true", help="--ts_qfmt: keep the orthonormal bases V in fp32")
@@ -2199,7 +2224,7 @@ def main():
                       b1=args.ts_b1, b2=args.ts_b2, gate=args.lr_gate, spend=args.ts_spend,
                       tau_anneal=args.ts_tau_anneal, int8=args.ts_int8, qfmt=args.ts_qfmt, qwhich=args.ts_qwhich,
                       qnoV=args.ts_qnoV, qdiag=False, qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a, qfmt_aV=args.ts_qfmt_aV,
-                      store_m=args.ts_store_m, store_a=args.ts_store_a)
+                      store_m=args.ts_store_m, store_a=args.ts_store_a, offload=args.ts_offload)
         for i_, m_ in enumerate([m_ for m_ in model.modules() if isinstance(m_, KernelTernaryLinear)]):
             m_._ts_idx = i_
             m_.on_grad = lambda layer, g, _c=ts_cfg: ts_layer(layer, g, lr_state, _c)
@@ -2344,7 +2369,7 @@ def main():
                                   qfmt=args.ts_qfmt, qwhich=args.ts_qwhich, qnoV=args.ts_qnoV,
                                   qdiag=bool(args.ts_qdiag) and step % args.ts_qdiag in (0, 1),
                                   qfmt_m=args.ts_qfmt_m, qfmt_a=args.ts_qfmt_a, qfmt_aV=args.ts_qfmt_aV,
-                      store_m=args.ts_store_m, store_a=args.ts_store_a)
+                      store_m=args.ts_store_m, store_a=args.ts_store_a, offload=args.ts_offload)
             elif args.accum_flip:
                 rs_info = accum_step(model, lr_state, args.lowrank, args.lr_beta, step, args.accum_flip,
                                      args.accum_z, args.flip_seed, fresh=accum_fresh)
